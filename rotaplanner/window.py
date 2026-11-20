@@ -67,6 +67,13 @@ BUTTON_H = 40
 SMALL_H = 28
 PULSE_FRAMES = 18
 
+# The window's class, which the taskbar and the dock use to find its launcher
+# and icon. Tk keeps the first letter in capitals and lowers all the others
+# ("rota-planner" gives "Rota-planner"); the Linux launcher made by
+# install-rota-planner.sh says the same (StartupWMClass), and its file name,
+# rota-planner.desktop, matches it too.
+TK_CLASS = "rota-planner"
+
 
 class CannotOpen(Exception):
     """The window cannot be shown here (no Tk, no screen): use the terminal."""
@@ -104,29 +111,6 @@ def system_dark() -> bool:
     return False
 
 
-def show_folder(path: Path) -> None:
-    try:
-        if sys.platform == "darwin":
-            subprocess.Popen(["open", str(path)])
-        elif os.name == "nt":
-            os.startfile(str(path))  # type: ignore[attr-defined]
-        else:
-            subprocess.Popen(["xdg-open", str(path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except OSError:
-        pass
-
-
-def short_path(path: Path, longest: int = 30) -> str:
-    """A folder as people say it: ~ for the home folder, and only its last
-    parts when it is long (Show opens it)."""
-    home = str(Path.home())
-    text = str(path)
-    if text.startswith(home + os.sep):
-        text = "~" + text[len(home):]
-    if len(text) > longest:
-        parts = Path(text).parts
-        text = os.path.join("…", *parts[-2:]) if len(parts) > 2 else text
-    return text
 
 
 # -- painted widgets ----------------------------------------------------------
@@ -283,9 +267,9 @@ class Card(tk.Canvas if tk else object):  # type: ignore[misc]
 # -- the window ---------------------------------------------------------------
 
 class Window:
-    def __init__(self, root: "tk.Tk", service: Service, data_root: Path, demo: bool,
+    def __init__(self, root: "tk.Tk", service: Service, demo: bool,
                  open_browser: Callable[[], None]) -> None:
-        self.root, self.service, self.data_root, self.demo = root, service, data_root, demo
+        self.root, self.service, self.demo = root, service, demo
         self.open_browser = open_browser
         self.scale = self._scale()
         self.painter = Painter(root, self.scale)
@@ -421,14 +405,15 @@ class Window:
                                       width=inner - 104 - 10)
         self.widgets["open"].pack(side="left")
 
-        # Details card: who can use it, the address for other browsers, the other computers, the data.
+        # Details card: the other computers (shown once their state is known).
         details = Card(page, self)
-        details.pack(fill="x", pady=(p.px(14), 0))
+        self.widgets["details"] = details
         self.rows = tk.Frame(details.inside, bg=c["surface"])
         self.rows.pack(fill="x")
 
         footer = tk.Frame(page, bg=c["bg"])
         footer.pack(fill="x", pady=(p.px(14), 0))
+        self.widgets["footer"] = footer
         tk.Label(footer, text="Closing this window stops Rota Planner.", font=f["small"],
                  fg=c["text_3"], bg=c["bg"]).pack(side="left")
         self.widgets["version"] = tk.Label(footer, text="", font=f["small"], fg=c["text_3"], bg=c["bg"])
@@ -450,8 +435,6 @@ class Window:
             pen = (sync.get("pen") or {}).get("text") or ""
             words = text if not sync.get("configured") else f"{text}\n{pen or explanation}"
             rows.append(("Several computers", words, tone, None))
-        rows.append(("Data", short_path(self.data_root), "",
-                     ("Show", lambda: show_folder(self.data_root))))
         return rows
 
     def _fill_details(self) -> None:
@@ -463,6 +446,12 @@ class Window:
         self.widgets["detail_rows_shown"] = shown
         for child in self.rows.winfo_children():
             child.destroy()
+        details = self.widgets["details"]
+        if not rows:
+            details.pack_forget()
+            return
+        if not details.winfo_manager():
+            details.pack(fill="x", pady=(self.painter.px(14), 0), before=self.widgets["footer"])
         label_width = p.px(128)
         value_width = p.px(WIDTH - 2 * PAD - 2 * CARD_PAD) - label_width
         for index, (label, value, tone, button) in enumerate(rows):
@@ -696,7 +685,7 @@ def _dpi_aware() -> None:
             pass
 
 
-def run(service: Service, data_root: Path, demo: bool, instance: Instance,
+def run(service: Service, demo: bool, instance: Instance,
         open_browser: Callable[[], None], browser_at_start: bool = True,
         closers: Optional[list] = None) -> int:
     """Show the window, start Rota Planner, and wait until the window is closed."""
@@ -706,11 +695,11 @@ def run(service: Service, data_root: Path, demo: bool, instance: Instance,
         raise CannotOpen(f"Tk {tk.TkVersion} is too old (8.6 is needed)")
     _dpi_aware()
     try:
-        root = tk.Tk(className="RotaPlanner")
+        root = tk.Tk(className=TK_CLASS)
     except tk.TclError as error:
         raise CannotOpen(str(error).split("\n")[0]) from error
     try:
-        window = Window(root, service, data_root, demo, open_browser)
+        window = Window(root, service, demo, open_browser)
     except (OSError, ValueError, KeyError, tk.TclError) as error:  # e.g. app.css unreadable
         root.destroy()
         raise CannotOpen(f"the window could not be drawn: {error}") from error

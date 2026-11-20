@@ -180,9 +180,10 @@ class InstallerTest(unittest.TestCase):
         self.assertIn(f'run.py" --window', start)
         self.assertIn(f'"{self.folder}/run.py"', start)
         self.assertIn("Terminal=false", start)
-        self.assertIn("StartupWMClass=RotaPlanner", start)
+        self.assertIn("StartupWMClass=Rota-planner\n", start)  # the window's class: the taskbar shows this icon
         update = (self.home / ".local" / "share" / "applications" / "rota-planner-update.desktop").read_text()
         self.assertIn("Terminal=true", update)  # the update shows what it does
+        self.assertNotIn("StartupWMClass", update)  # a terminal: it must not claim the window
 
     def test_mac_icons(self):
         import plistlib
@@ -272,6 +273,7 @@ class InstallerTest(unittest.TestCase):
         self.assertIn("python3-tk", run.stdout)  # still no Tk (pretend): the hint says how
         start = (self.home / ".local" / "share" / "applications" / "rota-planner.desktop").read_text()
         self.assertIn("Terminal=true", start)
+        self.assertNotIn("StartupWMClass", start)  # its window is the terminal's
 
     def _with_data_and_key(self):
         self.install(ROTA_INSTALL_WINDOW="no")

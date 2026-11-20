@@ -229,11 +229,14 @@ request with a fixed "stopped" page before any token is looked at (giving the
 port up would let another account take it and receive the open tab's token);
 the port is given up only when the program ends. If the usual port was
 taken meanwhile when it starts again, the new one gets a new session token. `--window` shows the Tk control
-window (status light, address, Open, Start/Stop, several computers, data
-folder); closing it stops the server. SIGTERM ends the program
+window (status light, address, Open, Start/Stop, several computers); closing
+it stops the server. SIGTERM ends the program
 cleanly (the notes in `data/` are removed). The installer points the icons at
 the window when a Python with Tk 8.6 is found (python.org's on a Mac, whose
-own Tk is too old), with the icon drawn by `paint.py`.
+own Tk is too old), with the icon drawn by `paint.py`. On Linux the taskbar
+finds that icon through the window's class (`window.TK_CLASS`, which Tk
+writes "Rota-planner") and the launcher's `StartupWMClass`: the two must say
+the same, and only the window's launcher names it.
 
 ## A newer version (`updates.py`)
 

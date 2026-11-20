@@ -239,7 +239,7 @@ def serve(app: App, service: Service, root: Path, demo: bool, args, instance: In
             reason = error
         else:
             try:
-                window.run(service, root, demo=demo, instance=instance,
+                window.run(service, demo=demo, instance=instance,
                            open_browser=lambda: open_in_browser(root, service.url()),
                            browser_at_start=not args.no_browser, closers=closers)
                 return RESTART if app.updates.restart.is_set() else 0

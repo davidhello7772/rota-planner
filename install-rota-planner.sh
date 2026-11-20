@@ -840,8 +840,9 @@ make_launchers() {  # make_launchers <folder>
     mkdir -p "$apps" "$share/icons" || return 1
     paint "$1" icon "$icon" 256 || icon="x-office-calendar"
     if [ -n "$WINDOW_PYTHON" ]; then
+      # Its window says the same class (window.TK_CLASS): the taskbar shows it with this icon.
       desktop_entry "$apps/rota-planner.desktop" "Rota Planner" "Prepare the monthly service rota" \
-        "\"$WINDOW_PYTHON\" \"$1/run.py\" --window" "$1" false "$icon"
+        "\"$WINDOW_PYTHON\" \"$1/run.py\" --window" "$1" false "$icon" "Rota-planner"
     else
       desktop_entry "$apps/rota-planner.desktop" "Rota Planner" "Prepare the monthly service rota" \
         "\"$1/rota-planner.sh\"" "$1" true "$icon"
@@ -854,7 +855,7 @@ make_launchers() {  # make_launchers <folder>
   return 0
 }
 
-desktop_entry() {  # desktop_entry <file> <name> <comment> <command> <folder> <terminal> <icon>
+desktop_entry() {  # desktop_entry <file> <name> <comment> <command> <folder> <terminal> <icon> [<window class>]
   cat >"$1" <<EOF
 [Desktop Entry]
 Type=Application
@@ -864,9 +865,10 @@ Exec=$4
 Path=$5
 Terminal=$6
 Icon=$7
-StartupWMClass=RotaPlanner
 Categories=Office;
 EOF
+  # Only the launcher of the program's own window names its class; the others open a terminal.
+  [ -z "${8:-}" ] || printf 'StartupWMClass=%s\n' "$8" >>"$1"
 }
 
 mac_app() {  # mac_app <name> <role> <start command, or empty for the updater> <folder>

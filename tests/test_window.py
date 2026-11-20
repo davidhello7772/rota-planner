@@ -262,8 +262,8 @@ class WindowTest(unittest.TestCase):
         self.service = Service(App(tiny_store(root)), "token", 0)
         self.addCleanup(self.service.stop)
         self.opened = []
-        self.tk = tkinter.Tk(className="RotaPlanner")
-        self.window = window.Window(self.tk, self.service, root, demo=False,
+        self.tk = tkinter.Tk(className=window.TK_CLASS)
+        self.window = window.Window(self.tk, self.service, demo=False,
                                     open_browser=lambda: self.opened.append(True))
         self.addCleanup(self.close_window)
 
@@ -305,11 +305,15 @@ class WindowTest(unittest.TestCase):
         self.assertTrue(self.settle(lambda: self.opened == [True, True] and self.text("state") == "Running"))
 
     def test_details_and_dark(self):
+        details = self.window.widgets["details"]
+        self.window.refresh()
+        self.assertEqual(details.winfo_manager(), "")  # nothing to say yet: no empty card
         self.window.facts["sync"] = {"configured": False}
         self.window.dirty = True
         self.settle(lambda: not self.window.dirty)
         shown = [row[0] for row in self.window.widgets["detail_rows_shown"]]
-        self.assertEqual(shown, ["Several computers", "Data"])
+        self.assertEqual(shown, ["Several computers"])
+        self.assertEqual(details.winfo_manager(), "pack")
         self.window.facts["dark"] = True
         self.assertTrue(self.settle(lambda: self.window.c["bg"] == "#0f1217"))
         self.assertEqual(self.tk.cget("bg"), "#0f1217")
@@ -327,10 +331,11 @@ class WindowTest(unittest.TestCase):
         self.assertTrue(self.window.closing)
         self.assertIsNone(self.service._server)
 
-    def test_short_path(self):
-        from rotaplanner.window import short_path
-        self.assertEqual(short_path(Path.home() / "Rota Planner" / "data"), os.path.join("~", "Rota Planner", "data"))
-        self.assertEqual(short_path(Path("/a/very/long/folder/name/that/goes/on/data")), os.path.join("…", "on", "data"))
+    def test_the_launcher_names_the_windows_class(self):
+        # The taskbar finds the launcher, and so the icon, by this class: Tk changes
+        # the letters' case, so the installer must say what Tk really gives.
+        script = (PROJECT / "install-rota-planner.sh").read_text()
+        self.assertIn(f'--window" "$1" false "$icon" "{self.tk.winfo_class()}"', script)
 
 
 if __name__ == "__main__":
