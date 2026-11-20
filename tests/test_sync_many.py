@@ -388,6 +388,8 @@ class PenTest(Computers):
         self.assertTrue(self.a.pen()["mine"])
         self.round(self.b)
         self.assertEqual(self.b.pen()["text"][:17], "Office is editing")
+        self.assertTrue(self.b.pen()["read_only"])
+        self.assertFalse(self.a.pen()["read_only"])
         with self.assertRaises(PenError) as caught:
             self.b.ensure_pen()
         self.assertEqual((caught.exception.kind, caught.exception.info["name"]), ("held", "Office"))
@@ -420,6 +422,8 @@ class PenTest(Computers):
         self.server.skew = sy.PEN_STALE_SECONDS + 60  # no word from A for a while
         self.b.exchange()
         self.assertTrue(self.b.pen()["stale"])
+        self.assertTrue(self.b.pen()["read_only"])
+        self.assertIn("Take over", self.b.pen()["how"])
         with self.assertRaises(PenError) as caught:
             self.b.ensure_pen()
         self.assertEqual(caught.exception.kind, "stale")  # never silently
@@ -449,6 +453,7 @@ class PenTest(Computers):
         self.a.work_offline(True)
         self.assertFalse(self.a.ensure_pen())
         self.assertTrue(self.a.pen()["working_offline"])
+        self.assertFalse(self.a.pen()["read_only"])  # a decision: changes are let through
         self.note(0, "offline, knowingly")
         self.server.mode = "ok"
         self.settle()
@@ -472,6 +477,7 @@ class PenTest(Computers):
         self.addCleanup(lone_server.close)
         lone = Sync(store)
         lone.start("Only one", {"kind": "webdav", "url": lone_server.url, "user": USER, "password": PASSWORD})
+        self.assertFalse(lone.pen()["read_only"])
         self.assertFalse(lone.ensure_pen())
         self.assertFalse(lone.pen()["mine"])
         self.assertEqual(list(lone_server.files), [f"rota-{lone.state['computer_id']}.rpsync"])
@@ -492,12 +498,16 @@ class HandOverTest(Computers):
         self.note(0, "made before the hand-over")  # not sent yet
         status = self.b.ask_pen()
         self.assertTrue(status["asking"])
+        self.assertTrue(status["read_only"])  # waiting for the hand-over: still only looking
         self.assertIn("Asking Office", status["text"])
         self.assertIn("take over in 5 min", status["hint"])
         self.assertTrue(self.a.pen()["mine"])  # A holds it until its next round
         self.a.exchange()  # which sends its change, then lets go
         self.assertFalse(self.a.pen()["mine"])
         self.assertIn("Front desk took over the editing", self.a.pen()["notice"]["text"])
+        handing = self.a.pen()  # Front desk has not taken it yet: Office only looks already
+        self.assertTrue(handing["read_only"])
+        self.assertIn("Front desk is taking over", handing["text"])
         self.assertNotIn(f"pen-{self.a.state['computer_id']}.rpsync", self.server.files)
         with self.assertRaises(PenError) as caught:
             self.a.take_pen()  # nobody on A can snatch it back before B has it

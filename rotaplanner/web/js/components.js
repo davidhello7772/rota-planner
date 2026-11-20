@@ -1,6 +1,7 @@
 // Form building blocks and overlays shared by the set-up screens.
-import { h } from './dom.js';
+import { fill, h } from './dom.js';
 import { icon } from './icons.js';
+import { readOnly } from './state.js';
 
 let fieldCounter = 0;
 
@@ -81,7 +82,35 @@ export function chipChoice(items, chosen, { label, onchange } = {}) {
 
 const openOverlays = [];  // a drawer can open over a dialog: Escape closes the top one only
 
-function overlay(kind, { title, subtitle, body, actions, onClose, wide }) {
+// ---- Looking only: another computer edits (sync.js) ----------------------------
+
+let makeLookBar = () => null;  // set by sync.js: why this computer only looks, and the way back to editing
+export function setLookBar(make) { makeLookBar = make; }
+
+/**
+ * Mark a control that changes the shared data: while another computer edits it
+ * stays visible, greyed, and cannot be used (by mouse or keyboard).
+ */
+export function changes(el) {
+  el.classList.add('changes');
+  el.inert = readOnly();
+  return el;
+}
+
+/** After the editing moved to or from this computer: every marked control, form and window follows. */
+export function applyReadOnly() {
+  const looking = readOnly();
+  document.body.classList.toggle('read-only', looking);
+  for (const el of document.querySelectorAll('.changes')) el.inert = looking;
+  for (const set of document.querySelectorAll('fieldset.change-fields')) set.disabled = looking;
+  for (const slot of document.querySelectorAll('.look-slot')) fill(slot, looking ? makeLookBar() : null);
+}
+
+/**
+ * `changes`: the window changes the shared data. While another computer edits,
+ * its form cannot be typed in, its buttons are hidden, and it says why.
+ */
+function overlay(kind, { title, subtitle, body, actions, onClose, wide, changes: changing = false }) {
   const previous = document.activeElement;
   let closed = false;
   const close = () => {
@@ -105,7 +134,7 @@ function overlay(kind, { title, subtitle, body, actions, onClose, wide }) {
       close();
     } else if (event.key === 'Tab') {  // keep the focus inside
       const focusable = [...panel.querySelectorAll('button, input, select, textarea, a[href], summary, [tabindex="0"]')]
-        .filter((el) => !el.disabled && el.offsetParent !== null);
+        .filter((el) => !el.matches(':disabled') && el.offsetParent !== null);  // also off inside a disabled fieldset
       if (!focusable.length) return;
       const first = focusable[0];
       const last = focusable.at(-1);
@@ -118,8 +147,11 @@ function overlay(kind, { title, subtitle, body, actions, onClose, wide }) {
     h('header', { class: `${kind}-head` },
       h('div', {}, h('h2', {}, title), subtitle ? h('p', { class: 'muted' }, subtitle) : null),
       h('button', { class: 'btn ghost icon-only', type: 'button', 'aria-label': 'Close', onclick: close }, icon('close'))),
-    h('div', { class: `${kind}-body` }, body),
-    actions ? h('footer', { class: `${kind}-foot` }, actions) : null);
+    h('div', { class: `${kind}-body` }, changing
+      ? [h('div', { class: 'look-slot' }, readOnly() ? makeLookBar() : null),
+        h('fieldset', { class: 'change-fields', disabled: readOnly() }, body)]
+      : body),
+    actions ? h('footer', { class: [`${kind}-foot`, changing && 'change-foot'] }, actions) : null);
   const backdrop = h('div', { class: ['backdrop', `backdrop-${kind}`],
     onmousedown: (e) => { if (e.target === backdrop) close(); } }, panel);
   // A second click on Save/Add while the first is being saved does nothing (no double events).
@@ -133,7 +165,7 @@ function overlay(kind, { title, subtitle, body, actions, onClose, wide }) {
   document.body.append(backdrop);
   openOverlays.push(backdrop);
   document.addEventListener('keydown', onKey, true);
-  (panel.querySelector('[autofocus]') || panel.querySelector('input, select, textarea, button:not(.icon-only)'))?.focus();
+  (panel.querySelector('[autofocus]:enabled') || panel.querySelector(':is(input, select, textarea, button:not(.icon-only)):enabled'))?.focus();
   return { close, panel };
 }
 

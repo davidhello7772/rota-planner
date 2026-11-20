@@ -123,6 +123,9 @@
 .chip.add .t-open { display: none !important; }
 .chip.add .t-plus { display: inline !important; }
 .chip.add:hover, .chip.add:focus-visible { border-color: var(--line-strong); color: var(--text-3); }
+/* Another computer edits: no "+" to add a day, and no hover promising a change. */
+.read-only .chip.add:hover, .read-only .chip.add:focus-visible { border-color: transparent; color: transparent; cursor: default; }
+.read-only .chip.off:hover { background: transparent; color: var(--text-3); cursor: default; }
 
 /* Person highlight and the places they could still go. */
 .chip.hl { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
@@ -272,6 +275,8 @@ button.tile:hover { border-color: var(--line-strong); }
 .picker-title strong { display: block; font-size: var(--fs-md); }
 .picker-title .muted { font-size: var(--fs-xs); }
 .picker-title .btn { margin-left: auto; }
+.picker-look { display: flex; align-items: center; gap: var(--space-2); margin: 0; padding: var(--space-2); border-radius: var(--radius); background: var(--chip); color: var(--text-2); font-size: var(--fs-sm); }
+.picker-look svg { flex: none; width: 1rem; height: 1rem; }
 .picker-current { display: flex; align-items: center; gap: var(--space-2); font-size: var(--fs-sm); }
 .picker-actions { display: flex; flex-wrap: wrap; gap: var(--space-1); }
 .picker-actions .btn[aria-pressed="true"] { background: var(--wanted); border-color: var(--wanted-line); color: var(--wanted-text); }

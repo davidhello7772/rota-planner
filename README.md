@@ -63,8 +63,8 @@ bash install-rota-planner.sh
 (Or bring the file on a USB stick.)
 
 - **The first time** it installs Rota Planner in *Rota Planner* in your home
-  folder, and adds *Rota Planner* and *Update Rota Planner* to the
-  Applications (Mac) or the applications menu (Linux). If the repository on
+  folder, and adds *Rota Planner* to the Applications (Mac) or the
+  applications menu (Linux). If the repository on
   GitHub is private, it makes a key for this computer that can only *read*
   the program, shows it, and says where to add it (GitHub › the repository ›
   Settings › Deploy keys › Add deploy key, "Allow write access" left
@@ -72,11 +72,13 @@ bash install-rota-planner.sh
   If Rota Planner was already used from another folder (a copy unpacked from
   a zip), drag that folder into the Terminal when asked: its data is copied
   over, and the old copy is left as it was.
-- **To update**, close Rota Planner and open *Update Rota Planner* (or run the
-  same command again). It lists what is new, saves a copy of the data in
-  `data/backups/before-update-…zip`, then changes the program only. It does
-  nothing while Rota Planner is open, if program files were changed by hand,
-  or, if the new version does not start, puts the previous one back.
+- **To update**, use Rota Planner itself: its window says when a new version
+  exists (*Update…*), and so does *Settings › The program* in the browser
+  (see below). With Rota Planner closed, running the same command again in a
+  Terminal also updates it. Either way it lists what is new, saves a copy of
+  the data in `data/backups/before-update-…zip`, then changes the program
+  only. It does nothing if program files were changed by hand, and puts the
+  previous version back if the new one does not start.
 - With other computers, update them all on the same day.
 - **What it needs is installed for you**, after it shows how and you agree:
   git and Python 3.9+, and Tk for Rota Planner's window. On Linux this uses
@@ -84,18 +86,25 @@ bash install-rota-planner.sh
   password). On a Mac, Apple's *Command Line Developer Tools* (a window offers
   them) and Python from python.org, checked as signed by the Python Software
   Foundation and accepted by the Mac before it is installed.
-- **To uninstall**, close Rota Planner, then run:
+- **To uninstall**, press *Uninstall…* at the bottom of Rota Planner's window,
+  choose whether to keep your data, and confirm. Or close Rota Planner and run:
 
   ```
   bash "$HOME/Rota Planner/install-rota-planner.sh" --uninstall
   ```
 
-  It removes the program, its icons and this computer's key. Your data is
+  It removes the program, its icon and this computer's key. Your data is
   kept, moved to *Rota Planner data (kept <date>)* in your home folder (bring
-  it back with `--from` after installing again). Add `--delete-data` to delete
-  the data too: you are asked to type DELETE. git, Python and Tk stay
-  installed. On GitHub, also remove the computer's key (Settings › Deploy
-  keys).
+  it back with `--from` after installing again), unless you choose to delete
+  it (in the window; `--delete-data` in a Terminal): you type DELETE to
+  confirm. git, Python and Tk stay installed. On GitHub, also remove the
+  computer's key (Settings › Deploy keys).
+- **With other computers**, uninstalling one sends its last changes and gives
+  the pen back first. Its file leaves the meeting place once every other
+  computer has taken those changes; if one has not yet (switched off, say),
+  the file stays for it, and you remove it later from that computer
+  (*Forget this computer*). Deleting the data is refused while changes made
+  here have not reached the others. Nothing changes on the other computers.
 
 **From inside Rota Planner**: *Settings › The program › Version and updates* says whether
 a new version exists (it looks once a day, unless you turn that off, and when
@@ -249,8 +258,10 @@ Then:
   *sent*, or *Offline*. Nothing is ever mixed inside a month or a list.
 - **One computer edits at a time.** The first change takes *the pen* (*You
   are editing*); *I have finished*, closing Rota Planner, or 20 minutes
-  without a change gives it back. The others can look; what the editor
-  changes arrives on their screen.
+  without a change gives it back. The others only look (*Look only* in the
+  top bar): what would change something is greyed out, windows open without
+  their *Save*, and a bar under the top bar says who is editing and how to
+  get the editing back. What the editor changes arrives on their screen.
 - **Left it open on another computer?** Press *Ask to edit*: that computer
   sends its changes and hands over by itself, usually within a minute (both
   need this version of Rota Planner). If it is switched off or asleep,

@@ -1,15 +1,14 @@
 // Tasks & Areas: areas in columns, tasks as cards; one form per task.
-import { chipChoice, field, formError, numberInput, openDialog, openDrawer, segmented, select, textInput } from '../components.js';
+import { changes, chipChoice, field, formError, numberInput, openDialog, openDrawer, segmented, select, textInput } from '../components.js';
 import { h, replaceKeepingFocus } from '../dom.js';
 import { icon } from '../icons.js';
-import {
-  errorText, headcountSummary, partsText, PERIOD_LABELS, PRIORITY_LABELS, saveSetup, skillName, timeText, WEEKDAYS,
-} from '../setup.js';
+import { errorText, failed, headcountSummary, partsText, PERIOD_LABELS, PRIORITY_LABELS, saveSetup, skillName, timeText, WEEKDAYS } from '../setup.js';
 import { api, monthPath } from '../api.js';
-import { setMonth, setSession, state } from '../state.js';
+import { readOnly, setMonth, setSession, state } from '../state.js';
 import { toast } from '../ui.js';
 import { hint } from '../help.js';
 import { eventTypesBoard } from './eventtypes.js';
+import { needPen } from '../actions.js';
 
 const NEW_SKILL = '__new__';
 const TYPICAL = 'typical';
@@ -21,6 +20,7 @@ async function loadConfig(scope) {
 
 async function saveConfig(path, body, message) {
   const scope = state.session.config.scope;
+  needPen();  // another computer edits: say so, send nothing
   const config = await api.post(`/api/${path}`, { ...body, scope });
   setSession({ config });
   if (message) toast(message);
@@ -46,7 +46,7 @@ function newSkill(onCreated) {
       formError(dialog.panel.querySelector('.modal-body'), errorText(error));
     }
   };
-  const dialog = openDialog({
+  const dialog = openDialog({ changes: true,
     title: 'New skill', wide: true,
     body: [field('Name', name), h('h3', { class: 'form-section' }, 'Who can do this?'), who],
     actions: [h('button', { class: 'btn', type: 'button', onclick: () => dialog.close() }, 'Cancel'),
@@ -147,7 +147,7 @@ export function editTask(task, areaId) {
     }
   };
 
-  const drawer = openDrawer({
+  const drawer = openDrawer({ changes: true,
     title: task ? task.name : 'New task',
     subtitle: `For ${configOf().title}`,
     body: [
@@ -195,7 +195,7 @@ function editArea(area) {
       formError(dialog.panel.querySelector('.modal-body'), errorText(error));
     }
   };
-  const dialog = openDialog({
+  const dialog = openDialog({ changes: true,
     title: area ? area.name : 'New area', subtitle: `For ${configOf().title}`,
     body: [field('Name', name), field('Manager', manager), h('div', { class: 'field' }, h('span', { class: 'field-label' }, 'Colour'), colour)],
     actions: [
@@ -218,7 +218,7 @@ async function moveArea(area, step, shown) {
   try {
     await saveConfig('areas/order', { ids });
   } catch (error) {
-    toast(errorText(error), { tone: 'bad' });
+    failed(error);
   }
 }
 
@@ -237,13 +237,14 @@ async function dropTask(targetArea, beforeTaskId) {
     ids.splice(at < 0 ? ids.length : at, 0, task.id);
     await saveConfig('tasks/order', { ids });
   } catch (error) {
-    toast(errorText(error), { tone: 'bad' });
+    failed(error);
   }
 }
 
 function taskCard(task, setup) {
   const card = h('button', {
-    type: 'button', class: ['task-card', task.archived && 'archived'], draggable: 'true', dataset: { task: task.id },
+    // Dragged to reorder, unless another computer edits (a click still shows its details).
+    type: 'button', class: ['task-card', task.archived && 'archived'], draggable: readOnly() ? 'false' : 'true', dataset: { task: task.id },
     onclick: () => editTask(task),
     ondragstart: (e) => { dragged = task.id; e.dataTransfer.effectAllowed = 'move'; card.classList.add('dragging'); },
     ondragend: () => { dragged = null; card.classList.remove('dragging'); },
@@ -279,7 +280,7 @@ function useConfiguration() {
       formError(dialog.panel.querySelector('.modal-body'), errorText(error));
     }
   };
-  const dialog = openDialog({
+  const dialog = openDialog({ changes: true,
     title: `Configuration of ${config.title}`,
     subtitle: 'Take the areas and tasks of another month, a template or the typical month.',
     body: [field('Use the configuration of', source),
@@ -293,11 +294,12 @@ function useConfiguration() {
 async function undoMonth() {
   const scope = configOf().scope;
   try {
+    needPen();  // another computer edits: say so, send nothing
     const month = await api.post(monthPath(scope, '/undo'));
     if (state.month && state.month.id === scope) setMonth(month);
     await loadConfig(scope);
   } catch (error) {
-    toast(errorText(error), { tone: 'bad' });
+    failed(error);
   }
 }
 
@@ -310,7 +312,7 @@ function saveAsTemplate() {
       dialog.close();
       saveAsTemplate();
     } catch (error) {
-      toast(errorText(error), { tone: 'bad' });
+      failed(error);
     }
   };
   const save = async () => {
@@ -321,7 +323,7 @@ function saveAsTemplate() {
       formError(dialog.panel.querySelector('.modal-body'), errorText(error));
     }
   };
-  const dialog = openDialog({
+  const dialog = openDialog({ changes: true,
     title: 'Save as a task template', subtitle: `Keeps the areas and tasks of ${config.title}, to give them to a month later.`,
     body: [field('Template name', name),
       config.templates.length ? h('div', {}, h('h3', { class: 'form-section' }, 'Templates already saved'),
@@ -375,13 +377,13 @@ export function mountTasks(container) {
         h('span', { class: 'area-name' }, area.name),
         h('span', { class: 'faint' }, area.manager),
         h('span', { class: 'area-tools' },
-          h('button', { class: 'btn ghost icon-only small', type: 'button', disabled: index === 0, dataset: { focusId: `area-earlier-${area.id}` },
-            'aria-label': `Move ${area.name} earlier`, title: 'Move earlier (the order on the rota and the printouts)', onclick: () => moveArea(area, -1, areas) }, icon('left')),
-          h('button', { class: 'btn ghost icon-only small', type: 'button', disabled: index === areas.length - 1, dataset: { focusId: `area-later-${area.id}` },
-            'aria-label': `Move ${area.name} later`, title: 'Move later', onclick: () => moveArea(area, 1, areas) }, icon('right')),
+          changes(h('button', { class: 'btn ghost icon-only small', type: 'button', disabled: index === 0, dataset: { focusId: `area-earlier-${area.id}` },
+            'aria-label': `Move ${area.name} earlier`, title: 'Move earlier (the order on the rota and the printouts)', onclick: () => moveArea(area, -1, areas) }, icon('left'))),
+          changes(h('button', { class: 'btn ghost icon-only small', type: 'button', disabled: index === areas.length - 1, dataset: { focusId: `area-later-${area.id}` },
+            'aria-label': `Move ${area.name} later`, title: 'Move later', onclick: () => moveArea(area, 1, areas) }, icon('right'))),
           h('button', { class: 'btn ghost icon-only small', type: 'button', 'aria-label': `Edit ${area.name}`, onclick: () => editArea(area) }, icon('sliders')))),
       h('div', { class: 'task-cards' }, tasks.map((task) => taskCard(task, setup))),
-      h('button', { class: 'btn ghost add-task', type: 'button', onclick: () => editTask(null, area.id) }, icon('plus'), 'Add a task'));
+      changes(h('button', { class: 'btn ghost add-task', type: 'button', onclick: () => editTask(null, area.id) }, icon('plus'), 'Add a task')));
     });
     replaceKeepingFocus(root,
       h('header', { class: 'page-head' },
@@ -389,8 +391,8 @@ export function mountTasks(container) {
           h('p', { class: 'muted' }, 'What needs doing, when, by whom and how many. Each month has its own configuration. Drag cards to reorder them or move them to another area; the arrows move an area.')),
         h('div', { class: 'page-actions' },
           tabs,
-          h('button', { class: 'btn', type: 'button', onclick: () => newSkill(() => {}) }, icon('plus'), 'New skill'),
-          h('button', { class: 'btn primary', type: 'button', onclick: () => editArea(null) }, icon('plus'), 'Add an area'))),
+          changes(h('button', { class: 'btn', type: 'button', onclick: () => newSkill(() => {}) }, icon('plus'), 'New skill')),
+          changes(h('button', { class: 'btn primary', type: 'button', onclick: () => editArea(null) }, icon('plus'), 'Add an area')))),
       h('div', { class: 'scope-bar' },
         h('span', { class: 'field-label' }, 'Configuration of'), scopePicker,
         h('span', { class: 'muted scope-note' }, isTypical
@@ -399,8 +401,8 @@ export function mountTasks(container) {
         config.event_tasks ? h('a', { class: 'muted', href: '#/setup', title: 'Tasks of an event are edited with their event, in Set up' },
           `+ ${config.event_tasks} task${config.event_tasks > 1 ? 's' : ''} of events`) : null,
         h('span', { class: 'spacer' }),
-        isTypical ? null : h('button', { class: 'btn', type: 'button', onclick: useConfiguration }, icon('repeat'), 'Use the configuration of…'),
-        h('button', { class: 'btn', type: 'button', onclick: saveAsTemplate }, 'Save as a task template…'),
+        isTypical ? null : changes(h('button', { class: 'btn', type: 'button', onclick: useConfiguration }, icon('repeat'), 'Use the configuration of…')),
+        changes(h('button', { class: 'btn', type: 'button', onclick: saveAsTemplate }, 'Save as a task template…')),
         h('button', { class: 'btn', 'aria-pressed': String(showArchived), type: 'button',
           onclick: () => setSession({ showArchived: !showArchived }) }, 'Show archived')),
       areas.length ? h('div', { class: 'area-columns', dataset: { scrollId: 'area-columns' } }, columns)

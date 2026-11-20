@@ -1,5 +1,5 @@
 // Application shell: sidebar, top bar, routing and keyboard shortcuts.
-import { redo, undo } from './actions.js';
+import { redo, saidAlready, undo } from './actions.js';
 import { api, ApiError, monthPath } from './api.js';
 import { h, isTyping } from './dom.js';
 import { icon } from './icons.js';
@@ -85,8 +85,8 @@ function shell() {
     h('button', { class: 'btn ghost', id: 'schedules', title: 'Copy a person’s schedule for an e-mail (S)', onclick: openSchedules },
       icon('message'), h('span', { class: 'topbar-label' }, 'Schedules')),
     h('span', { class: 'divider' }),
-    h('button', { class: 'btn ghost icon-only', id: 'undo', 'aria-label': 'Undo', title: 'Undo (Ctrl Z)', onclick: () => undo() }, icon('undo')),
-    h('button', { class: 'btn ghost icon-only', id: 'redo', 'aria-label': 'Redo', title: 'Redo (Ctrl Y)', onclick: () => redo() }, icon('redo')),
+    h('button', { class: 'btn ghost icon-only changes', id: 'undo', 'aria-label': 'Undo', title: 'Undo (Ctrl Z)', onclick: () => undo() }, icon('undo')),
+    h('button', { class: 'btn ghost icon-only changes', id: 'redo', 'aria-label': 'Redo', title: 'Redo (Ctrl Y)', onclick: () => redo() }, icon('redo')),
     h('span', { class: 'divider' }),
     h('button', { class: 'btn ghost', id: 'size', title: 'Interface size', onclick: (e) => openMenu(e.currentTarget,
       SIZES.map((size) => ({ value: size, label: `${size}%`, checked: state.ui.size === size })),
@@ -254,6 +254,7 @@ async function start() {
   // A failed request that nothing else reported: say so, rather than doing nothing.
   window.addEventListener('unhandledrejection', (event) => {
     event.preventDefault();
+    if (saidAlready(event.reason)) return;  // another computer edits: a window already says so
     toast(event.reason instanceof ApiError ? event.reason.message : 'Something went wrong. Please try again.', { tone: 'bad' });
   });
   // A new window size means a new fitting zoom: render again once it settles.

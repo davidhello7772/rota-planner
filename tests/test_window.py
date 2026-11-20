@@ -312,11 +312,114 @@ class WindowTest(unittest.TestCase):
         self.window.dirty = True
         self.settle(lambda: not self.window.dirty)
         shown = [row[0] for row in self.window.widgets["detail_rows_shown"]]
-        self.assertEqual(shown, ["Several computers"])
+        self.assertEqual(shown[0], "Several computers")
         self.assertEqual(details.winfo_manager(), "pack")
         self.window.facts["dark"] = True
         self.assertTrue(self.settle(lambda: self.window.c["bg"] == "#0f1217"))
         self.assertEqual(self.tk.cget("bg"), "#0f1217")
+
+    def test_a_new_version_in_the_window(self):
+        info = {"supported": True, "version": "2026-11-01", "available": 2, "items": ["Bigger names", "Faster"],
+                "more": 0, "target": "abc", "checked_text": "20 Nov, 10:00", "problem": "", "busy": ""}
+        updates = self.service.app.updates
+        updates.info = lambda: self.window.facts["update"]  # what the window's own look finds too
+        self.service.app.sync.status = lambda: {"configured": False}
+        self.window.facts.update(version="2026-11-01", update=info, sync={"configured": False})
+        self.window.dirty = True
+        self.settle(lambda: not self.window.dirty)
+        rows = {row[0]: row for row in self.window.widgets["detail_rows_shown"]}
+        self.assertTrue(rows["Version"][1].startswith("New version\n2 changes"))
+        self.assertEqual(rows["Version"][3], "Update…")
+        asked = []
+
+        def install(expected="", data_lock=None, works=None):
+            asked.append(expected)
+            from rotaplanner.updates import UpdateError
+            raise UpdateError("Files of the program were changed on this computer.")
+        updates.install = install
+        self.window.show_update()
+        self.assertEqual(self.window.page, "update")
+        self.window.widgets["update_go"]._fire()
+        self.assertTrue(self.settle(lambda: "were changed" in self.text("update_state")))
+        self.assertEqual(asked, ["abc"])  # the version that was listed, nothing newer
+        self.window.widgets["update_back"]._fire()
+        self.assertEqual(self.window.page, "main")
+        # Up to date: no button to update, a button to look.
+        self.window.facts["update"] = dict(info, available=0, items=[])
+        self.window.dirty = True
+        self.settle(lambda: not self.window.dirty)
+        rows = {row[0]: row for row in self.window.widgets["detail_rows_shown"]}
+        self.assertRegex(rows["Version"][1], r"^Version of [0-9-]+\nUp to date \(looked 20 Nov, 10:00\)\.$")
+        self.assertEqual(rows["Version"][3], "Check")
+
+    def test_no_uninstall_where_it_is_not_possible(self):
+        self.window.ask_uninstall()
+        self.assertEqual(self.window.page, "main")  # not offered (no prepare_uninstall): nothing happens
+
+    def _uninstall_window(self, sync_status):
+        import tkinter
+        from rotaplanner import window
+        self.window.dispose()
+        self.tk.destroy()
+        self.tk = tkinter.Tk(className=window.TK_CLASS)
+        self.prepared = []
+        self.window = window.Window(self.tk, self.service, demo=False, open_browser=lambda: None,
+                                    prepare_uninstall=lambda: self.prepared.append(True))
+        self.service.app.sync.check_now = lambda: sync_status
+        self.service.app.sync.status = lambda: sync_status
+        self.window.facts["sync"] = sync_status
+        self.window.ask_uninstall()
+        self.assertTrue(self.settle(lambda: self.window.looked))
+        self.window.dirty = True
+        self.settle(lambda: not self.window.dirty)
+        return window
+
+    def test_uninstall_page_keeps_the_data_unless_delete_is_typed(self):
+        from rotaplanner import desktop
+        self._uninstall_window({"configured": False})
+        self.assertEqual(self.window.page, "uninstall")
+        go = self.window.widgets["go"]
+        self.assertTrue(go.enabled)  # keeping the data: nothing to type
+        self.window.widgets["delete"]._choose()
+        self.assertFalse(go.enabled)
+        self.window.typed.set("DELETE")
+        self.settle(lambda: go.enabled)
+        self.assertTrue(go.enabled)
+        self.window.typed.set("DELET")  # changed, and Enter pressed before the button is drawn again
+        self.window.uninstall()
+        self.assertEqual(self.window.page, "uninstall")
+        self.window.typed.set("DELETE")
+        ran = []
+
+        def pretend(program, delete):
+            ran.append(delete)
+            return {"done": True, "kept": "", "sync": "", "message": "git, Python and Tk stay installed."}
+        original = desktop.uninstall
+        desktop.uninstall = pretend
+        self.addCleanup(setattr, desktop, "uninstall", original)
+        go._fire()
+        self.assertEqual(self.window.page, "working")
+        self.window.close()  # not while uninstalling
+        self.assertFalse(self.window.closing)
+        self.assertTrue(self.settle(lambda: self.window.page == "done"))
+        self.assertEqual(ran, [True])
+        self.assertEqual(self.prepared, [True])
+        self.assertTrue(self.window.uninstalled)
+        self.assertEqual(self.service.state, STOPPED)
+        self.assertTrue(self.service.app.updates.stopped.is_set())
+        self.assertFalse(self.service.app.sync.configured)
+
+    def test_uninstall_page_refuses_to_delete_unsent_changes(self):
+        status = {"configured": True, "pending": True, "connection": {"online": False},
+                  "others": [{"name": "Office laptop", "state": "ok", "text": "Up to date"}], "units": [], "pen": {}}
+        self._uninstall_window(status)
+        self.assertTrue(self.window.widgets["go"].enabled)  # keeping the data is always possible
+        self.window.choose_delete(True)
+        self.window.typed.set("DELETE")
+        self.window.dirty = True
+        self.settle(lambda: not self.window.dirty)
+        self.assertFalse(self.window.widgets["go"].enabled)
+        self.assertEqual(self.window.widgets["advice_shown"][0][0], "bad")
 
     def test_closing_stops_the_server(self):
         self.service.start()

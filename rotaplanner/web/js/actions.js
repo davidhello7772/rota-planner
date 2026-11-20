@@ -7,6 +7,7 @@
 import { api, ApiError, monthPath } from './api.js';
 import { formatDate } from './dom.js';
 import { monthViewFor, peopleById, setMonth, setSession, state } from './state.js';
+import { mayChange } from './sync.js';
 import { confirmForce, toast } from './ui.js';
 
 export const slotKey = (taskId, date, position) => `${taskId}|${date}|${position}`;
@@ -28,12 +29,28 @@ export function taskById(taskId, date = null) {
   return null;
 }
 
+/** A change not even sent: another computer edits (the reason was shown, see sync.js). */
+export class LookingOnly extends ApiError {
+  constructor() { super(423, { error: 'Another computer is editing: you can look, not change.', kind: 'looking' }); }
+}
+
+/** Throws LookingOnly (after saying why, and what to do) while another computer edits. */
+export function needPen() {
+  if (!mayChange()) throw new LookingOnly();
+}
+
+/** Refused because of the editing (another computer, no connection): a window already says so, with the way out. */
+export const saidAlready = (error) => error instanceof ApiError && error.status === 423
+  && ['looking', 'held', 'handing', 'stale', 'behind', 'offline'].includes(error.payload.kind);
+
 function reportError(error) {
+  if (saidAlready(error)) return;
   toast(error instanceof ApiError ? error.message : 'Something went wrong.', { tone: 'bad' });
 }
 
 /** Send a change to a month (the one on screen unless another is named) and show the result. */
 async function post(rest, body, monthId = state.month.id) {
+  needPen();
   const month = await api.post(monthPath(monthId, rest), body);
   if (monthId === state.month.id) {
     setMonth(month);
@@ -250,6 +267,7 @@ export async function loadOtherMonths(ids) {
  * planned that reach into it come with it. Resolves with the server's answer.
  */
 export async function createMonth(monthId, source) {
+  needPen();
   const [year, month] = monthId.split('-').map(Number);
   const result = await api.post('/api/months/create', { year, month, source });
   state.boot = result.bootstrap;

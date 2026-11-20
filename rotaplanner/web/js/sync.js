@@ -4,10 +4,11 @@
 // only shows it, and asks again every few seconds (the program answers from
 // what it already knows, never waiting for a server).
 import { api, ApiError, onRefused } from './api.js';
-import { formError, openDialog, segmented } from './components.js';
+import { applyReadOnly, formError, openDialog, segmented, setLookBar } from './components.js';
 import { fill, h } from './dom.js';
 import { icon } from './icons.js';
 import { errorText } from './setup.js';
+import { setSession, state } from './state.js';
 import { settingsLink, toast } from './ui.js';
 
 const REFRESH_MS = 15_000;
@@ -56,8 +57,47 @@ function renderPen() {
   } else {
     penChip.className = 'pen-chip other';
     penChip.title = pen.text;
-    fill(penChip, icon('eye'), h('span', { class: 'topbar-label' }, `${pen.name} is editing`));
+    fill(penChip, icon('eye'), h('span', { class: 'topbar-label' }, `Look only · ${pen.name} is editing`));
   }
+}
+
+/**
+ * Why this computer only looks (another one edits), and the way back to editing:
+ * at the top of every screen, and in any window that would change something.
+ * `then` runs after a button was used (a window closes itself).
+ */
+export function lookBar(pen = status?.pen, then = () => {}) {
+  if (!pen?.read_only) return null;
+  const waiting = pen.asking && !pen.stale;
+  const button = (label, onclick, primary = false) =>
+    h('button', { class: ['btn', 'small', primary ? 'primary' : ''], type: 'button', onclick: (event) => { then(); onclick(event); } }, label);
+  return h('div', { class: ['notice', 'look-bar', waiting ? 'asking' : ''], role: 'status' }, icon(waiting ? 'sync' : 'eye'),
+    h('span', {}, h('strong', {}, pen.text), pen.how ? h('span', { class: 'look-how' }, ` ${pen.how}`) : null),
+    pen.stale ? button('Take over…', () => confirmTakeOver(pen), true) : null,
+    pen.asking ? button('Cancel', () => penAction('cancel'))
+      : !pen.stale && !pen.handing ? button('Ask to edit', (event) => askToEdit(event.currentTarget.isConnected ? event.currentTarget : null), true)
+        : null);
+}
+
+/** Before starting a change: false, and says why and what to do, while another computer edits. */
+export function mayChange() {
+  const pen = status?.pen;
+  if (!pen?.read_only) return true;
+  explainLooking(pen);
+  return false;
+}
+
+let explaining = null;  // the dialog saying so, if open (one is enough)
+
+function explainLooking(pen) {
+  if (explaining) return;
+  const dialog = explaining = openDialog({
+    onClose: () => { explaining = null; },
+    title: pen.asking || pen.handing ? 'The editing is changing hands' : `${pen.name} is editing`,
+    subtitle: 'Only one computer changes the rota at a time. You can look at everything here.',
+    body: [lookBar(pen, () => dialog.close())],
+    actions: [h('button', { class: 'btn', type: 'button', onclick: () => dialog.close() }, 'Only look')],
+  });
 }
 
 function banners() {
@@ -65,16 +105,8 @@ function banners() {
   const parts = [];
   const button = (label, onclick, primary = false) =>
     h('button', { class: ['btn', 'small', primary ? 'primary' : ''], type: 'button', onclick }, label);
-  if (pen.asking && !pen.mine) {
-    parts.push(h('div', { class: ['notice', 'look-bar', pen.stale ? '' : 'asking'] }, icon(pen.stale ? 'eye' : 'sync'),
-      h('span', {}, pen.text, pen.hint ? h('span', { class: 'muted' }, ` ${pen.hint}`) : null),
-      pen.stale ? button('Take over…', () => confirmTakeOver(pen), true) : null,
-      button('Cancel', () => penAction('cancel'))));
-  } else if (pen.holder && !pen.mine && !pen.working_offline) {
-    parts.push(h('div', { class: 'notice look-bar' }, icon('eye'), h('span', {}, pen.text),
-      pen.stale ? button('Take over…', () => confirmTakeOver(pen))
-        : button('Ask to edit', (event) => askToEdit(event.currentTarget), true)));
-  }
+  const looking = lookBar(pen);
+  if (looking) parts.push(looking);
   if (pen.notice) {
     const warn = pen.notice.tone === 'warn';
     parts.push(h('div', { class: ['notice', warn ? 'warn' : 'info', 'sync-banner'] }, icon(warn ? 'alert' : 'info'),
@@ -102,7 +134,20 @@ function banners() {
   fill(banner, parts);
 }
 
+/** The screens follow who edits: the flag every screen reads, then every control and window. */
+function follow() {
+  const pen = status?.configured ? status.pen || null : null;
+  const before = state.session.pen;
+  const same = (a, b) => (a?.read_only || false) === (b?.read_only || false) && (a?.text || '') === (b?.text || '')
+    && (a?.how || '') === (b?.how || '') && Boolean(a?.stale) === Boolean(b?.stale) && Boolean(a?.asking) === Boolean(b?.asking);
+  if (same(before, pen)) return;
+  state.session.pen = pen;  // set first, so that what is drawn now and applyReadOnly agree
+  setSession({ pen });
+  applyReadOnly();
+}
+
 function render() {
+  follow();
   if (!pill || !banner) return;
   if (!status?.configured) {
     pill.hidden = true;
@@ -234,19 +279,8 @@ function refusedChange(code, payload) {
   refreshSync();
   if (payload.kind === 'stale' && payload.pen) confirmTakeOver(payload.pen);
   else if (payload.kind === 'behind') openSync();
-  else if (payload.kind === 'handing') toast(payload.error, { tone: 'bad' });
-  else if (payload.kind === 'held' && payload.pen?.name && !status?.pen?.asking) {
-    const dialog = openDialog({
-      title: `${payload.pen.name} is editing`,
-      subtitle: 'Only one computer changes the rota at a time. You can look at everything here.',
-      body: [h('p', {}, `If you left Rota Planner open on ${payload.pen.name}, ask it to hand over: it sends `
-        + 'its changes first, then you can edit here, usually within a minute.')],
-      actions: [h('button', { class: 'btn', type: 'button', onclick: () => dialog.close() }, 'Only look'),
-        h('button', { class: 'btn primary', type: 'button', onclick: async () => {
-          dialog.close();
-          await askToEdit();
-        } }, 'Ask to edit')],
-    });
+  else if ((payload.kind === 'held' || payload.kind === 'handing') && payload.pen?.read_only) {
+    explainLooking(payload.pen);
   }
   else if (payload.kind === 'offline') {
     const dialog = openDialog({
@@ -270,6 +304,7 @@ export function mountSync(pillSlot, bannerSlot) {
   banner = bannerSlot;
   pillSlot.replaceWith(pill, penChip);
   onRefused(refusedChange);
+  setLookBar(() => lookBar());
   refreshSync();
   clearInterval(timer);
   timer = setInterval(refreshSync, REFRESH_MS);

@@ -2,6 +2,7 @@
 import { api, ApiError, monthPath } from './api.js';
 import { setMonth, setSession, state } from './state.js';
 import { toast } from './ui.js';
+import { needPen, saidAlready } from './actions.js';
 
 export async function loadSetup() {
   setSession({ setup: await api.get('/api/setup') });
@@ -12,6 +13,7 @@ export async function loadSetup() {
  * ApiError whose message is meant for the user (shown in the form).
  */
 export async function saveSetup(path, body, { message } = {}) {
+  needPen();  // another computer edits: say so, send nothing
   const result = await api.post(`/api/${path}`, body);
   if (result.catalog) setSession({ setup: result, monthSetup: null });  // Set up lists types, areas, skills: load them again
   if (message) toast(message);
@@ -24,6 +26,11 @@ export async function saveSetup(path, body, { message } = {}) {
 
 export function errorText(error) {
   return error instanceof ApiError ? error.message : 'Something went wrong.';
+}
+
+/** Say that something failed, unless a window already said why (another computer edits). */
+export function failed(error) {
+  if (!saidAlready(error)) toast(errorText(error), { tone: 'bad' });
 }
 
 // ---- Lookups used by several screens --------------------------------------

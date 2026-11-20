@@ -1,13 +1,12 @@
 // People: everyone with their skills and constraints; skills grid; import.
-import {
-  badge, chipChoice, field, formError, numberInput, openDialog, openDrawer, readFileBase64, segmented, select, textInput, toggle,
-} from '../components.js';
+import { badge, changes, chipChoice, field, formError, numberInput, openDialog, openDrawer, readFileBase64, segmented, select, textInput, toggle } from '../components.js';
 import { h, replaceKeepingFocus } from '../dom.js';
 import { icon } from '../icons.js';
-import { errorText, fullName, saveSetup, WEEKDAYS } from '../setup.js';
+import { errorText, failed, fullName, saveSetup, WEEKDAYS } from '../setup.js';
 import { api } from '../api.js';
 import { setSession, state } from '../state.js';
 import { toast } from '../ui.js';
+
 
 const FILTERS = [
   { value: 'active', label: 'On the rota' },
@@ -129,7 +128,7 @@ export function editPerson(person) {
     }
   };
 
-  const drawer = openDrawer({
+  const drawer = openDrawer({ changes: true,
     title: person ? person.name : 'Add a person',
     subtitle: person ? fullName(person) : 'Only a first name is needed; the rest can come later.',
     body: [
@@ -231,7 +230,7 @@ function importPeople() {
   };
 
   const addButton = h('button', { class: 'btn primary', type: 'button', disabled: true, onclick: add }, 'Save');
-  const dialog = openDialog({
+  const dialog = openDialog({ changes: true,
     title: 'Import people', subtitle: 'Paste names, or choose a CSV or Excel file. Nothing is added before you confirm.',
     wide: true,
     body: [field('Names', text), field('Or a file', file), h('button', { class: 'btn', type: 'button', onclick: check }, 'Check the list'), result],
@@ -278,7 +277,7 @@ function editSkill(skill, holders) {
       dialog.close();
     } catch (error) { fail(error); }
   } }, 'Delete…');
-  const dialog = openDialog({
+  const dialog = openDialog({ changes: true,
     title: skill.name, subtitle: `Held by ${holders} of the people on the rota`,
     body: [field('Name', name),
       h('p', { class: 'field-hint' }, 'Deleting a skill takes it off everyone who has it. A skill that a task still needs cannot be deleted: change those tasks first.')],
@@ -298,7 +297,7 @@ function gridView(setup, people) {
       await saveSetup('people/skill', { person_id: person.id, skill_id: skill.id, on });
     } catch (error) {
       button.setAttribute('aria-pressed', String(!on));
-      toast(errorText(error), { tone: 'bad' });
+      failed(error);
     }
   };
   return h('div', { class: 'skills-scroll', dataset: { scrollId: 'skills' } }, h('table', { class: 'table skills-grid' },
@@ -309,11 +308,11 @@ function gridView(setup, people) {
         h('small', {}, String(counts.get(s.id))))))),
     h('tbody', {}, people.map((person) => h('tr', { class: !person.active && 'inactive' },
       h('th', { class: 'sticky', scope: 'row' }, h('button', { class: 'link', type: 'button', onclick: () => editPerson(person) }, person.name)),
-      skills.map((skill) => h('td', {}, h('button', {
+      skills.map((skill) => h('td', {}, changes(h('button', {
         type: 'button', class: 'tick', 'aria-pressed': String(person.skills.includes(skill.id)),
         'aria-label': `${person.name}: ${skill.name}`,
         onclick: (e) => toggleSkill(person, skill, e.currentTarget),
-      }))))))));
+      })))))))));
 }
 
 export function mountPeople(container) {
@@ -334,8 +333,8 @@ export function mountPeople(container) {
       h('header', { class: 'page-head' },
         h('div', {}, h('h1', {}, 'People'), h('p', { class: 'muted' }, `${active} on the rota · ${setup.people.length - active} not on the rota`)),
         h('div', { class: 'page-actions' },
-          h('button', { class: 'btn', type: 'button', onclick: importPeople }, icon('users'), 'Import people'),
-          h('button', { class: 'btn primary', type: 'button', onclick: () => editPerson(null) }, icon('plus'), 'Add a person'))),
+          changes(h('button', { class: 'btn', type: 'button', onclick: importPeople }, icon('users'), 'Import people')),
+          changes(h('button', { class: 'btn primary', type: 'button', onclick: () => editPerson(null) }, icon('plus'), 'Add a person')))),
       h('div', { class: 'page-tools' },
         h('label', { class: 'search' }, icon('search'), search),
         segmented(FILTERS, directory.filter, { label: 'Show', onchange: (filter) => setSession({ directory: { ...directory, filter } }) }),

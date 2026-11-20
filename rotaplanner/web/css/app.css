@@ -288,6 +288,8 @@ a.btn { text-decoration: none; }
 .look-bar > svg { flex: none; width: 1rem; height: 1rem; }
 .look-bar > span { flex: 1; min-width: 0; }
 .look-bar.asking { background: var(--accent-weak); color: var(--text); border-color: var(--accent-line); }
+/* While another computer edits, what would change the data is greyed and cannot be used (components.js changes()). */
+.read-only .changes:not(.quiet) { opacity: 0.45; }
 .look-bar.asking > svg, .pen-chip.asking svg { color: var(--accent); animation: turning 1.6s linear infinite; }
 @keyframes turning { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .look-bar.asking > svg, .pen-chip.asking svg { animation: none; } }

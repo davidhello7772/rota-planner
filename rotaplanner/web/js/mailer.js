@@ -9,6 +9,7 @@ import { icon } from './icons.js';
 import { errorText } from './setup.js';
 import { setSession, state } from './state.js';
 import { toast } from './ui.js';
+import { needPen } from './actions.js';
 
 /** Whether e-mail is set up, for the screens that offer it (asked once per visit). */
 export async function loadMailInfo() {
@@ -261,15 +262,17 @@ export function openMailer() {
       h('p', { class: 'muted' }, 'A sent message cannot be taken back.'));
     buttons(h('button', { class: 'btn', type: 'button', onclick: () => stepCheck(preview, rows) }, 'Back'), cancel(),
       h('button', { class: 'btn primary', type: 'button', onclick: async (e) => {
-        e.currentTarget.disabled = true;
+        const go = e.currentTarget;  // after an await, the event no longer knows its button
+        go.disabled = true;
         try {
           const sendRows = rows.filter((r) => r.send && r.person_id).map((r) => ({ row: r.row, person_id: r.person_id, remember: Boolean(r.remember) }));
+          needPen();  // another computer edits: say so, send nothing
           const status = await api.post(monthPath(month.id, '/mail/send'), { ...list, rows: sendRows, who });
           list = null;
           text.value = '';
           stepProgress(status);
         } catch (error) {
-          e.currentTarget.disabled = false;
+          go.disabled = false;
           formError(body, errorText(error));
         }
       } }, icon('message'), `Send ${count} message${count === 1 ? '' : 's'} now`));

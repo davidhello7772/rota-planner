@@ -2,11 +2,12 @@
 // keep safe or to bring back, here or on a new computer. The line for
 // Settings, and its two windows (save a copy, restore one).
 import { api, ApiError } from './api.js';
-import { field, formError, openDialog, readFileBase64, statusLine, toggle } from './components.js';
+import { changes, field, formError, openDialog, readFileBase64, statusLine, toggle } from './components.js';
 import { fill, h } from './dom.js';
 import { icon } from './icons.js';
 import { errorText } from './setup.js';
 import { toast } from './ui.js';
+import { needPen } from './actions.js';
 
 function saveFile(name, base64) {
   const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
@@ -55,7 +56,7 @@ export function openRestore() {
     h('p', {}, 'Brings back everything from a backup copy. What is on this computer now is replaced; it is kept in a safety copy first.'),
     field('Backup copy (.zip)', file),
     result);
-  const dialog = openDialog({
+  const dialog = openDialog({ changes: true,
     title: 'Restore a backup copy',
     body: [body],
     actions: [h('button', { class: 'btn', type: 'button', onclick: () => dialog.close() }, 'Cancel'), go],
@@ -93,6 +94,7 @@ export function openRestore() {
     if (!chosen) return;
     go.disabled = true;
     try {
+      needPen();  // another computer edits: say so, send nothing
       const done = await api.post('/api/data/import/apply', chosen);
       toast(`Restored · what was here is kept in backups/${done.safety}`);
       setTimeout(() => window.location.reload(), 900);
@@ -110,6 +112,6 @@ export function backupLine() {
     text: 'Everything in one file, to keep safe or to bring back later, here or on a new computer.',
     actions: [
       h('button', { class: 'btn', type: 'button', onclick: openSaveCopy }, 'Save a copy…'),
-      h('button', { class: 'btn', type: 'button', onclick: openRestore }, 'Restore…')],
+      changes(h('button', { class: 'btn', type: 'button', onclick: openRestore }, 'Restore…'))],
   });
 }

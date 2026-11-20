@@ -648,6 +648,57 @@ class Sync:
             return False
         return True
 
+    def farewell(self) -> Json:
+        """This computer is uninstalled: its last changes are sent, the pen goes
+        back, and its files leave the place, but only once every other computer
+        has taken what it sent (otherwise they stay, so that one still gets it).
+
+        Returns {"outcome", "behind", "pending"}: outcome "left" (its files are
+        gone, or it never took part), "kept" (``behind`` names the computers that
+        still need its file), "unsent" (changes made here could not be sent) or
+        "failed" (sent, but its files could not be removed)."""
+        if not self.configured:
+            return {"outcome": "left", "behind": [], "pending": False}
+        try:
+            if self.pen().get("mine") or self.asking():
+                self.release_pen()  # sends what changed, then lets go
+            result = self.exchange()
+        except (SyncError, OSError):
+            result = {"ok": False}
+        with self.lock:
+            if self.state is None:
+                return {"outcome": "left", "behind": [], "pending": False}
+            pending = self.state["own"].get("sent") != self.state["own"].get("digest")
+        if not result.get("ok"):
+            return {"outcome": "unsent" if pending else "failed", "behind": [], "pending": pending}
+        behind = self.behind()
+        if behind:
+            return {"outcome": "kept", "behind": behind, "pending": False}
+        return {"outcome": "left" if self.leave_place() else "failed", "behind": [], "pending": False}
+
+    def behind(self) -> List[str]:
+        """The other computers that have not taken everything this one sent (by
+        name), as last seen: they still need this computer's file at the place."""
+        with self.lock:
+            if self.state is None:
+                return []
+            _, _, others, rows = self._units()
+            healthy = {o["id"]: o.get("name") or "Another computer" for o in others if "units" in o}
+            ids = {c for r in rows for c in r["waiting"] if c in healthy}
+            if any(r["state"] == "both" and "" in r["candidates"] for r in rows):
+                ids = set(healthy)  # this computer's version of something is not taken by all
+            return sorted(healthy[c] for c in ids)
+
+    def detach(self) -> None:
+        """Forget the set-up in memory only (the program is being uninstalled):
+        from now on nothing is sent or written, by the courier or at the end.
+        ``sync.json`` itself is left to the uninstaller."""
+        self._stop.set()
+        self._wake.set()
+        with self._io:
+            with self.lock:
+                self.state, self._key, self._place, self._parsed = None, None, None, {}
+
     def forget(self, computer: str) -> None:
         """A computer that left: remove its files from the place."""
         with self.lock:
@@ -1216,6 +1267,7 @@ class Sync:
                 if state in ("behind", "ahead", "ok") and seen:
                     words += f" · seen {seen}"
                 computers.append({"id": other["id"], "name": other.get("name") or "Another computer", "state": state,
+                                  "behind": behind,
                                   "text": words, "editing": editing})
             first = healthy[0] if healthy else None
             describe = self._place.describe()
@@ -1565,7 +1617,8 @@ class Sync:
         assert self.state is not None
         pen, now = self.state["pen"], self._now_there()
         others = any(FILE_NAME.match(n) and n not in self._own_names() for n in self.state["mirror"])
-        holders = sorted((p for p in self._pens() if p["holding"]), key=lambda p: (p["since"], p["id"]))
+        pens = self._pens()
+        holders = sorted((p for p in pens if p["holding"]), key=lambda p: (p["since"], p["id"]))
         live = [p for p in holders if p["live"]]
         stale = [p for p in holders if not p["live"] and now - p["modified"] < PEN_FORGOTTEN_SECONDS]
         clock = float(self.state.get("clock") or 0)
@@ -1602,7 +1655,13 @@ class Sync:
         elif stale:
             result.update(holder=stale[0]["id"], name=stale[0]["name"], stale=True,
                           text=f"{stale[0]['name']} was editing, not seen for {ago(stale[0]['modified'], now).replace(' ago', '')}.")
-        return result
+        else:
+            asker = self._asked_by(pens)  # this computer handed over: the one that asked takes it in a moment
+            if asker is not None:
+                result.update(holder=asker["id"], name=asker["name"], handing=True,
+                              text=f"{asker['name']} is taking over the editing: you can look, not change.")
+        # Look only: someone else edits (or is about to), so nothing here can be changed.
+        return _looking(result)
 
     def _pen_round(self, place: Any, listing: places.Listing) -> None:
         """While this computer holds the pen: say so again, notice a take-over,
@@ -1696,7 +1755,8 @@ class Sync:
             asker = self._asked_by()
             if asker is not None:
                 raise PenError(f"{asker['name']} is taking over the editing: you can look, not change.", "handing",
-                               dict(status, holder=asker["id"], name=asker["name"], text=f"{asker['name']} is taking over the editing."))
+                               _looking(status, holder=asker["id"], name=asker["name"], handing=True,
+                                        text=f"{asker['name']} is taking over the editing: you can look, not change."))
             if status["holder"] not in (None, "me") and not status["stale"] and not status.get("handed"):
                 raise PenError(status["text"], "held", status)
             if status["stale"] and not force:
@@ -1740,7 +1800,8 @@ class Sync:
                 # Holding it, asking for it at the same moment, or already asking another computer for it.
                 words = (f"{winner['name']} is editing" if winner["holding"] else f"{winner['name']} asked for the editing first")
                 raise PenError(f"{words}: you can look, not change.", "held",
-                               dict(self._pen_status(), holder=winner["id"], name=winner["name"]))
+                               _looking(self._pen_status(), holder=winner["id"], name=winner["name"],
+                                        text=f"{words}: you can look, not change."))
             self.state["pen"] = {"mine": True, "since": since, "beat": time.time(), "there": self._now_there()}
             self._last_edit = time.time()
             self._note("This computer took the pen.")
@@ -1788,10 +1849,10 @@ class Sync:
                 return self._pen_status()
         return {}
 
-    def _asked_by(self) -> Optional[Json]:
+    def _asked_by(self, pens: Optional[List[Json]] = None) -> Optional[Json]:
         """Another computer asking this one, by a real and recent note, to hand over the pen."""
         me = self.state["computer_id"]  # type: ignore[index]
-        return next((p for p in self._pens() if p["live"] and p["asking"] == me), None)
+        return next((p for p in (self._pens() if pens is None else pens) if p["live"] and p["asking"] == me), None)
 
     def _hand_over(self) -> None:
         """Asked for the pen, while holding it: let go now, before this round seals
@@ -1912,7 +1973,8 @@ class Sync:
 
     def pen(self) -> Json:
         with self.lock:
-            return self._pen_status() if self.state is not None else {"holder": None, "mine": False, "needed": False}
+            return self._pen_status() if self.state is not None else {"holder": None, "mine": False, "needed": False,
+                                                                          "read_only": False, "how": ""}
 
     def ensure_pen(self) -> bool:
         """Before any change to the data. Passes when this computer may edit (it
@@ -1946,6 +2008,30 @@ class Sync:
             return self.state is not None and int(self.state["applied"].get("seq", 0)) != before
 
 
+def _looking(status: Json, **changes: Any) -> Json:
+    """The pen as a refusal tells it: someone else edits, and how to get the editing back."""
+    pen = dict(status, **changes)
+    pen["read_only"] = pen["holder"] not in (None, "me")
+    pen["how"] = _how_to_edit(pen) if pen["read_only"] else ""
+    return pen
+
+
+def _how_to_edit(pen: Json) -> str:
+    """While only looking: how to get the editing back, in plain words."""
+    name = pen["name"] or "the other computer"
+    if pen.get("asking") and pen.get("handed"):
+        return "Its changes are being taken: you can edit as soon as they are here."
+    if pen.get("asking") and not pen["stale"]:
+        return pen.get("hint", "")
+    if pen["stale"]:
+        return (f"If {name} is switched off or asleep, “Take over…” lets you edit here. What it changed and has "
+                "not sent yet may then have to be chosen against your changes.")
+    if pen.get("handing"):
+        return f"Its changes arrive here by themselves. To edit here again, ask to edit once {name} has the pen."
+    return (f"To change something, press “Ask to edit”: {name} sends its changes, then hands over by itself, "
+            f"usually within a minute. Or press “I have finished” on {name}.")
+
+
 def _no_connection(what: str) -> str:
     return (f"There is no connection to the other computers right now, so this computer cannot {what}. "
             "You can look; to change things all the same, choose “Work offline anyway”.")
@@ -1972,8 +2058,10 @@ def _only_if_sure(why: str) -> str:
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
-    """``python3 -m rotaplanner.sync leave DATA_FOLDER``: for the uninstaller. Removes this
-    computer's files from the meeting place; exit code 0 when gone (or never set up)."""
+    """``python3 -m rotaplanner.sync leave DATA_FOLDER``: for the uninstaller (``farewell``).
+    Prints one line for it, and exits with 0 when this computer's files are gone (or it
+    never took part), 3 when they stay for another computer that has not taken them yet
+    (the names are printed), 4 when changes made here could not be sent, 1 otherwise."""
     import sys
     args = list(sys.argv[1:] if argv is None else argv)
     if len(args) != 2 or args[0] != "leave":
@@ -1983,7 +2071,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     one = Sync(Store(data))
     if not one.configured:
         return 1 if (data / STATE_FILE).exists() else 0  # set up but unreadable here: not removed
-    return 0 if one.leave_place() else 1
+    done = one.farewell()
+    if done["outcome"] == "kept":
+        print(_listed(done["behind"]))
+        return 3
+    return {"left": 0, "unsent": 4}.get(done["outcome"], 1)
 
 
 def dangling(documents: Dict[str, Json]) -> List[str]:

@@ -2,11 +2,11 @@
 import {
   acceptProposals, assign, clearSlot, discardProposals, monthOf, parseSlotKey, reportError, setHeadcount, setNote, setTime, setWanted, swap,
 } from '../actions.js';
-import { field, formError, numberInput, openDialog, segmented, textInput } from '../components.js';
+import { changes, field, formError, numberInput, openDialog, segmented, textInput } from '../components.js';
 import { api, monthPath } from '../api.js';
 import { formatDate, formatHours, h, placeNear } from '../dom.js';
 import { icon } from '../icons.js';
-import { monthViewFor } from '../state.js';
+import { monthViewFor, readOnly, state } from '../state.js';
 
 const GROUPS = [
   { id: 'best', title: 'Best matches' },
@@ -54,7 +54,8 @@ function candidateRow(candidate, onChoose) {
   h('span', { class: 'cand-name' }, candidate.name, star),
   h('span', { class: 'cand-load' }, loadBar(candidate.hours, candidate.target), `${formatHours(candidate.hours)} / ${formatHours(candidate.target)}`),
   h('span', { class: 'cand-why' }, reasons(candidate)));
-  return row;
+  row.classList.add('quiet');  // still read while another computer edits: only choosing is off
+  return changes(row);
 }
 
 function forceForm(candidate, row, key, query) {
@@ -94,7 +95,7 @@ function render(data, key) {
     const all = rows();
     if (!all.length) return;
     active = (index + all.length) % all.length;
-    all.forEach((r, i) => r.classList.toggle('active', i === active));
+    all.forEach((r, i) => r.classList.toggle('active', i === active && !readOnly()));  // nothing can be chosen while looking
     all[active].scrollIntoView({ block: 'nearest' });
   };
 
@@ -122,7 +123,7 @@ function render(data, key) {
   query.addEventListener('keydown', (event) => {
     if (event.key === 'ArrowDown') { event.preventDefault(); setActive(active + 1); }
     if (event.key === 'ArrowUp') { event.preventDefault(); setActive(active - 1); }
-    if (event.key === 'Enter') { event.preventDefault(); rows()[active]?.click(); }
+    if (event.key === 'Enter') { event.preventDefault(); if (!readOnly()) rows()[active]?.click(); }
   });
 
   // Someone not on the list: a volunteer or a guest, whose name can come later.
@@ -144,7 +145,7 @@ function render(data, key) {
   // What can be done with the slot itself, rather than with a person.
   const cell = monthViewFor(date)?.cells[`${taskId}|${date}`];
   const slot = cell?.slots[position];
-  const slotActions = h('div', { class: 'picker-actions' },
+  const slotActions = changes(h('div', { class: 'picker-actions' },
     slot?.open ? h('button', { class: 'btn small', 'aria-pressed': slot.wanted ? 'true' : 'false',
       title: 'Mark this empty shift as one to fill when possible (key H)',
       onclick: () => { closePicker(); setWanted(key, !slot.wanted); } }, slot.wanted ? '◆ Highlighted' : '◆ Highlight') : null,
@@ -156,7 +157,7 @@ function render(data, key) {
     h('button', { class: 'btn small', title: 'This task is at other times on this day (a special meal…)',
       onclick: () => { closePicker(); changeTime(data, taskId, date); } }, '◷ Change the time this day'),
     cell?.adjusted ? h('button', { class: 'btn small ghost', title: `Usually ${cell.usual}`,
-      onclick: () => { closePicker(); setHeadcount(taskId, date, null); } }, `Back to usual (${cell.usual})`) : null);
+      onclick: () => { closePicker(); setHeadcount(taskId, date, null); } }, `Back to usual (${cell.usual})`) : null));
 
   const el = h('div', { class: 'popover picker', role: 'dialog', tabindex: '-1', 'aria-label': `Choose someone for ${data.task.name}`,
     onkeydown: (e) => { if (e.key === 'Escape') { e.stopPropagation(); closePicker(); } } },
@@ -168,13 +169,15 @@ function render(data, key) {
         data.task.usual_time ? h('span', { class: 'retimed-note' }, `◷ Other time this day · usually ${data.task.usual_time}`) : null),
       h('button', { class: 'btn ghost icon-only small', 'aria-label': 'Close', onclick: closePicker }, icon('close'))),
     currentName ? h('div', { class: 'picker-current' }, h('span', { class: 'muted' }, 'Now:'), h('strong', {}, currentName), h('span', { class: 'spacer' }),
-      h('button', { class: 'btn small danger', onclick: () => { closePicker(); clearSlot(key); } }, 'Leave open')) : null,
-    currentName ? noteLine(slot, key) : null,
-    slot?.proposal ? proposalLine(slot.proposal, data, key) : null,
+      changes(h('button', { class: 'btn small danger', onclick: () => { closePicker(); clearSlot(key); } }, 'Leave open'))) : null,
+    currentName ? changes(noteLine(slot, key)) : null,
+    slot?.proposal ? changes(proposalLine(slot.proposal, data, key)) : null,
     slotActions.childElementCount ? slotActions : null,
+    // Another computer edits: who could take it is shown, nobody can be chosen.
+    readOnly() ? h('p', { class: 'picker-look', role: 'status' }, icon('eye'), state.session.pen?.text || 'Another computer is editing: you can look, not change.') : null,
     h('div', { class: 'search' }, icon('search'), query)),
   list,
-  h('div', { class: 'picker-foot' }, kinds, guestInput, h('button', { class: 'btn small', onclick: addGuest }, known ? 'Save' : 'Add')));
+  changes(h('div', { class: 'picker-foot' }, kinds, guestInput, h('button', { class: 'btn small', onclick: addGuest }, known ? 'Save' : 'Add'))));
 
   fill();
   return { el, focus: () => query.focus() };
@@ -216,10 +219,10 @@ function ideasBlock(ideas, key) {
     h('div', { class: 'picker-group' }, h('span', {}, 'Ideas'), h('span', {}, '')),
     h('ul', {}, ideas.map((idea) => h('li', { class: `idea-${idea.kind}` },
       h('span', {}, idea.text),
-      idea.kind === 'swap' ? h('button', { class: 'btn small primary', type: 'button', onclick: () => {
+      idea.kind === 'swap' ? changes(h('button', { class: 'btn small primary', type: 'button', onclick: () => {
         closePicker();
         swap(key, idea.action.person_id, idea.action.from, idea.action.replacement);
-      } }, 'Do it') : null))));
+      } }, 'Do it')) : null))));
 }
 
 /** A small form for the task's times on one day. */
@@ -236,7 +239,7 @@ function changeTime(data, taskId, date) {
       formError(dialog.panel.querySelector('.modal-body'), error.message);
     }
   };
-  const dialog = openDialog({
+  const dialog = openDialog({ changes: true,
     title: `${data.task.name} — ${formatDate(date)}`,
     subtitle: `Usually ${data.task.usual_time || data.task.time || 'no set time'}. Only this day changes.`,
     body: [h('div', { class: 'form-grid' }, field('Starts', start), field('Ends', end)),

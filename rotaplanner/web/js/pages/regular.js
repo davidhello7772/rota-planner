@@ -34,7 +34,7 @@ function editRegular(task, weekday, position, current) {
       formError(dialog.panel.querySelector('.modal-body'), errorText(error));
     }
   };
-  const dialog = openDialog({
+  const dialog = openDialog({ changes: true,
     title: `${task.name} — ${day}s`,
     subtitle: [timeText(task), position ? `position ${position + 1}` : ''].filter(Boolean).join(' · '),
     body: [field('Person', person), field('How often', frequency),

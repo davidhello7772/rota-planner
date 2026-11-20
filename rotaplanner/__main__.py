@@ -15,7 +15,7 @@ import time
 import webbrowser
 from pathlib import Path
 
-from . import updates
+from . import desktop, updates
 from .app import App
 from .demo import build_demo
 from .exporters import pdf
@@ -26,6 +26,7 @@ from .store import Store
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 NO_WINDOW = 3  # exit code: the window could not open and nothing else could be shown
 RESTART = 75   # (inside the program only) a new version was installed: start again
+UNINSTALLED = 76  # (inside the program only) uninstalled from the window: nothing more to do
 DEFAULT_PORT = 8765
 TOKEN_FILE = ".session-token"
 RUNNING_FILE = ".running"  # read by install-rota-planner.sh: no update while the program is open
@@ -108,6 +109,15 @@ def mark_running(root: Path) -> None:
             pass
 
     atexit.register(remove)
+
+
+def clear_running(root: Path) -> None:
+    """The program is stopped but still shows its window (to uninstall): the
+    note goes now, so the uninstaller does not wait for this window."""
+    try:
+        (root / RUNNING_FILE).unlink()
+    except OSError:
+        pass
 
 
 def start_page(root: Path, url: str) -> Path:
@@ -194,6 +204,8 @@ def main(argv=None) -> int:
         instance.release()
     if result == RESTART:
         return start_again(restart_command(args, root, demo))
+    if result == UNINSTALLED:
+        return 0
     if result == NO_WINDOW:
         # Started from an icon, with no terminal to fall back on: open one (the lock is free now).
         return 0 if open_terminal() else NO_WINDOW
@@ -210,6 +222,8 @@ def run(root: Path, demo: bool, args, instance: Instance, closers: list) -> int:
 
     token = session_token(root)
     forget_old_access(root)
+    if args.data is None and not demo:
+        desktop.tidy_old_update_icon(PROJECT_ROOT)  # new versions are offered by the program itself now
     app = App(store)
     app.sync.start_background()
     app.updates.start_background()
@@ -238,10 +252,20 @@ def serve(app: App, service: Service, root: Path, demo: bool, args, instance: In
         except ImportError as error:
             reason = error
         else:
+            usual = args.data is None and not demo
+            prepare = None
+            if desktop.supported(PROJECT_ROOT, usual, app.updates.unsupported()):
+                def prepare() -> None:  # the program has stopped: the installer may now act
+                    # Only the note goes: the lock stays held (and the wake-up door open), so
+                    # starting Rota Planner meanwhile brings this window forward, never a second one.
+                    clear_running(root)
             try:
-                window.run(service, demo=demo, instance=instance,
-                           open_browser=lambda: open_in_browser(root, service.url()),
-                           browser_at_start=not args.no_browser, closers=closers)
+                shown = window.run(service, demo=demo, instance=instance,
+                                   open_browser=lambda: open_in_browser(root, service.url()),
+                                   browser_at_start=not args.no_browser, closers=closers,
+                                   prepare_uninstall=prepare)
+                if shown == window.UNINSTALLED:
+                    return UNINSTALLED
                 return RESTART if app.updates.restart.is_set() else 0
             except window.CannotOpen as error:
                 reason = error

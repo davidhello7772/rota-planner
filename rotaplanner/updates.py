@@ -65,6 +65,7 @@ class Updates:
         self.lock = threading.Lock()   # one look or one installation at a time
         self.busy = ""                 # "checking" | "installing"
         self.restart = threading.Event()  # set once a new version is in place: the program starts again
+        self.stopped = threading.Event()  # the program is being uninstalled: nothing is looked at or written
         self.tried = 0.0               # the last look, reached or not
         self.state: Json = {"auto": True, "checked": 0.0, "available": 0, "items": [], "target": "", "problem": ""}
         try:
@@ -117,6 +118,8 @@ class Updates:
         return self._out("log", "-1", "--format=%cd", "--date=short")
 
     def _save(self) -> None:
+        if self.stopped.is_set():
+            return  # the data folder may be gone already: never make it again
         try:
             write_private_json(self.path, self.state)
         except OSError:
@@ -159,7 +162,7 @@ class Updates:
     def check(self) -> Json:
         """Ask the repository what is new (the only thing here that uses the network)."""
         reason = self.unsupported()
-        if reason:
+        if reason or self.stopped.is_set():
             return self.info()
         if not self.lock.acquire(blocking=False):
             return self.info()  # already looking, or installing
@@ -185,15 +188,22 @@ class Updates:
     def start_background(self) -> None:
         """Look once a day, by itself, while the program runs (unless turned off)."""
         def loop() -> None:
-            time.sleep(FIRST_CHECK_SECONDS)
-            while True:
+            self.stopped.wait(FIRST_CHECK_SECONDS)
+            while not self.stopped.is_set():
                 try:
                     if self.due():
                         self.check()
                 except Exception:  # noqa: BLE001 — never stop the program for this
                     pass
-                time.sleep(900)
+                self.stopped.wait(900)
         threading.Thread(target=loop, name="updates", daemon=True).start()
+
+    def stop(self) -> None:
+        """The program is being uninstalled: wait for a look or an installation
+        under way to end, then never look or write again."""
+        self.stopped.set()
+        with self.lock:
+            pass
 
     # -- installing ----------------------------------------------------------
 
@@ -207,6 +217,8 @@ class Updates:
         reason = self.unsupported()
         if reason:
             raise UpdateError(reason)
+        if self.stopped.is_set():
+            raise UpdateError("Rota Planner is being uninstalled.")
         if not self.lock.acquire(blocking=False):
             raise UpdateError("Rota Planner is already looking for, or installing, a new version.")
         self.busy = "installing"

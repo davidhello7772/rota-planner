@@ -1227,6 +1227,11 @@ class App:
         if "auto" in body:
             self.sync.set_auto(bool(body["auto"]))
         if body.get("resume"):
+            pen = self.sync.pen()
+            if body["resume"] == "mine" and pen["read_only"]:
+                # This computer's data would become the newest everywhere: not while another computer edits.
+                # (Not ensure_pen: taking the pen first takes what is newer, the very data not chosen.)
+                raise ApiError(HTTPStatus.LOCKED, pen["text"], kind="held", pen=pen)
             self.sync.resume(str(body["resume"]))
         self.sync.deliver()
         return self.sync.status()

@@ -2,7 +2,8 @@
 import { assign, clearSlot, createMonth, loadOtherMonths, reportError, setHeadcount } from '../actions.js';
 import { openMenu, toast } from '../ui.js';
 import { h, replaceKeepingFocus } from '../dom.js';
-import { monthViewFor, peopleById, setSession, setUi, state } from '../state.js';
+import { monthViewFor, peopleById, readOnly, setSession, setUi, state } from '../state.js';
+import { mayChange } from '../sync.js';
 import { buildDayView } from './dayview.js';
 import { buildGrid, onGridKey } from './grid.js';
 import { buildPanel } from './panel.js';
@@ -93,6 +94,11 @@ export function mountBuild(container) {
       return;
     }
     const chip = event.target.closest('.chip');
+    if (chip && readOnly()) {  // another computer edits: a shift can be looked at, not changed
+      if (chip.dataset.key) openPicker(chip, chip.dataset.key);
+      else mayChange();
+      return;
+    }
     if (chip?.dataset.off) {
       offerRestore(chip);
       return;

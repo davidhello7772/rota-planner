@@ -62,8 +62,12 @@ export const state = {
     schedules: null,    // everyone's schedule message, for the month on screen
     checkSort: 'ratio',
     checkView: 'hours',  // Check › Balance: 'hours' or 'days'
+    pen: null,        // who edits, as the program said it (sync.js): read_only, text, how
   },
 };
+
+/** Another computer edits: everything can be seen, nothing changed (decided by the program, sync.py). */
+export const readOnly = () => Boolean(state.session.pen?.read_only);
 
 const listeners = new Set();
 let queued = false;

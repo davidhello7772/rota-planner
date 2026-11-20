@@ -9,6 +9,7 @@ import { hint } from '../help.js';
 import { copySchedule } from '../schedules.js';
 import { openMenu } from '../ui.js';
 import { datesBetween, monthTitle, shownEvent, visibleDays } from './range.js';
+import { changes } from '../components.js';
 
 const TIP_ICONS = { bad: 'alert', warn: 'alert', info: 'info' };
 const SORTS = {
@@ -66,10 +67,10 @@ function assistant(month) {
         tile(String(s.guests), 'not on the list', ''))),
     month.proposals.length ? proposalsBox(month) : h('section', { class: 'actions' },
       h('h3', {}, 'Suggestions', hint('prefill')),
-      h('button', { class: 'btn', type: 'button', title: 'Suggest someone for open shifts',
-        onclick: (e) => prefillMenu(e.currentTarget, month) }, icon('wand'), 'Prefill the rota…'),
-      h('button', { class: 'btn', type: 'button', title: 'Suggest moves from the busiest people to the least busy',
-        onclick: () => rebalance() }, icon('scale'), 'Rebalance hours')),
+      changes(h('button', { class: 'btn', type: 'button', title: 'Suggest someone for open shifts',
+        onclick: (e) => prefillMenu(e.currentTarget, month) }, icon('wand'), 'Prefill the rota…')),
+      changes(h('button', { class: 'btn', type: 'button', title: 'Suggest moves from the busiest people to the least busy',
+        onclick: () => rebalance() }, icon('scale'), 'Rebalance hours'))),
     otherMonthsProposals(),
     shortagesBox(month),
     tips.length ? h('section', {},
@@ -127,10 +128,10 @@ function proposalsBox(month) {
       h('div', {}, h('strong', {}, `${tasks.get(m.task_id)?.name || ''}, ${formatDate(m.date)}`),
         h('span', { class: 'muted' }, `${people.get(m.replaces)?.name} → ${people.get(m.person_id)?.name}`),
         h('span', { class: 'faint' }, m.why)),
-      h('button', { class: 'btn small', type: 'button', onclick: () => acceptProposals([m.key]) }, 'Accept')))) : null,
-    h('div', { class: 'proposal-actions' },
+      changes(h('button', { class: 'btn small', type: 'button', onclick: () => acceptProposals([m.key]) }, 'Accept'))))) : null,
+    changes(h('div', { class: 'proposal-actions' },
       h('button', { class: 'btn primary', type: 'button', onclick: () => acceptProposals() }, icon('check'), moves.length ? 'Accept all moves' : `Accept the ${fills} suggestions`),
-      h('button', { class: 'btn ghost', type: 'button', onclick: () => discardProposals() }, 'Discard')));
+      h('button', { class: 'btn ghost', type: 'button', onclick: () => discardProposals() }, 'Discard'))));
 }
 
 /** Suggestions waiting in the other month of an event shown in the Event view. */
@@ -140,11 +141,11 @@ function otherMonthsProposals() {
   if (!months.length) return null;
   return h('section', { class: 'proposals-box' },
     h('h3', {}, "Suggestions in the event's other month"),
-    months.map((m) => h('div', { class: 'proposal-actions' },
+    months.map((m) => changes(h('div', { class: 'proposal-actions' },
       h('span', {}, `${monthTitle(m.id)}: ${m.proposals.length} suggestion${m.proposals.length > 1 ? 's' : ''}`),
       h('span', { class: 'spacer' }),
       h('button', { class: 'btn small primary', type: 'button', onclick: () => acceptProposals(null, m.id) }, icon('check'), 'Accept'),
-      h('button', { class: 'btn small ghost', type: 'button', onclick: () => discardProposals(null, m.id) }, 'Discard'))));
+      h('button', { class: 'btn small ghost', type: 'button', onclick: () => discardProposals(null, m.id) }, 'Discard')))));
 }
 
 // ---- Shortages: days with more open shifts than people who could take them -
@@ -191,9 +192,9 @@ function personCard(person) {
     person.note ? h('span', {}, person.note) : null,
     person.skills.length ? h('div', { class: 'chips-inline' }, person.skills.map((s) => h('span', {}, s))) : null,
     h('div', { class: 'person-actions' },
-      h('button', { class: 'btn', 'aria-pressed': state.session.paint ? 'true' : 'false',
+      changes(h('button', { class: 'btn', 'aria-pressed': state.session.paint ? 'true' : 'false',
         title: 'Then click open shifts to give them to this person',
-        onclick: () => setSession({ paint: !state.session.paint }) }, icon('brush'), state.session.paint ? 'Painting…' : 'Paint shifts'),
+        onclick: () => setSession({ paint: !state.session.paint }) }, icon('brush'), state.session.paint ? 'Painting…' : 'Paint shifts')),
       h('button', { class: 'btn', title: 'Their schedule, ready to paste in an e-mail', onclick: () => copySchedule(person.id) }, icon('message'), 'Copy schedule'),
       h('button', { class: 'btn ghost', onclick: () => selectPerson(person.id) }, 'Clear')));
 }

@@ -106,6 +106,72 @@ class TwoComputersTest(unittest.TestCase):
         self.assertEqual(self.store_b.load_people()[0].note, "Prefers mornings")
         self.assertEqual((self.states(self.a), self.states(self.b)), ({}, {}))
 
+    def test_farewell_leaves_once_the_other_has_everything(self):
+        self.sync(self.b)
+        self.b.exchange()
+        mine = self.shared / f"rota-{self.a.state['computer_id']}.rpsync"
+        self.assertEqual(self.a.behind(), [])
+        self.assertEqual(self.a.farewell()["outcome"], "left")
+        self.assertFalse(mine.exists())
+        self.assertTrue((self.shared / f"rota-{self.b.state['computer_id']}.rpsync").exists())
+        self.assertTrue(self.a.configured)  # the set-up stays, for the kept data
+
+    def test_farewell_keeps_the_file_for_a_computer_that_is_behind(self):
+        self.sync(self.b)
+        self.b.exchange()
+        people = self.store_a.load_people()
+        people[0].note = "Prefers mornings"
+        self.store_a.save_people(people)  # not sent yet: the farewell sends it
+        done = self.a.farewell()
+        self.assertEqual(done, {"outcome": "kept", "behind": ["Front desk"], "pending": False})
+        self.assertTrue((self.shared / f"rota-{self.a.state['computer_id']}.rpsync").exists())
+        self.sync(self.b)  # the other still gets the change
+        self.assertEqual(self.store_b.load_people()[0].note, "Prefers mornings")
+
+    def test_farewell_gives_the_pen_back(self):
+        self.sync(self.b)
+        self.a.take_pen()
+        self.assertTrue(self.a.pen()["mine"])
+        self.a.farewell()
+        self.assertFalse((self.shared / f"pen-{self.a.state['computer_id']}.rpsync").exists())
+        self.assertFalse(self.a.pen()["mine"])
+
+    def test_farewell_without_connection_says_what_was_not_sent(self):
+        self.sync(self.b)
+        self.b.exchange()
+        people = self.store_a.load_people()
+        people[0].note = "Prefers mornings"
+        self.store_a.save_people(people)
+        self.a.exchange()  # counted and sealed here
+        self.store_a.save_people(self.store_a.load_people()[:1])
+        moved = self.shared.with_name("away")
+        self.shared.rename(moved)  # the shared folder is not there (a drive not connected)
+        try:
+            done = self.a.farewell()
+        finally:
+            moved.rename(self.shared)
+        self.assertEqual(done["outcome"], "unsent")
+        self.assertTrue(done["pending"])
+
+    def test_detached_nothing_is_written_any_more(self):
+        self.sync(self.b)
+        mine = self.shared / f"rota-{self.a.state['computer_id']}.rpsync"
+        self.a.leave_place()
+        self.a.detach()
+        self.store_a.save_people(self.store_a.load_people()[:1])
+        self.a.goodbye()
+        self.a.exchange()
+        self.assertFalse(mine.exists())
+        self.assertTrue((self.store_a.root / sy.STATE_FILE).exists())  # left to the uninstaller
+
+    def test_leave_command(self):
+        self.sync(self.b)
+        self.b.exchange()
+        self.a.exchange()
+        self.assertEqual(sy.main(["leave", str(self.store_a.root)]), 0)
+        self.assertFalse((self.shared / f"rota-{self.a.state['computer_id']}.rpsync").exists())
+        self.assertEqual(sy.main(["leave", str(self.store_a.root.parent / "nothing")]), 0)
+
     def test_both_changed_the_choice_is_asked_once(self):
         self.sync(self.b)
         for store, person in ((self.store_a, "ana"), (self.store_b, "ben")):

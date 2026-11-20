@@ -6,7 +6,7 @@
 // PRINTED main rota has an event's tasks only if the event says so, and a
 // task can answer differently from the rest of its event. The event's own
 // printout always has them all.
-import { field, formError, numberInput, openDrawer, segmented, select, textInput } from './components.js';
+import { changes, field, formError, numberInput, openDrawer, segmented, select, textInput } from './components.js';
 import { h } from './dom.js';
 import { icon } from './icons.js';
 import { errorText } from './setup.js';
@@ -41,33 +41,35 @@ export function taskFields(task, patch = {}) {
  */
 export function eventTaskRow(task, { eventDays, followsYes, oneDay = false, save, open, remove, move = null }) {
   const change = (patch) => save(taskFields(task, patch));
-  const people = h('span', { class: 'count-stepper', role: 'group', 'aria-label': `People for ${task.name}` },
+  const people = changes(h('span', { class: 'count-stepper', role: 'group', 'aria-label': `People for ${task.name}` },
     h('button', { class: 'btn ghost icon-only small', type: 'button', 'aria-label': 'One fewer', disabled: task.people <= 1,
       onclick: () => change({ people: task.people - 1 }) }, icon('minus')),
     h('span', { class: 'stepper-value', title: 'People needed each day' }, String(task.people)),
     h('button', { class: 'btn ghost icon-only small', type: 'button', 'aria-label': 'One more', disabled: task.people >= 30,
-      onclick: () => change({ people: task.people + 1 }) }, icon('plus')));
+      onclick: () => change({ people: task.people + 1 }) }, icon('plus'))));
   const days = oneDay ? null : select(Object.entries(eventDays).map(([value, label]) => ({ value, label })), task.event_days,
     { class: 'select small', 'aria-label': `Which days for ${task.name}`, onchange: (e) => change({ event_days: e.target.value }) });
+  if (days) changes(days);
   const choice = ownChoice(task);
   const printed = select(printOptions(followsYes), choice, {
     class: ['select small', choice !== 'follow' && 'exception'].filter(Boolean).join(' '),
     'aria-label': `${task.name}: printed on the main rota?`, title: PRINT_HELP,
     onchange: (e) => change({ on_month_rota: OWN_VALUE[e.target.value] }) });
+  changes(printed);
   return h('li', { class: ['event-task-row', `area-${task.color}`] },
     h('button', { class: 'event-task-name', type: 'button', title: 'Change its details', onclick: open },
       h('strong', {}, task.name),
       h('span', { class: 'muted' }, [task.area, task.time || 'any time', task.skill !== 'Anyone' ? task.skill : null].filter(Boolean).join(' · '))),
     // The order of the tasks (where the list can be ordered): `move.up` / `move.down`, absent at the ends.
     // Next to the name, so the line of controls below stays as wide as it was.
-    move ? h('span', { class: 'move-pair' },
+    move ? changes(h('span', { class: 'move-pair' },
       h('button', { class: 'btn ghost icon-only small', type: 'button', disabled: !move.up, dataset: { focusId: `task-up-${task.id}` },
         'aria-label': `Move ${task.name} up`, title: 'Move up', onclick: move.up }, icon('up')),
       h('button', { class: 'btn ghost icon-only small', type: 'button', disabled: !move.down, dataset: { focusId: `task-down-${task.id}` },
-        'aria-label': `Move ${task.name} down`, title: 'Move down', onclick: move.down }, icon('down'))) : null,
+        'aria-label': `Move ${task.name} down`, title: 'Move down', onclick: move.down }, icon('down')))) : null,
     h('span', { class: 'event-task-controls' },
       captioned('People each day', people), days ? captioned('Days', days) : null, captioned('On printed main rota', printed),
-      h('button', { class: 'btn ghost icon-only small', type: 'button', 'aria-label': `Remove ${task.name}`, title: 'Remove', onclick: remove }, icon('close'))));
+      changes(h('button', { class: 'btn ghost icon-only small', type: 'button', 'aria-label': `Remove ${task.name}`, title: 'Remove', onclick: remove }, icon('close')))));
 }
 
 /**
@@ -96,7 +98,7 @@ export function editEventTask({ task, subtitle, areas, skills, eventDays, follow
       formError(drawer.panel.querySelector('.drawer-body'), errorText(error));
     }
   };
-  const drawer = openDrawer({
+  const drawer = openDrawer({ changes: true,
     title: task ? task.name : 'New task', subtitle,
     body: [field('Name', name), field('Area', area),
       h('div', { class: 'form-grid' }, field('Starts', start), field('Ends', end)),
@@ -105,7 +107,7 @@ export function editEventTask({ task, subtitle, areas, skills, eventDays, follow
       oneDay ? null : h('div', { class: 'field' }, h('span', { class: 'field-label' }, 'Which days of the event'), days),
       h('div', { class: 'field' }, h('span', { class: 'field-label' }, 'Printed on the main rota?'), printed,
         h('span', { class: 'field-hint' }, PRINT_HELP))],
-    actions: [task && remove ? h('button', { class: 'btn ghost danger', type: 'button', onclick: async () => { await remove(); drawer.close(); } }, 'Remove') : null,
+    actions: [task && remove ? h('button', { class: 'btn ghost danger', type: 'button', onclick: async () => { if (await remove() !== false) drawer.close(); } }, 'Remove') : null,
       h('span', { class: 'spacer' }),
       h('button', { class: 'btn', type: 'button', onclick: () => drawer.close() }, 'Cancel'),
       h('button', { class: 'btn primary', type: 'button', onclick: submit }, task ? 'Save' : 'Add task')],

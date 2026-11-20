@@ -1,12 +1,13 @@
 // Availability: bring in the form's replies, see who has not replied, read
 // the comments, and correct anyone's days by hand.
 import { api, monthPath } from '../api.js';
-import { badge, field, formError, openDialog, openDrawer, readFileBase64, toggle } from '../components.js';
+import { badge, changes, field, formError, openDialog, openDrawer, readFileBase64, toggle } from '../components.js';
 import { fill, formatDate, h, replaceKeepingFocus } from '../dom.js';
 import { icon } from '../icons.js';
-import { errorText } from '../setup.js';
+import { errorText, failed } from '../setup.js';
 import { setMonth, setSession, state } from '../state.js';
 import { copyText, toast } from '../ui.js';
+import { needPen } from '../actions.js';
 
 const PERIODS = [['morning', 'M', 'Morning'], ['afternoon', 'A', 'Afternoon'], ['evening', 'E', 'Evening']];
 const MATCH_WORDS = { exact: ['Found', 'ok'], close: ['Check', 'warn'], none: ['Not found', 'bad'] };
@@ -24,6 +25,7 @@ async function loadAvailability() {
 }
 
 async function send(path, body, message) {
+  needPen();  // another computer edits: say so, send nothing
   const result = await api.post(monthPath(state.month.id, `/availability/${path}`), body);
   setSession({ availability: result });
   setMonth(await api.get(monthPath(state.month.id)));
@@ -32,6 +34,7 @@ async function send(path, body, message) {
 }
 
 async function undoAvailability() {
+  needPen();  // another computer edits: say so, send nothing
   setMonth(await api.post(monthPath(state.month.id, '/undo')));
   await loadAvailability();
 }
@@ -125,7 +128,7 @@ function importReplies() {
     }
   };
   const apply = h('button', { class: 'btn primary', type: 'button', disabled: true, onclick: save }, 'Save the ticked replies');
-  const dialog = openDialog({
+  const dialog = openDialog({ changes: true,
     title: `Availability replies for ${state.month.title}`, wide: true,
     subtitle: 'Each reply replaces what was known for that person. Nothing changes before you save.',
     body: [field('Paste the replies', text), field('Or a file (CSV or Excel)', file),
@@ -165,7 +168,7 @@ function editPerson(person) {
       formError(drawer.panel.querySelector('.drawer-body'), errorText(error));
     }
   };
-  const drawer = openDrawer({
+  const drawer = openDrawer({ changes: true,
     title: person.name, subtitle: `${person.full} · click M, A or E for the parts of a day they are away`,
     body: [replied, grid, person.comment ? h('blockquote', { class: 'comment' }, person.comment) : null],
     actions: [h('button', { class: 'btn', type: 'button', onclick: () => drawer.close() }, 'Cancel'),
@@ -176,7 +179,7 @@ function editPerson(person) {
 // ---- Comments: read them, then delete them ----------------------------------
 
 function forgetComments(count) {
-  const dialog = openDialog({
+  const dialog = openDialog({ changes: true,
     title: `Delete the ${count} comment${count > 1 ? 's' : ''}?`,
     subtitle: 'Comments can mention health or other private matters, so they are not kept longer than needed.',
     body: [h('p', {}, 'They are deleted from this month, its backups and its undo history. This cannot be undone.'),
@@ -185,6 +188,7 @@ function forgetComments(count) {
       h('button', { class: 'btn', type: 'button', onclick: () => dialog.close() }, 'Cancel'),
       h('button', { class: 'btn primary danger', type: 'button', onclick: async () => {
         try {
+          needPen();  // another computer edits: say so, send nothing
           const result = await api.post(monthPath(state.month.id, '/availability/forget-comments'), {});
           setSession({ availability: result });
           setMonth(await api.get(monthPath(state.month.id)));
@@ -203,14 +207,22 @@ function commentsCard(data, comments) {
     h('div', { class: 'card-title' }, h('h2', {}, 'Comments'),
       h('span', { class: 'faint' }, comments.length ? `${toRead.length} to read of ${comments.length}` : '')),
     comments.length ? h('ul', { class: 'comment-list' }, comments.map((p) => h('li', { class: p.comment_done && 'done' },
-      h('input', { type: 'checkbox', checked: p.comment_done, 'aria-label': `Dealt with ${p.name}'s comment`, title: 'Dealt with',
-        onchange: (e) => send('comment', { person_id: p.id, done: e.target.checked }) }),
+      changes(h('input', { type: 'checkbox', checked: p.comment_done, 'aria-label': `Dealt with ${p.name}'s comment`, title: 'Dealt with',
+        onchange: async (e) => {
+          const box = e.currentTarget;
+          try {
+            await send('comment', { person_id: p.id, done: box.checked });
+          } catch (error) {
+            box.checked = !box.checked;  // as it still is
+            failed(error);
+          }
+        } })),
       h('div', {}, h('button', { class: 'link', type: 'button', onclick: () => editPerson(p) }, p.name), h('p', {}, p.comment)))))
       : h('p', { class: 'faint' }, 'No comment.'),
     h('div', { class: 'privacy-note' },
       h('span', {}, `Comments can be private (health…): they are deleted after ${formatDate(data.comments_until)}.`),
-      h('button', { class: 'btn small ghost danger', type: 'button', disabled: !comments.length,
-        onclick: () => forgetComments(comments.length) }, 'Delete all')));
+      changes(h('button', { class: 'btn small ghost danger', type: 'button', disabled: !comments.length,
+        onclick: () => forgetComments(comments.length) }, 'Delete all'))));
 }
 
 function silentCard(silent) {
@@ -271,7 +283,7 @@ export function mountAvailability(container) {
       return;
     }
     if (!data || data.title !== state.month.title) {
-      loadAvailability().catch((error) => toast(errorText(error), { tone: 'bad' }));
+      loadAvailability().catch((error) => failed(error));
       return;
     }
     const query = (state.session.availabilityQuery || '').toLowerCase();
@@ -290,14 +302,18 @@ export function mountAvailability(container) {
         h('span', { class: 'legend' }, h('span', { class: 'avail-mini' }, h('span', { class: 'away' }), h('span', {}), h('span', {})),
           'Each day: morning, afternoon, evening · red = away'),
         h('div', { class: 'page-actions' },
-          h('button', { class: 'btn primary', type: 'button', onclick: importReplies }, icon('users'), 'Import replies'),
+          changes(h('button', { class: 'btn primary', type: 'button', onclick: importReplies }, icon('users'), 'Import replies')),
           h('a', { class: 'btn', href: '#/build' }, 'Next: build the rota', icon('right')))),
       data.away_regulars ? h('div', { class: 'notice warn' },
         h('span', {}, `${data.away_regulars} shift(s) from the regular week fall on days the person is away.`),
-        h('button', { class: 'btn small', type: 'button', onclick: async () => {
-          const result = await send('free-regulars', {}, null);
-          toast(`${result.freed} shift(s) freed: they show “cover needed” on the rota`, { actionLabel: 'Undo', onAction: undoAvailability });
-        } }, 'Free them')) : null,
+        changes(h('button', { class: 'btn small', type: 'button', onclick: async () => {
+          try {
+            const result = await send('free-regulars', {}, null);
+            toast(`${result.freed} shift(s) freed: they show “cover needed” on the rota`, { actionLabel: 'Undo', onAction: undoAvailability });
+          } catch (error) {
+            failed(error);
+          }
+        } }, 'Free them'))) : null,
       h('div', { class: 'avail-body' },
         h('section', { class: 'avail-main' },
           h('div', { class: 'page-tools' },

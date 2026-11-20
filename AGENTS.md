@@ -112,6 +112,7 @@ rotaplanner/
   tls.py            encrypted connections with the certificate checked (mail, WebDAV)
   mail.py           optional: e-mailing each person their schedule
   updates.py        is there a newer version (git fetch), and installing it on a yes
+  desktop.py        the program on this computer: uninstalling from the window, the old Update icon
   editing.py        set-up changes: people, tasks, event types, print templates…
   solver.py         prefill, rebalance, shortages, ideas
   report.py tips.py view.py   what the Check screen, the Assistant and the grid show
@@ -249,18 +250,27 @@ cost a bug report.
   `data/.running` names a live Rota Planner (written by `__main__.mark_running`),
   copies the data with `transfer.keep_safety_copy` first (so that function's
   name and arguments must stay), and goes back if the new version does not
-  import. A new start file must be made executable there too. It also
+  import. A new start file must be made executable there too. It makes one
+  icon only ("Rota Planner"): new versions are offered in the browser and in
+  the window, never by a separate icon. It also
   installs what is missing (git, Python, Tk: system packages with `sudo` on
   Linux; Apple's developer tools and a python.org Python, checked as signed by
   the PSF and accepted by `spctl`, on a Mac), always after showing the command
   and asking, never running as root itself. `--uninstall` removes the program,
   only the icons and keys it made for this copy, and moves the data aside
   (`--delete-data`: deleted, after typing DELETE); it refuses while
-  `data/.running` names a live Rota Planner.
+  `data/.running` names a live Rota Planner. The window's "Uninstall…" runs
+  it (`desktop.uninstall`), after stopping everything that could write in the
+  data folder. With other computers it first sends the last changes and gives
+  the pen back (`Sync.farewell`): this computer's sealed file leaves the
+  meeting place only once no other computer is behind, and deleting the data
+  is refused while changes made here could not be sent. Uninstalling never
+  changes anything on the other computers.
 - **The control window (`window.py`) is Tk, from the standard library.**
   Shapes are painted by `paint.py` (Tk's own are jagged on Linux and
   Windows); colours are read from the tokens in `web/css/app.css`
-  (`window.palettes`), so the window follows any change there. Tk is touched only from its own thread: other threads set a
+  (`window.palettes`), so the window follows any change there. Its pages (status,
+  a new version, Uninstall, uninstalling, done) are built by `Window.show`. Tk is touched only from its own thread: other threads set a
   flag that `Window.tick` picks up. It shows, never decides: wording such as
   the other computers' status comes from Python (`sync.summary`, also used
   by the top bar). Without Tk 8.6 or a screen, `--window` falls back to the

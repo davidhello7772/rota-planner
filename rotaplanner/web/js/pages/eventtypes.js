@@ -1,12 +1,12 @@
 // Tasks & Areas › Event types: the kinds of event (Retreat, Festival…) and
 // the tasks such events need on top of the usual ones. An event of a type
 // starts with copies of these tasks, which can then be changed for it alone.
-import { badge, field, formError, openDialog, textInput, toggle } from '../components.js';
+import { badge, changes, field, formError, openDialog, textInput, toggle } from '../components.js';
 import { h } from '../dom.js';
 import { editEventTask, eventTaskRow } from '../eventtask.js';
 import { icon } from '../icons.js';
-import { errorText, saveSetup } from '../setup.js';
-import { state } from '../state.js';
+import { errorText, failed, saveSetup } from '../setup.js';
+import { setSession, state } from '../state.js';
 import { toast } from '../ui.js';
 
 const STARTERS = [
@@ -14,11 +14,14 @@ const STARTERS = [
   { name: 'Festival', big: true, tasks_on_main_rota: false, hint: 'A big event with many tasks of its own, printed on its own rota' },
 ];
 
+/** Resolves true when it was saved (otherwise it said why). */
 async function send(path, body, message) {
   try {
     await saveSetup(path, body, { message });
+    return true;
   } catch (error) {
-    toast(errorText(error), { tone: 'bad' });
+    failed(error);
+    return false;
   }
 }
 
@@ -39,14 +42,13 @@ function editType(type) {
       formError(dialog.panel.querySelector('.modal-body'), errorText(error));
     }
   };
-  const dialog = openDialog({
+  const dialog = openDialog({ changes: true,
     title: type ? type.name : 'New event type',
     subtitle: 'Events of this type start with its tasks; each event can then differ.',
     body: [field('Name', name), big, onMain,
       h('p', { class: 'field-hint' }, 'The tasks are always on the rota to fill (Build) and on the event’s own printout. This only decides the printed main rota; each event can still decide for itself.')],
     actions: [type ? h('button', { class: 'btn ghost danger', type: 'button', onclick: async () => {
-      await send('event-types/delete', { id: type.id }, `${type.name} removed · events already planned keep their tasks`);
-      dialog.close();
+      if (await send('event-types/delete', { id: type.id }, `${type.name} removed · events already planned keep their tasks`)) dialog.close();
     } }, 'Remove') : null,
     h('span', { class: 'spacer' }),
     h('button', { class: 'btn', type: 'button', onclick: () => dialog.close() }, 'Cancel'),
@@ -77,13 +79,14 @@ function typeCard(type, setup) {
       ? h('ul', { class: 'event-task-list' }, type.tasks.map((task, index) => eventTaskRow(task, {
         ...common,
         move: { up: index > 0 ? () => moveTask(index, -1) : null, down: index < type.tasks.length - 1 ? () => moveTask(index, 1) : null },
-        save: (fields) => saveTask(fields).catch((error) => toast(errorText(error), { tone: 'bad' })),
+        // Refused: drawn again (an empty change still redraws), so the row shows what is really saved.
+        save: (fields) => saveTask(fields).catch((error) => { failed(error); setSession({}); }),
         open: () => open(task),
         remove: () => send('event-types/tasks/delete', { type_id: type.id, id: task.id }, 'Task removed'),
       })))
       : h('p', { class: 'faint' }, 'No task yet: what does every event of this type need that the usual tasks do not cover?'),
     h('div', { class: 'card-actions' },
-      h('button', { class: 'btn small', type: 'button', onclick: () => open(null) }, icon('plus'), 'Add a task')));
+      changes(h('button', { class: 'btn small', type: 'button', onclick: () => open(null) }, icon('plus'), 'Add a task'))));
 }
 
 export function eventTypesBoard() {
@@ -94,13 +97,13 @@ export function eventTypesBoard() {
       h('h2', {}, 'No event type yet'),
       h('p', { class: 'muted' }, 'A type keeps the tasks that events of that kind need, so a new retreat or festival gets them in one click. Start from one of these, or from scratch:'),
       h('div', { class: 'starter-row' },
-        STARTERS.map((starter) => h('button', { class: 'starter', type: 'button',
+        STARTERS.map((starter) => changes(h('button', { class: 'starter', type: 'button',
           onclick: () => send('event-types/save', { type: starter }, `${starter.name} added: now give it its tasks`) },
-        h('strong', {}, starter.name), h('span', { class: 'muted' }, starter.hint))),
-        h('button', { class: 'starter', type: 'button', onclick: () => editType(null) },
-          h('strong', {}, 'Another type…'), h('span', { class: 'muted' }, 'Course, open day, working weekend…'))));
+        h('strong', {}, starter.name), h('span', { class: 'muted' }, starter.hint)))),
+        changes(h('button', { class: 'starter', type: 'button', onclick: () => editType(null) },
+          h('strong', {}, 'Another type…'), h('span', { class: 'muted' }, 'Course, open day, working weekend…')))));
   }
   return h('div', { class: 'type-cards' },
     types.map((type) => typeCard(type, setup)),
-    h('button', { class: 'card type-card add-type', type: 'button', onclick: () => editType(null) }, icon('plus'), 'New event type'));
+    changes(h('button', { class: 'card type-card add-type', type: 'button', onclick: () => editType(null) }, icon('plus'), 'New event type')));
 }

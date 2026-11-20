@@ -107,12 +107,12 @@ class InstallerTest(unittest.TestCase):
         self.assertIn("Rota Planner is installed", run.stdout)
         self.assertTrue((self.folder / "run.py").exists())
         self.assertEqual(git(self.folder, "config", "pull.ff"), "only")
+        self.assertNotIn("Update Rota Planner", run.stdout)
         if sys.platform == "darwin":
-            self.assertTrue((self.home / "Applications" / "Update Rota Planner.app").exists())
+            self.assertFalse((self.home / "Applications" / "Update Rota Planner.app").exists())
         else:
             apps = self.home / ".local" / "share" / "applications"
-            entry = (apps / "rota-planner-update.desktop").read_text()
-            self.assertIn(f'--update --wait --folder "{self.folder}"', entry)
+            self.assertFalse((apps / "rota-planner-update.desktop").exists())  # new versions: in Rota Planner itself
             start = (apps / "rota-planner.desktop").read_text()
             self.assertIn(f'Exec="{self.folder}/rota-planner.sh"', start)
             self.assertIn("Terminal=true", start)
@@ -120,7 +120,7 @@ class InstallerTest(unittest.TestCase):
             self.assertTrue(icon.read_bytes().startswith(b"\x89PNG"))
             self.assertIn(f"Icon={icon}", start)
             if shutil.which("desktop-file-validate"):
-                for name in ("rota-planner.desktop", "rota-planner-update.desktop"):
+                for name in ("rota-planner.desktop",):
                     check = subprocess.run(["desktop-file-validate", str(apps / name)], capture_output=True, text=True)
                     self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
         again = self.run_script("--update", script=self.folder / SCRIPT)
@@ -181,16 +181,14 @@ class InstallerTest(unittest.TestCase):
         self.assertIn(f'"{self.folder}/run.py"', start)
         self.assertIn("Terminal=false", start)
         self.assertIn("StartupWMClass=Rota-planner\n", start)  # the window's class: the taskbar shows this icon
-        update = (self.home / ".local" / "share" / "applications" / "rota-planner-update.desktop").read_text()
-        self.assertIn("Terminal=true", update)  # the update shows what it does
-        self.assertNotIn("StartupWMClass", update)  # a terminal: it must not claim the window
 
     def test_mac_icons(self):
         import plistlib
         self.install(ROTA_INSTALL_LAUNCHERS="mac", ROTA_INSTALL_WINDOW="no")
         apps = self.home / "Applications"
-        start, update = apps / "Rota Planner.app", apps / "Update Rota Planner.app"
-        for app, role in ((start, "start"), (update, "update")):
+        start = apps / "Rota Planner.app"
+        self.assertFalse((apps / "Update Rota Planner.app").exists())
+        for app, role in ((start, "start"),):
             with open(app / "Contents" / "Info.plist", "rb") as plist:
                 info = plistlib.load(plist)
             self.assertEqual(info["CFBundleExecutable"], "launch")
@@ -201,10 +199,6 @@ class InstallerTest(unittest.TestCase):
             self.assertEqual(check.returncode, 0)
         self.assertIn(f'exec /usr/bin/open "{self.folder}/Rota Planner.command"',
                       (start / "Contents" / "MacOS" / "launch").read_text())
-        command = update / "Contents" / "Resources" / "Update Rota Planner.command"
-        self.assertTrue(os.access(command, os.X_OK))
-        self.assertIn(f'"{self.folder}/install-rota-planner.sh" --update --wait --folder "{self.folder}"',
-                      command.read_text())
         self.assertTrue(os.access(self.folder / "Rota Planner.command", os.X_OK))
         # An app of the same name that this installer did not make is left alone, and said so.
         shutil.rmtree(start)
@@ -213,6 +207,37 @@ class InstallerTest(unittest.TestCase):
         run = self.run_script("--update", script=self.folder / SCRIPT, ROTA_INSTALL_LAUNCHERS="mac")
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
         self.assertEqual((start / "Contents" / "Info.plist").read_text(), "someone else's")
+
+    def _old_update_launcher(self, folder, mac):
+        """The "Update Rota Planner" icon an older version made for ``folder``."""
+        if mac:
+            app = self.home / "Applications" / "Update Rota Planner.app"
+            (app / "Contents" / "Resources").mkdir(parents=True)
+            (app / "Contents" / "Info.plist").write_text("<string>local.rotaplanner.update</string>")
+            (app / "Contents" / "Resources" / "Update Rota Planner.command").write_text(
+                f'#!/bin/sh\nexec /bin/bash "{folder}/install-rota-planner.sh" --update --wait --folder "{folder}"\n')
+            return app
+        entry = self.home / ".local" / "share" / "applications" / "rota-planner-update.desktop"
+        entry.write_text(f"[Desktop Entry]\nName=Update Rota Planner\nPath={folder}\n")
+        return entry
+
+    def test_the_old_update_icon_goes_when_updating(self):
+        for mac in (False, True):
+            with self.subTest(mac=mac):
+                launchers = "mac" if mac else "linux"
+                if not self.folder.exists():
+                    self.install(ROTA_INSTALL_LAUNCHERS=launchers, ROTA_INSTALL_WINDOW="no")
+                old = self._old_update_launcher(self.folder, mac)
+                run = self.run_script("--update", script=self.folder / SCRIPT, ROTA_INSTALL_LAUNCHERS=launchers,
+                                      ROTA_INSTALL_WINDOW="no")
+                self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+                self.assertFalse(old.exists())
+                # One made for another copy is left alone.
+                other = self._old_update_launcher(self.home / "Other copy", mac)
+                run = self.run_script("--update", script=self.folder / SCRIPT, ROTA_INSTALL_LAUNCHERS=launchers,
+                                      ROTA_INSTALL_WINDOW="no")
+                self.assertTrue(other.exists())
+                shutil.rmtree(other) if other.is_dir() else other.unlink()
 
     def test_changed_program_files_are_never_overwritten(self):
         self.install()
@@ -331,6 +356,52 @@ class InstallerTest(unittest.TestCase):
         self.assertFalse([p for p in self.home.iterdir() if p.name.startswith("Rota Planner data")])
         self.assertFalse(mine.exists())
         self.assertTrue(other.exists())  # the other computer's file is never touched
+
+    def _paired(self):
+        """This copy and another computer, set up to share through a folder."""
+        from rotaplanner.sync import Sync
+        shared = self.tmp / "shared"
+        shared.mkdir()
+        here = Sync(Store(self.folder / "data"))
+        code = here.start("This one", str(shared))
+        other_store = Store(self.tmp / "other")
+        other = Sync(other_store)
+        other.join("Office laptop", str(shared), code)
+        other.apply(other.preview()["plan"], {})  # it takes everything this copy has
+        other.exchange()
+        here.exchange()
+        return shared, here, other, other_store
+
+    def test_uninstall_leaves_the_meeting_place_once_the_others_have_everything(self):
+        self._with_data_and_key()
+        shared, here, other, _ = self._paired()
+        mine = shared / f"rota-{here.state['computer_id']}.rpsync"
+        self.assertTrue(mine.exists())
+        result = self.tmp / "result.txt"
+        run = self.uninstall("--yes", "--result", str(result))  # keeping the data
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertFalse(mine.exists())
+        self.assertTrue((shared / f"rota-{other.state['computer_id']}.rpsync").exists())
+        self.assertIn("every other computer has its changes", run.stdout)
+        lines = dict(line.split("=", 1) for line in result.read_text().splitlines())
+        self.assertEqual(lines["status"], "done")
+        self.assertEqual(lines["sync"], "left")
+        self.assertTrue(lines["kept"].startswith(str(self.home / "Rota Planner data (kept ")))
+        self.assertTrue((Path(lines["kept"]) / "data" / "sync.json").exists())  # kept whole, to come back
+
+    def test_uninstall_keeps_its_file_for_a_computer_that_is_behind(self):
+        self._with_data_and_key()
+        shared, here, other, _ = self._paired()
+        Store(self.folder / "data").save_people(helpers.people())  # a change the other has not taken
+        here.exchange()
+        mine = shared / f"rota-{here.state['computer_id']}.rpsync"
+        result = self.tmp / "result.txt"
+        run = self.uninstall("--yes", "--delete-data", "--result", str(result))
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertTrue(mine.exists())  # the other computer still needs it
+        self.assertIn("Office laptop", run.stdout)
+        self.assertIn("sync=kept", result.read_text())
+        self.assertFalse(self.folder.exists())
 
     def test_uninstall_asks_first_and_waits_while_open(self):
         self._with_data_and_key()

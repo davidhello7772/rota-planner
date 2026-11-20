@@ -8,6 +8,7 @@ import { formatDate, h } from '../dom.js';
 import { icon } from '../icons.js';
 import { buildDayView } from './dayview.js';
 import { datesBetween, monthTitle } from './range.js';
+import { changes } from '../components.js';
 
 const SHORT = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short' });
 const short = (iso) => SHORT.format(new Date(`${iso}T12:00:00`));
@@ -46,10 +47,10 @@ export function buildEventView({ event, parts, currentId, ui, session, onCreate 
 function missingMonth(part, dates, onCreate) {
   const days = dates.filter((d) => d.startsWith(part.id));
   const which = days.length > 1 ? `${short(days[0])} – ${short(days.at(-1))}` : short(days[0]);
-  const button = h('button', { class: 'btn primary', type: 'button', onclick: async () => {
+  const button = changes(h('button', { class: 'btn primary', type: 'button', onclick: async () => {
     button.disabled = true;
     try { await onCreate(part.id); } finally { button.disabled = false; }
-  } }, `Create ${monthTitle(part.id)}`);
+  } }, `Create ${monthTitle(part.id)}`));
   return h('section', { class: 'card missing-month' },
     h('h3', {}, `${which}: ${monthTitle(part.id)} is not created yet`),
     h('p', { class: 'muted' }, 'Create it now to plan these days with the rest of the event. It starts with the same tasks as this month and the regular week; availability can be added later.'),

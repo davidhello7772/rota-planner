@@ -160,6 +160,30 @@ class TwoPrograms(unittest.TestCase):
         status, answer = self.call("b", "POST", "/api/sync/apply", {"plan": "whatever", "choices": {}})
         self.assertEqual(status, 400)  # no choice: no pen needed (here simply an out-of-date plan)
 
+    def test_keeping_a_restored_backup_needs_the_pen(self):
+        self.rounds()
+        self.call("a", "POST", "/api/people/save", {"person": {"id": "ana", "first_name": "Ana", "last_name": "Berg", "note": "x"}})
+        self.rounds()  # the office holds the pen
+        self.b.sync.state["hold"] = "restored"
+        status, answer = self.call("b", "POST", "/api/sync/options", {"resume": "mine"})
+        self.assertEqual((status, answer["kind"]), (423, "held"))
+        self.assertEqual(self.b.sync.state["hold"], "restored")  # nothing decided
+        self.call("a", "POST", "/api/sync/pen", {"action": "release"})
+        self.rounds()
+        # Nobody edits: kept, without first taking the others' newer data (which is what was not chosen).
+        self.assertEqual(self.call("b", "POST", "/api/sync/options", {"resume": "mine"})[0], 200)
+        self.assertEqual(self.b.sync.state["hold"], "")
+
+    def test_the_screen_is_told_to_only_look(self):
+        self.rounds()
+        self.assertFalse(self.call("b", "GET", "/api/sync/status")[1]["pen"]["read_only"])  # nobody edits
+        self.call("a", "POST", "/api/people/save", {"person": {"id": "ana", "first_name": "Ana", "last_name": "Berg", "note": "x"}})
+        self.rounds()
+        pen = self.call("b", "GET", "/api/sync/status")[1]["pen"]
+        self.assertTrue(pen["read_only"])
+        self.assertIn("Ask to edit", pen["how"])
+        self.assertFalse(self.call("a", "GET", "/api/sync/status")[1]["pen"]["read_only"])  # the one editing
+
     def test_test_the_connection(self):
         status, answer = self.call("a", "POST", "/api/sync/test", {"place": {"kind": "webdav", "url": self.dav.url, "user": USER, "password": "wrong"}})
         self.assertEqual(status, 400)

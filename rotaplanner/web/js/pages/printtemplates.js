@@ -2,12 +2,13 @@
 // paper (A3, A2 or A1 — those two on A3 sheets to join), which areas, and a
 // few options; printing is one click per template.
 import { api, monthPath, printUrl } from '../api.js';
-import { chipChoice, field, formError, openDialog, segmented, select, textInput, toggle } from '../components.js';
+import { changes, chipChoice, field, formError, openDialog, segmented, select, textInput, toggle } from '../components.js';
 import { h } from '../dom.js';
 import { icon } from '../icons.js';
-import { errorText } from '../setup.js';
+import { errorText, failed } from '../setup.js';
 import { setSession, state } from '../state.js';
 import { toast } from '../ui.js';
+import { needPen } from '../actions.js';
 
 const SIZE_CHOICES = [
   { value: 'a3', label: 'A3' }, { value: 'a2', label: 'A2' }, { value: 'a1', label: 'A1' }, { value: 'a4x2', label: 'A4 ×2' },
@@ -38,6 +39,7 @@ function paperDrawing(template) {
 }
 
 async function send(path, body, message) {
+  needPen();  // another computer edits: say so, send nothing
   const info = await api.post(`/api/${path}`, body);
   setSession({ exportsInfo: info });
   if (message) toast(message);
@@ -86,7 +88,7 @@ export function editTemplate(template, info, areas) {
       formError(dialog.panel.querySelector('.modal-body'), errorText(error));
     }
   };
-  const dialog = openDialog({
+  const dialog = openDialog({ changes: true,
     title: template ? template.name : 'New print template', wide: true,
     subtitle: 'Kept for every month. The grid is sized to fill the paper exactly.',
     body: [field('Name', name),
@@ -118,7 +120,7 @@ async function savePdf(template, button) {
     }
     toast(`Saved: ${result.name}`);
   } catch (error) {
-    toast(errorText(error), { tone: 'bad' });
+    failed(error);
   } finally {
     button.disabled = false;
   }
@@ -147,14 +149,14 @@ export function mainRotaCard(month, info) {
         info.pdf ? h('button', { class: 'btn small', type: 'button', onclick: (e) => savePdf(template, e.currentTarget) }, 'Save PDF') : null,
         h('button', { class: 'btn ghost icon-only small', type: 'button', 'aria-label': `Change ${template.name}`, title: 'Change',
           onclick: () => editTemplate(template, info, areas) }, icon('sliders')),
-        h('button', { class: 'btn ghost small', type: 'button', title: 'Make a copy to change',
-          onclick: () => send('print-templates/duplicate', { id: template.id }, 'Template duplicated').catch((e) => toast(errorText(e), { tone: 'bad' })) }, 'Duplicate')));
+        changes(h('button', { class: 'btn ghost small', type: 'button', title: 'Make a copy to change',
+          onclick: () => send('print-templates/duplicate', { id: template.id }, 'Template duplicated').catch((e) => failed(e)) }, 'Duplicate'))));
   };
   return h('section', { class: 'card main-rota-card' },
     h('div', { class: 'card-title' },
       h('div', {}, h('h2', {}, 'Main rota'),
         h('p', { class: 'muted' }, 'Tasks down, days across, sized to fill the paper. Grey: not needed · yellow: please sign up.')),
-      h('button', { class: 'btn', type: 'button', onclick: () => editTemplate(null, info, areas) }, icon('plus'), 'New print template')),
+      changes(h('button', { class: 'btn', type: 'button', onclick: () => editTemplate(null, info, areas) }, icon('plus'), 'New print template'))),
     info.templates.length ? h('ul', { class: 'template-list' }, info.templates.map(row))
       : h('p', { class: 'faint' }, 'No template: add one to choose the paper and the areas.'));
 }

@@ -6,10 +6,11 @@
 #     bash install-rota-planner.sh
 #
 # - On a computer without Rota Planner it installs it in "Rota Planner" in your
-#   home folder, and adds "Rota Planner" and "Update Rota Planner" to the
-#   Applications (Mac) or to the applications menu (Linux).
+#   home folder, and adds "Rota Planner" to the Applications (Mac) or to the
+#   applications menu (Linux).
 # - On a computer where it is installed it brings it up to date: the data is
 #   kept (a copy is saved in data/backups first) and only the program changes.
+#   (Rota Planner itself also offers new versions: in Settings, and in its window.)
 #
 # The program is downloaded from its GitHub repository. If the repository is
 # public, nothing more is needed. If it is private, a key is made for this
@@ -17,7 +18,7 @@
 # time, the script shows the key and how to add it on GitHub.
 #
 # Options:
-#   --update          only update an installed copy (what "Update Rota Planner" does)
+#   --update          only update an installed copy
 #   --folder DIR      where Rota Planner is, or goes (default: ~/Rota Planner)
 #   --from DIR        bring the data from another copy (for example one installed from a zip)
 #   --repo URL        download from another repository (default: the program's own)
@@ -26,6 +27,7 @@
 #                     the data is kept (moved aside) unless --delete-data is added too
 #   --delete-data     with --uninstall: also delete all the data (asks you to type DELETE)
 #   --yes             agree to the questions (for use without a Terminal)
+#   --result FILE     (for Rota Planner's window) write what the uninstall did, one name=value a line
 #
 # What Rota Planner needs (git, Python 3.9+ and, for its window, Tk) is installed
 # when missing, after showing how and asking: on Linux with the system's package
@@ -34,7 +36,8 @@
 # Foundation and accepted by the Mac before it is installed).
 #
 # This script runs outside Rota Planner, which can also update itself (Settings ›
-# Version and updates: the same steps, see rotaplanner/updates.py). Keep it working with the
+# Version and updates, or its window: the same steps, see rotaplanner/updates.py)
+# and uninstall itself from its window (rotaplanner/desktop.py runs --uninstall). Keep it working with the
 # Mac's own bash 3.2: no associative arrays, no ${x,,}, no mapfile.
 
 set -u
@@ -49,6 +52,7 @@ BUNDLE_ID="local.rotaplanner"
 WAIT=0
 YES=0          # --yes: agree to every question (for running without a Terminal)
 DELETE_DATA=0  # --delete-data: uninstall removes the data too
+RESULT=""      # --result: where the uninstall writes what it did (Rota Planner's window reads it)
 
 say() { printf '%s\n' "$*"; }
 
@@ -63,7 +67,14 @@ finish() {  # finish <exit code>
 die() {
   say ""
   say "$*"
+  report status refused
   finish 1
+}
+
+report() {  # report <name> <value>: one line of the --result file, if one was asked for
+  [ -n "$RESULT" ] || return 0
+  printf '%s=%s\n' "$1" "$2" >>"$RESULT" 2>/dev/null
+  return 0
 }
 
 ask_yes() {  # ask_yes "Question?" -> true for yes (the default)
@@ -375,9 +386,17 @@ mac_python() {  # the newest Python 3.13 from python.org, checked before it is i
 
 # -- uninstall ----------------------------------------------------------------
 
-leave_place() {  # leave_place <folder>: this computer's sealed files leave the server or shared folder
+LEFT_FOR=""  # set by leave_place: the other computers that still need this one's file
+
+leave_place() {  # leave_place <folder>: send the last changes, give the pen back, and take this
+  # computer's sealed files away from the meeting place once every other computer has them.
+  # Returns 0 (gone, or never shared), 3 (kept for $LEFT_FOR), 4 (changes not sent), 1 (not removed).
   have_python || return 1
-  (cd "$1" && python3 -I -c 'import sys; sys.path.insert(0, "."); from rotaplanner.sync import main; sys.exit(main(["leave", "data"]))') >/dev/null 2>&1
+  local said code
+  said=$(cd "$1" && python3 -I -c 'import sys; sys.path.insert(0, "."); from rotaplanner.sync import main; sys.exit(main(["leave", "data"]))' 2>/dev/null)
+  code=$?
+  LEFT_FOR="$said"
+  return "$code"
 }
 
 ours() {  # ours <launcher file> <folder>: made by this installer for exactly this copy?
@@ -386,14 +405,32 @@ ours() {  # ours <launcher file> <folder>: made by this installer for exactly th
 
 OTHER_COPY=0  # set by remove_launchers: the icons belong to another installed copy
 
+mac_ours() {  # mac_ours <app> <folder>: an app this installer made for exactly this copy?
+  grep -q "$BUNDLE_ID" "$1/Contents/Info.plist" 2>/dev/null \
+    && grep -rqF "\"$2/" "$1/Contents/MacOS" "$1/Contents/Resources" 2>/dev/null  # "<folder>/…"
+}
+
+remove_old_update_launcher() {  # remove_old_update_launcher <folder>: "Update Rota Planner" is no
+  # longer made (Rota Planner offers new versions itself); the one older versions made for this copy goes.
+  local old
+  if [ "$LAUNCHERS" = mac ]; then
+    old="$HOME/Applications/Update Rota Planner.app"
+    [ -d "$old" ] && mac_ours "$old" "$1" && rm -rf -- "$old"
+  else
+    old="${XDG_DATA_HOME:-$HOME/.local/share}/applications/rota-planner-update.desktop"
+    [ -f "$old" ] && ours "$old" "$1" && rm -f -- "$old"
+  fi
+  return 0
+}
+
 remove_launchers() {  # remove_launchers <folder>: only the icons made for this copy
   local name app share
   if [ "$LAUNCHERS" = mac ]; then
-    for name in "Rota Planner" "Update Rota Planner"; do
+    for name in "Rota Planner" "Update Rota Planner"; do  # (the second: made by older versions)
       app="$HOME/Applications/$name.app"
       [ -d "$app" ] || continue
       grep -q "$BUNDLE_ID" "$app/Contents/Info.plist" 2>/dev/null || continue
-      if grep -rqF "\"$1/" "$app/Contents/MacOS" "$app/Contents/Resources" 2>/dev/null; then  # "<folder>/…"
+      if mac_ours "$app" "$1"; then
         rm -rf -- "$app"
       else
         OTHER_COPY=1
@@ -401,7 +438,7 @@ remove_launchers() {  # remove_launchers <folder>: only the icons made for this 
     done
   else
     share="${XDG_DATA_HOME:-$HOME/.local/share}"
-    for name in rota-planner.desktop rota-planner-update.desktop; do
+    for name in rota-planner.desktop rota-planner-update.desktop; do  # (the second: made by older versions)
       [ -f "$share/applications/$name" ] || continue
       if ours "$share/applications/$name" "$1"; then
         rm -f -- "$share/applications/$name"
@@ -447,12 +484,11 @@ so it was not removed. Nothing was removed."
 
   say "Uninstalling Rota Planner removes:"
   say "  - the program: $folder"
-  say "  - its icons, \"Rota Planner\" and \"Update Rota Planner\""
+  say "  - its icon, \"Rota Planner\""
   [ -f "$HOME/.ssh/$KEY_NAME" ] && say "  - this computer's download key ($HOME/.ssh/$KEY_NAME)"
   if [ "$has_data" = 1 ]; then
     if [ "$DELETE_DATA" = 1 ]; then
       say "  - ALL ITS DATA: people, rotas, settings, backups and saved documents."
-      [ -n "$sync_file" ] && say "  - this computer's sealed file at the meeting place (the server or shared folder)"
       say "    This cannot be undone."
     else
       keep="$HOME/Rota Planner data (kept $(date +%Y-%m-%d))"
@@ -464,6 +500,12 @@ so it was not removed. Nothing was removed."
       say "To bring it back later: install again, then use --from \"$keep\"."
       say "(To delete the data as well, run the uninstall with --delete-data.)"
     fi
+  fi
+  if [ -n "$sync_file" ]; then
+    say ""
+    say "This computer shares the rota with other computers. Its last changes are sent and"
+    say "the pen given back first; its file leaves the meeting place once every other"
+    say "computer has taken them. Nothing changes on the other computers."
   fi
   say ""
   if [ "$YES" != 1 ]; then
@@ -481,6 +523,23 @@ so it was not removed. Nothing was removed."
   fi
 
   cd "$HOME" || cd / || die "Could not leave the program's folder. Nothing was removed."
+  local shared=""  # what became of this computer's file at the meeting place
+  if [ -n "$sync_file" ]; then
+    say "Sending this computer's last changes to the other computers…"
+    leave_place "$folder"
+    case $? in
+      0) shared=left ;;
+      3) shared=kept ;;
+      4) shared=unsent ;;
+      *) shared=failed ;;
+    esac
+    if [ "$shared" = unsent ] && [ "$DELETE_DATA" = 1 ] && [ "$has_data" = 1 ]; then
+      die "This computer has changes the other computers have not received, and the meeting place
+cannot be reached now. Deleting the data would lose them. Connect to the internet and try
+again, or uninstall keeping the data. Nothing was removed."
+    fi
+    report sync "$shared"
+  fi
   if [ "$has_data" = 1 ] && [ -n "$keep" ]; then
     # The data first: if it cannot be put aside, nothing else is removed.
     (umask 077 && mkdir "$keep") || die "Could not make $keep. Nothing was removed."
@@ -488,12 +547,10 @@ so it was not removed. Nothing was removed."
     if [ -d "$data" ] && ! mv "$data" "$keep/data"; then
       die "Could not move the data to $keep. Nothing was removed."
     fi
+    report kept "$keep"
     if [ -d "$exports" ] && ! mv "$exports" "$keep/exports"; then
       die "Could not move the saved documents to $keep. The data is there; the program was not removed."
     fi
-  elif [ "$DELETE_DATA" = 1 ] && [ -n "$sync_file" ]; then
-    leave_place "$folder" || say "This computer's file could not be removed from the meeting place (no connection?):
-on another computer, Settings › Several computers › Details and options › Forget this computer removes it."
   fi
   remove_launchers "$folder"
   local had_key=0
@@ -505,13 +562,22 @@ on another computer, Settings › Several computers › Details and options › 
     rm -f -- "$HOME/.ssh/$KEY_NAME" "$HOME/.ssh/$KEY_NAME.pub" "$HOME/.ssh/rota-planner-known_hosts"
   fi
   rm -rf -- "$folder"
-  [ ! -e "$folder" ] || die "Some files of $folder could not be removed: delete the folder by hand."
+  if [ -e "$folder" ]; then
+    die "Some files of $folder could not be removed: delete the folder by hand."
+  fi
+  report status done
   say "Rota Planner is uninstalled."
   [ -n "$keep" ] && say "Your data is in: $keep"
-  if [ -n "$sync_file" ] && [ -n "$keep" ]; then
-    say "This computer's sealed file stays at the meeting place. If it will not be used with"
-    say "Rota Planner again: on another computer, Settings › Several computers › Forget this computer."
-  fi
+  case "$shared" in
+    left) say "Its file at the meeting place was removed: every other computer has its changes." ;;
+    kept) say "Not every other computer has taken this computer's last changes yet ($LEFT_FOR), so its"
+          say "file stays at the meeting place for them. Once they have: Settings › Several computers ›"
+          say "Forget this computer, on one of them." ;;
+    unsent) say "This computer's last changes could not be sent (no connection): they are only in the kept data."
+            say "Its file stays at the meeting place; on another computer, Forget this computer removes it." ;;
+    failed) say "This computer's file could not be removed from the meeting place (no connection?):"
+            say "on another computer, Settings › Several computers › Forget this computer removes it." ;;
+  esac
   say ""
   if [ "$had_key" = 1 ]; then
     say "On GitHub, you can also remove this computer's key: the repository › Settings ›"
@@ -574,7 +640,7 @@ Move it away, or choose another folder with --folder."
   say ""
   say "Rota Planner is installed."
   say "  Start it:   $(start_hint)"
-  say "  Update it:  $(update_hint)"
+  say "  New versions are offered in Rota Planner itself (its window, and Settings)."
   say ""
   if [ -t 0 ] && [ "$YES" != 1 ] && ask_yes "Start Rota Planner now?"; then  # never by --yes
     cd "$folder" || finish 1
@@ -758,11 +824,6 @@ start_hint() {
   else say "\"Rota Planner\" in the applications menu"; fi
 }
 
-update_hint() {
-  if [ "$LAUNCHERS" = mac ]; then say "\"Update Rota Planner\" in Applications"
-  else say "\"Update Rota Planner\" in the applications menu"; fi
-}
-
 WINDOW_PYTHON=""  # a Python that can show Rota Planner's window; empty: Terminal launchers
 PICKED=0
 
@@ -805,10 +866,10 @@ window_hint() {  # said when the icons cannot open the window
   say ""
   if [ "$SYSTEM" = mac ]; then
     say "Rota Planner will open in a Terminal window. For its own window (status, Start, Stop),"
-    say "install Python from https://www.python.org/downloads/ then run Update Rota Planner."
+    say "install Python from https://www.python.org/downloads/ then run this installer again."
   else
     say "Rota Planner will open in a terminal. For its own window (status, Start, Stop), install"
-    say "the package python3-tk (sudo apt install python3-tk), then run Update Rota Planner."
+    say "the package python3-tk (sudo apt install python3-tk), then run this installer again."
   fi
 }
 
@@ -832,8 +893,6 @@ make_launchers() {  # make_launchers <folder>
     fi
     mac_app "Rota Planner" "start" "$start" "$1" \
       || say "Note: $HOME/Applications/Rota Planner.app was not made by this installer and was left as it is."
-    mac_app "Update Rota Planner" "update" "" "$1" \
-      || say "Note: $HOME/Applications/Update Rota Planner.app was not made by this installer and was left as it is."
   else
     local share="${XDG_DATA_HOME:-$HOME/.local/share}"
     local apps="$share/applications" icon="$share/icons/rota-planner.png"
@@ -847,11 +906,9 @@ make_launchers() {  # make_launchers <folder>
       desktop_entry "$apps/rota-planner.desktop" "Rota Planner" "Prepare the monthly service rota" \
         "\"$1/rota-planner.sh\"" "$1" true "$icon"
     fi
-    desktop_entry "$apps/rota-planner-update.desktop" "Update Rota Planner" \
-      "Bring Rota Planner up to date (your data is kept)" \
-      "bash \"$1/install-rota-planner.sh\" --update --wait --folder \"$1\"" "$1" true "$icon"
     command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database -q "$apps" 2>/dev/null
   fi
+  remove_old_update_launcher "$1"
   return 0
 }
 
@@ -871,7 +928,7 @@ EOF
   [ -z "${8:-}" ] || printf 'StartupWMClass=%s\n' "$8" >>"$1"
 }
 
-mac_app() {  # mac_app <name> <role> <start command, or empty for the updater> <folder>
+mac_app() {  # mac_app <name> <role> <start command> <folder>
   local app="$HOME/Applications/$1.app"
   mkdir -p "$HOME/Applications" || return 1
   if [ -e "$app" ]; then
@@ -896,15 +953,7 @@ mac_app() {  # mac_app <name> <role> <start command, or empty for the updater> <
 </plist>
 EOF
   mac_icon "$4" "$app/Contents/Resources/icon.icns"
-  local start="$3"
-  if [ -z "$start" ]; then
-    # The update runs in a Terminal window, so what it says can be read.
-    local command="$app/Contents/Resources/Update Rota Planner.command"
-    printf '#!/bin/sh\nexec /bin/bash "%s/install-rota-planner.sh" --update --wait --folder "%s"\n' "$4" "$4" >"$command"
-    chmod +x "$command"
-    start=$(printf 'exec /usr/bin/open "%s"' "$command")
-  fi
-  printf '#!/bin/sh\n%s\n' "$start" >"$app/Contents/MacOS/launch"
+  printf '#!/bin/sh\n%s\n' "$3" >"$app/Contents/MacOS/launch"
   chmod +x "$app/Contents/MacOS/launch"
   touch "$app"
 }
@@ -928,6 +977,7 @@ main() {
       --uninstall) remove=1 ;;
       --delete-data) DELETE_DATA=1 ;;
       --yes) YES=1 ;;
+      --result) [ $# -ge 2 ] || die "--result needs a file."; RESULT="$2"; shift ;;
       --wait) WAIT=1 ;;
       --folder) [ $# -ge 2 ] || die "--folder needs a folder."; folder="$2"; shift ;;
       --from) [ $# -ge 2 ] || die "--from needs a folder."; from="$2"; shift ;;

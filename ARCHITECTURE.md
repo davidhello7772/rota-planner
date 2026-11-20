@@ -21,6 +21,7 @@ updates.py        is there a newer version, and installing it when asked
 instance.py       one Rota Planner per data folder: the lock, the wake-up door
 service.py        the web server, started and stopped on demand
 window.py paint.py   the control window (Tk) and its smooth shapes and icon
+desktop.py        the program on this computer: uninstalling from the window, the old Update icon
 mail.py           optional: e-mailing each person their schedule with their calendar file
 editing.py        set-up changes: people, skills, areas, tasks, regular week,
                   event types and their tasks, print templates
@@ -206,8 +207,14 @@ each other.
   rest): it takes the pen if free, answers 423 in plain words if not, and
   409 when newer data was taken on the way. Without connection there is no
   pen: looking only, unless "Work offline anyway" is chosen.
-- A computer that left shows as not seen and can be forgotten; stopping (or
-  uninstalling with `--delete-data`) removes this computer's own files.
+- A computer that left shows as not seen and can be forgotten; stopping
+  removes this computer's own files. Uninstalling (`Sync.farewell`, run by the
+  installer through `python3 -m rotaplanner.sync leave`) first sends what
+  changed and gives the pen back, then removes them only if no other computer
+  is behind (`Sync.behind`: one that has not taken a unit this computer sent,
+  or any unit whose versions differ): otherwise they stay, so that computer
+  still gets the changes, and the coordinator forgets this one there later.
+  Deleting the data is refused while changes made here could not be sent.
 - **Whoever can write at the place, without the key, can do nothing but be
   ignored.** What a file is (data or pen note), whose it is and, for a pen
   note, when it was written are inside the seal, and checked on every read:
@@ -229,8 +236,18 @@ request with a fixed "stopped" page before any token is looked at (giving the
 port up would let another account take it and receive the open tab's token);
 the port is given up only when the program ends. If the usual port was
 taken meanwhile when it starts again, the new one gets a new session token. `--window` shows the Tk control
-window (status light, address, Open, Start/Stop, several computers); closing
-it stops the server. SIGTERM ends the program
+window (status light, address, Open, Start/Stop, several computers, the
+version); closing it stops the server. It has pages: a new version (the same
+`Updates.install` as the browser's, with the version it listed) and, for a
+copy installed by the installer with its usual data (`desktop.supported`),
+Uninstall. What Uninstall says first comes from `desktop.advice` (a fresh
+`Sync.check_now`); then, from a thread: the server stops, the update loop
+stops (`Updates.stop`: nothing is written again), `Sync.goodbye` then
+`Sync.detach` (nothing is ever sent again from this process), the lock and
+`.running` go (`__main__.clear_running`), and `desktop.uninstall` runs the
+installer's `--uninstall --yes [--delete-data] --result FILE`. The window
+stays to show the outcome; the program's folder is already gone, so nothing
+is imported after that point, and `run` returns `UNINSTALLED`. SIGTERM ends the program
 cleanly (the notes in `data/` are removed). The installer points the icons at
 the window when a Python with Tk 8.6 is found (python.org's on a Mac, whose
 own Tk is too old), with the icon drawn by `paint.py`. On Linux the taskbar
@@ -267,9 +284,13 @@ program) to change, then reloads.
 
 ## Installing and updating (`install-rota-planner.sh`)
 
-One bash file, run by a person on a Mac or Linux computer; it is not part of
-the program (which looks for a newer version by itself and installs it on a
-yes: `updates.py`, the same steps as here). It installs
+One bash file, run by a person on a Mac or Linux computer, or by the window's
+Uninstall; it is not part of the program (which looks for a newer version by
+itself and installs it on a yes: `updates.py`, the same steps as here). It
+makes one icon, "Rota Planner": new versions are offered in the program
+itself, and the "Update Rota Planner" icon older versions made is removed
+(by `make_launchers`, and at the start of a version updated from inside the
+program, by `desktop.tidy_old_update_icon`), only when it names this copy. It installs
 with `git clone` and updates with `git fetch` + `merge --ff-only`, from the
 GitHub repository: over https when the repository is public; otherwise
 through a deploy key made for that computer (read only) and a pinned GitHub
@@ -295,9 +316,11 @@ newest python.org 3.13 installer, used only if `pkgutil` shows the Python
 Software Foundation's Developer ID and `spctl` accepts it. `--uninstall`
 moves `data/` and `exports/` to *~/Rota Planner data (kept <date>)* before
 removing anything (so a failure leaves everything in place), then removes the
-icons that name this folder, the deploy key and the program; with
-`--delete-data` it also removes this computer's sealed file from the meeting
-place (never another computer's). It works on the real folder (a link
+icons that name this folder, the deploy key and the program. Before that, a
+copy that shares with other computers says goodbye (`sync leave`, see
+above); with `--delete-data` it stops there if changes made here could not
+be sent. `--result FILE` writes `status=`, `kept=` and `sync=` lines for the
+window. It works on the real folder (a link
 is resolved), refuses a linked `data/` or `exports/`, and refuses a copy with
 program changes of its own (changed or new files, commits not on GitHub), as
 the update does. The python.org installer is checked and installed from a

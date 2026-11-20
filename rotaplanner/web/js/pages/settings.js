@@ -3,7 +3,7 @@
 // what is set up once (sending by e-mail, several computers, a backup copy) is
 // one line each, saying whether it is on, and its set-up opens in a window.
 // Four cards: Centre and hours, Schedules by e-mail, Your data, The program.
-import { formError, field, numberInput, textInput, toggle } from '../components.js';
+import { changes, field, formError, numberInput, textInput, toggle } from '../components.js';
 import { fill, h } from '../dom.js';
 import { mailLine } from '../mailer.js';
 import { syncLine } from '../syncsetup.js';
@@ -30,6 +30,7 @@ function saveBar(inputs, save) {
     note.textContent = dirty ? 'Not saved yet' : '';
   };
   inputs.forEach((el) => { el.addEventListener('input', show); el.addEventListener('change', show); });
+  [...inputs, button].forEach(changes);  // shared by every computer: only while this one may edit
   button.onclick = async () => {
     bar.querySelector('.form-error')?.remove();
     if (!changed()) { note.textContent = 'Nothing to save'; return; }
@@ -59,7 +60,7 @@ function card(id, title, lead, ...content) {
 function hoursCard(s, centreChanged) {
   const target = numberInput(s.default_target_hours, { min: 0, max: 300, step: 0.5 });
   const daily = numberInput(s.default_max_hours_per_day, { min: 0, max: 24, step: 0.5 });
-  const prorate = toggle('Lower the target of someone away part of the month', s.prorate_target);
+  const prorate = changes(toggle('Lower the target of someone away part of the month', s.prorate_target));
   const centre = textInput(s.centre_name, { maxlength: 120 });
   return card('hours', 'Centre and hours', 'What the program expects from each person. The suggestions and the checks use it.',
     h('div', { class: 'form-grid' },

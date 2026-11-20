@@ -2,7 +2,7 @@
 // a page that prints well (Print → Save as PDF works everywhere); when Edge,
 // Chrome or Chromium is installed, PDFs can also be saved in one click.
 import { api, monthPath, printUrl } from '../api.js';
-import { chipChoice, formError, openDialog, select, toggle } from '../components.js';
+import { changes, chipChoice, formError, openDialog, select, toggle } from '../components.js';
 import { fill, formatDate, h, replaceKeepingFocus } from '../dom.js';
 import { hint } from '../help.js';
 import { icon } from '../icons.js';
@@ -12,6 +12,7 @@ import { schedulesFinder } from '../schedules.js';
 import { loadMailInfo, openMailer } from '../mailer.js';
 import { settingsLink, toast } from '../ui.js';
 import { mainRotaCard } from './printtemplates.js';
+import { needPen } from '../actions.js';
 
 let checking = false;
 
@@ -93,7 +94,7 @@ function publishVersion(info, audience) {
   // Comments are still needed while the manager checks; once published, the rota is done.
   const forget = info.comments ? toggle(`Also delete the ${info.comments} availability comment${info.comments > 1 ? 's' : ''} now: they can mention health`
     + (forManager ? '' : ', and the rota is done'), !forManager) : null;
-  const dialog = openDialog({
+  const dialog = openDialog({ changes: true,
     title: forManager ? `Give version ${next} to the manager to check?` : `Publish version ${next} for the residents?`,
     subtitle: forManager
       ? `Printouts will say “Version ${next} to check”. What you change afterwards is marked ●, so the manager only looks at what moved.`
@@ -103,6 +104,7 @@ function publishVersion(info, audience) {
       h('button', { class: 'btn', type: 'button', onclick: () => dialog.close() }, 'Cancel'),
       h('button', { class: 'btn primary', type: 'button', onclick: async () => {
         try {
+          needPen();  // another computer edits: say so, send nothing
           await api.post(monthPath(state.month.id, '/versions/publish'), { audience, forget_comments: Boolean(forget?.input.checked) });
           setSession({ availability: null });
           setMonth(await api.get(monthPath(state.month.id)));  // its undo now includes this; versions reload
@@ -148,8 +150,8 @@ function versionsCard(info, summary) {
   // The expected next move is the strong button; the other stays possible.
   const managerNext = phase.state === 'draft';
   const again = phase.state === 'corrections' || phase.state === 'checking';
-  const button = (audience, label, primary) => h('button', { class: ['btn', primary && 'primary'], type: 'button',
-    onclick: () => publishVersion(info, audience) }, label);
+  const button = (audience, label, primary) => changes(h('button', { class: ['btn', primary && 'primary'], type: 'button',
+    onclick: () => publishVersion(info, audience) }, label));
   const count = info.changes.length;
   return h('section', { class: 'card versions-card' },
     h('div', { class: 'card-title' }, h('h2', {}, 'Where the rota stands', hint('versions')), readiness(summary)),
@@ -268,7 +270,7 @@ export function mountPublish(container) {
         h('div', { class: 'card-title' },
           h('div', {}, h('h2', {}, 'E-mail everyone their schedule'),
             h('p', { class: 'muted' }, `From ${mailInfo.address}: one message per person, with their shifts and their calendar file. You give the list of addresses; none is kept.`)),
-          h('button', { class: 'btn primary', type: 'button', onclick: openMailer }, icon('message'), 'Send by e-mail…')))
+          changes(h('button', { class: 'btn primary', type: 'button', onclick: openMailer }, icon('message'), 'Send by e-mail…'))))
         : h('p', { class: 'faint mail-off' }, ['Sending by e-mail from Rota Planner is not set up (optional). ', settingsLink('mail', 'Settings › Schedules by e-mail')]),
       h('section', { class: 'card schedules-card' },
         h('div', { class: 'card-title' },

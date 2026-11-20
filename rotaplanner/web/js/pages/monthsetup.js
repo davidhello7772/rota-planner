@@ -1,14 +1,14 @@
 // Set up: create next month in one click, then mark what is different
 // (events, closures, notes) on a calendar of the month.
-import { createMonth } from '../actions.js';
+import { createMonth, needPen } from '../actions.js';
 import { api, monthPath } from '../api.js';
-import { badge, chipChoice, field, formError, openDialog, segmented, select, textInput, toggle } from '../components.js';
+import { badge, changes, chipChoice, field, formError, openDialog, segmented, select, textInput, toggle } from '../components.js';
 import { fill, formatDate, formatHours, h } from '../dom.js';
 import { addDays } from '../build/range.js';
 import { editEventTask, eventTaskRow } from '../eventtask.js';
 import { hint } from '../help.js';
 import { icon } from '../icons.js';
-import { errorText } from '../setup.js';
+import { errorText, failed } from '../setup.js';
 import { setMonth, setSession, setUi, state } from '../state.js';
 import { openMenu, toast } from '../ui.js';
 
@@ -37,6 +37,7 @@ async function loadMonthSetup() {
 
 /** Send a change to the month; refresh the setup view and the rota. */
 async function changeMonth(path, body, message) {
+  needPen();  // another computer edits: say so, send nothing
   const setup = await api.post(monthPath(state.month.id, `/${path}`), body);
   // The event may have been copied to the next month: views of other months are loaded again.
   setSession({ monthSetup: setup, otherMonths: {} });
@@ -46,6 +47,7 @@ async function changeMonth(path, body, message) {
 }
 
 async function undoSetup() {
+  needPen();  // another computer edits: say so, send nothing
   setMonth(await api.post(monthPath(state.month.id, '/undo')));
   await loadMonthSetup();
 }
@@ -82,15 +84,15 @@ function createCard(info) {
   const source = h('select', { class: 'select', 'aria-label': 'Tasks and areas from' },
     info.sources.map((s) => h('option', { value: s.id, selected: s.id === info.default_source },
       `${s.label} · ${s.tasks} tasks${s.id === info.default_source ? ' (same as last month)' : ''}`)));
-  const button = h('button', { class: 'btn primary big', type: 'button', onclick: async () => {
+  const button = changes(h('button', { class: 'btn primary big', type: 'button', onclick: async () => {
     button.disabled = true;
     try {
       await createAndOpen(choice, source.value);
     } catch (error) {
       button.disabled = false;
-      toast(errorText(error), { tone: 'bad' });
+      failed(error);
     }
-  } }, `Create ${choice.title}`);
+  } }, `Create ${choice.title}`));
 
   return h('section', { class: 'card create-card' },
     h('div', { class: 'create-main' },
@@ -115,7 +117,7 @@ function dateBounds(setup) {
 function offerMissingMonths(missing, itemName) {
   if (!missing?.length) return;
   const names = missing.map((m) => m.title).join(' and ');
-  const dialog = openDialog({
+  const dialog = openDialog({ changes: true,
     title: `Create ${names} now?`,
     subtitle: `${itemName} runs into ${names}, which is not created yet.`,
     body: [h('p', {}, `Create it now to plan the whole event: it starts with the same tasks as ${state.month.title}, the regular week, and this event. Its days count in that month's hours.`),
@@ -145,7 +147,7 @@ export async function openEvent(eventId, { newTask = false } = {}) {
       setSession({ monthSetup: await api.get(monthPath(state.month.id, '/setup')) });
     }
   } catch (error) {
-    toast(errorText(error), { tone: 'bad' });
+    failed(error);
     return;
   }
   const event = state.session.monthSetup.events.find((e) => e.id === eventId);
@@ -200,7 +202,7 @@ export function editEvent(event, { justAdded = false, newTask = false } = {}) {
     await changeMonth('events/delete', { id: event.id }, event.tasks.length ? 'Event and its tasks removed' : 'Event removed');
     dialog.close();
   };
-  const dialog = openDialog({
+  const dialog = openDialog({ changes: true,
     title: event ? event.name : 'Add an event', wide: Boolean(event),
     subtitle: justAdded ? 'Event added. Its tasks are below: adjust them, or close.' : event ? '' : 'Choose its type to give it the tasks such events need.',
     body: [
@@ -229,12 +231,14 @@ function drawEventTasks(box, eventId) {
   const event = setup.events.find((e) => e.id === eventId);
   if (!event) return;
   const redraw = () => drawEventTasks(box, eventId);
-  const change = async (path, body, message) => {
+  const change = async (path, body, message) => {  // true when it was saved (otherwise it said why)
     try {
       await changeMonth(path, body, message);
       redraw();
+      return true;
     } catch (error) {
-      toast(errorText(error), { tone: 'bad' });
+      failed(error);
+      return false;
     }
   };
   const types = setup.event_types.filter((t) => t.tasks.length);
@@ -246,8 +250,12 @@ function drawEventTasks(box, eventId) {
     save: async (fields) => { await saveTask(fields, task ? 'Task changed' : 'Task added'); redraw(); },
     remove: task ? () => change('events/tasks/delete', { id: task.id }, 'Task removed') : null });
   const onMain = toggle('Print these tasks on the main rota too', event.tasks_on_main_rota,
-    (e) => change('events/save', { event: eventFields(event, { tasks_on_main_rota: e.target.checked }) },
-      e.target.checked ? 'Its tasks will be printed on the main rota too' : 'Its tasks will be printed on its own rota only'));
+    async (e) => {
+      const input = e.target;
+      const saved = await change('events/save', { event: eventFields(event, { tasks_on_main_rota: input.checked }) },
+        input.checked ? 'Its tasks will be printed on the main rota too' : 'Its tasks will be printed on its own rota only');
+      if (!saved) input.checked = !input.checked;  // as it still is
+    });
   const chooseType = (anchor) => openMenu(anchor,
     types.map((t) => ({ value: t.id, label: `${t.name} — ${t.tasks.map((x) => x.name).join(', ')}` })),
     (typeId) => change('events/tasks/add-type', { event_id: eventId, type_id: typeId }, 'Tasks added'));
@@ -261,7 +269,7 @@ function drawEventTasks(box, eventId) {
     event.tasks.length
       ? h('ul', { class: 'event-task-list' }, event.tasks.map((task) => eventTaskRow(task, {
         ...common,
-        save: (fields) => saveTask(fields).then(redraw).catch((error) => toast(errorText(error), { tone: 'bad' })),
+        save: (fields) => saveTask(fields).catch(failed).finally(redraw),  // also after a refusal: shows it as it still is
         open: () => open(task),
         remove: () => change('events/tasks/delete', { id: task.id }, 'Task removed'),
       })))
@@ -290,7 +298,7 @@ function saveAsType(event, ownType, onDone) {
       formError(dialog.panel.querySelector('.modal-body'), errorText(error));
     }
   };
-  const dialog = openDialog({
+  const dialog = openDialog({ changes: true,
     title: ownType ? `Update the ${ownType.name} type` : 'Save as an event type',
     subtitle: `${event.tasks.map((t) => t.name).join(', ')}.`,
     body: [field('Event type', name, 'The name of an existing type updates it.'), names,
@@ -336,7 +344,7 @@ function editMarker(marker, defaults = {}) {
     await changeMonth('markers/delete', { id: m.id }, 'Removed');
     dialog.close();
   };
-  const dialog = openDialog({
+  const dialog = openDialog({ changes: true,
     title: marker ? marker.label : 'Closure, off-rota event or note', wide: true,
     body: [kind, help, field('Label', label), h('div', { class: 'form-grid' }, field('First day', start), field('Last day', end)),
       h('h3', { class: 'form-section' }, 'Areas concerned'), h('p', { class: 'field-hint' }, 'None ticked: the whole centre.'), areas, keepBox],
@@ -356,7 +364,7 @@ function editDay(day) {
     await changeMonth('daytype', { date: day.date, day_type: kind.getValue() || null }, 'Day changed');
     dialog.close();
   };
-  const dialog = openDialog({
+  const dialog = openDialog({ changes: true,
     title: formatDate(day.date),
     subtitle: `${day.shifts} shifts · ${formatHours(day.hours)} of work · ${day.filled} filled`,
     body: [
@@ -418,7 +426,7 @@ function balance(setup) {
 
 function listSection(title, items, empty, render, addLabel, onAdd) {
   return h('section', { class: 'card' },
-    h('div', { class: 'card-title' }, h('h2', {}, title), h('button', { class: 'btn small', type: 'button', onclick: onAdd }, icon('plus'), addLabel)),
+    h('div', { class: 'card-title' }, h('h2', {}, title), changes(h('button', { class: 'btn small', type: 'button', onclick: onAdd }, icon('plus'), addLabel))),
     items.length ? h('ul', { class: 'item-list' }, items.map(render)) : h('p', { class: 'faint' }, empty));
 }
 
@@ -432,7 +440,7 @@ export function mountMonthSetup(container) {
     if (!info) loadNewMonth().catch(() => {});  // first time, or after a month was created
     let setup = state.session.monthSetup;
     if (state.month && setup?.id !== state.month.id) {
-      loadMonthSetup().catch((error) => toast(errorText(error), { tone: 'bad' }));
+      loadMonthSetup().catch((error) => failed(error));
       setup = null;
     }
     const range = (item) => (item.start === item.end ? formatDate(item.start) : `${formatDate(item.start)} – ${formatDate(item.end)}`);
@@ -442,8 +450,8 @@ export function mountMonthSetup(container) {
           h('p', { class: 'muted' }, 'Usually prepared around the 10th for the month after. When nothing changes, creating the month is enough.')),
         setup ? h('div', { class: 'page-actions' },
           h('a', { class: 'btn', href: '#/tasks' }, icon('layers'), 'Tasks of this month'),
-          h('button', { class: 'btn', type: 'button', title: 'Fill empty shifts from the regular week',
-            onclick: () => changeMonth('regulars/apply', {}, 'Regular week applied') }, icon('repeat'), 'Apply the regular week'),
+          changes(h('button', { class: 'btn', type: 'button', title: 'Fill empty shifts from the regular week',
+            onclick: () => changeMonth('regulars/apply', {}, 'Regular week applied') }, icon('repeat'), 'Apply the regular week')),
           h('a', { class: 'btn primary', href: '#/availability' }, 'Next: availability', icon('right'))) : null),
       info ? createCard(info) : null,
       setup ? balance(setup) : null,
