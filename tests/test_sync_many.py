@@ -126,7 +126,11 @@ class ThreeComputersTest(Computers):
         self.round()
         self.assertEqual(self.states(self.a), {PEOPLE: "get"})
         self.assertEqual(self.states(self.b), {PEOPLE: "sent"})
-        self.assertEqual([c["state"] for c in self.b.status()["others"]], ["behind", "behind"])
+        status = self.b.status()
+        self.assertEqual([c["state"] for c in status["others"]], ["behind", "behind"])
+        self.assertIn(" and ", status["summary"][2])  # both are named as not having taken it yet
+        self.assertEqual((status["me"]["text"], status["me"]["editing"]), ("Up to date", False))
+        self.assertFalse(self.a.status()["needs_choice"])  # taken by itself: nothing to decide
         done = self.a.apply_automatic()
         self.assertEqual((done["taken"], done["from"]), (["People"], ["Front desk"]))
         self.assertIn("Took People from Front desk.", [e["text"] for e in self.a.status()["log"]])
@@ -141,6 +145,7 @@ class ThreeComputersTest(Computers):
         self.settle()
         for one in self.syncs:
             self.assertEqual(self.states(one), {DECEMBER: "both"})
+            self.assertTrue(one.status()["needs_choice"])
         self.assertEqual(self.c.apply_automatic()["taken"], [])  # never by itself
         preview = self.c.preview()
         choices = {c["name"]: c["id"] for c in preview["items"][0]["choices"]}
@@ -285,6 +290,7 @@ class ThreeComputersTest(Computers):
         self.b.set_auto(False)
         self.round()
         self.assertEqual(self.b.apply_automatic()["taken"], [])
+        self.assertTrue(self.b.status()["needs_choice"])  # newer data waits for the coordinator
         self.assertEqual(len(self.c.apply_automatic()["taken"]), 3)
 
 
@@ -333,8 +339,13 @@ class WebDavTest(Computers):
         self.server.mode = "auth"
         self.a.exchange()
         status = self.a.status()
-        self.assertEqual((status["kind"], status["summary"][:2]), ("auth", ["Sync: look", "bad"]))
+        self.assertEqual((status["kind"], status["summary"][:2]), ("auth", ["Needs attention", "bad"]))
         self.assertIn("app password", status["problem"])
+        self.assertEqual((status["to_fix"], status["passing"]), (True, False))  # for the coordinator, in Settings
+        self.server.mode = "down"
+        self.a.exchange()
+        status = self.a.status()
+        self.assertEqual((status["to_fix"], status["passing"]), (False, True))  # passes by itself
 
     def test_a_sign_in_page_is_not_taken_for_an_empty_server(self):
         self.settle()

@@ -234,6 +234,11 @@ a.btn { text-decoration: none; }
 .page h1 { margin: 0 0 var(--space-2); font-size: var(--fs-xl); }
 .empty { margin: auto; max-width: 30rem; text-align: center; color: var(--text-2); }
 @media (max-width: 1200px) { .topbar-label { display: none; } }
+/* A narrow window: the bar takes two lines rather than pushing the page sideways. */
+@media (max-width: 1000px) {
+  .topbar { flex-wrap: wrap; height: auto; min-height: var(--topbar-h); padding-block: var(--space-1); row-gap: var(--space-1); }
+  .stepper { margin-left: 0; }
+}
 
 /* ---- Password screen ---------------------------------------------------- */
 .login-page { grid-column: 1 / -1; min-height: 100vh; display: grid; place-items: center; padding: var(--space-4); background: var(--bg); }
@@ -244,13 +249,14 @@ a.btn { text-decoration: none; }
 .login-card .faint { margin: var(--space-2) 0 0; font-size: var(--fs-xs); overflow-wrap: anywhere; }
 .login-message { margin: 0; min-height: 1.2em; color: var(--bad); font-size: var(--fs-sm); }
 
-/* ---- Synchronisation: pill in the top bar, banner, window ------------------ */
-.sync-pill { border: 1px solid var(--line); }
+/* ---- Other computers: the cloud in the top bar, the banners, the choice ---- */
+.sync-pill { border: 1px solid var(--line); text-decoration: none; }
 .sync-pill.ok { color: var(--ok); }
+.sync-pill.offline { color: var(--text-2); border-style: dashed; }
+.sync-pill.sending { color: var(--accent); }
 .sync-pill.warn { color: var(--warn); background: var(--warn-weak); border-color: var(--warn-line); }
 .sync-pill.bad { color: var(--bad); background: var(--bad-weak); border-color: var(--bad-line); }
-.sync-slot { padding: var(--space-2) var(--space-6) 0; }
-.sync-slot[hidden] { display: none; }
+.sync-slot { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-2) var(--space-6) 0; }
 .sync-banner > svg { flex: none; width: 1rem; height: 1rem; color: var(--warn); }
 .sync-banner > span { flex: 1; min-width: 0; }
 .sync-body { display: flex; flex-direction: column; gap: var(--space-2); }
@@ -280,18 +286,13 @@ a.btn { text-decoration: none; }
   .phase-line { width: 0; min-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 }
 
-/* ---- Other computers: the cloud, who is editing, the banners ---- */
-.sync-pill { text-decoration: none; }
-.sync-pill.offline { color: var(--text-2); border-style: dashed; }
-.sync-pill.sending { color: var(--accent); }
+/* ---- Other computers: who is editing (the pen) ---- */
 .pen-chip { display: inline-flex; align-items: center; gap: var(--space-2); height: var(--control-h); padding: 0 var(--space-2) 0 var(--space-3); border-radius: 999px; font-size: var(--fs-sm); font-weight: 600; white-space: nowrap; }
-.pen-chip[hidden] { display: none; }
 .pen-chip svg { flex: none; width: 1rem; height: 1rem; }
 .pen-chip.mine { background: var(--accent-weak); color: var(--accent); border: 1px solid var(--accent-line); }
 .pen-chip.other { background: var(--chip); color: var(--text-2); padding-right: var(--space-3); }
 .pen-chip.offline { background: var(--warn-weak); color: var(--warn); border: 1px solid var(--warn-line); }
 .pen-chip .btn.small { height: 1.5rem; }
-.sync-slot { display: flex; flex-direction: column; gap: var(--space-2); }
 .look-bar { background: var(--chip); color: var(--text-2); border: 1px solid var(--line); }
 .look-bar > svg { flex: none; width: 1rem; height: 1rem; }
 .look-bar > span { flex: 1; min-width: 0; }

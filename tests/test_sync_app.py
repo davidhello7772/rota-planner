@@ -124,15 +124,16 @@ class TwoPrograms(unittest.TestCase):
         self.assertEqual(self.call("b", "POST", "/api/people/save", change)[0], 200)
 
     def test_which_requests_need_the_pen_or_this_computer(self):
-        for path in ("/api/sync/apply", "/api/sync/pen", "/api/mail/test", "/api/data/export",
+        for path in ("/api/sync/apply", "/api/sync/pen", "/api/mail/test", "/api/data/export", "/api/import/workbook/preview",
                      "/api/months/2026-12/availability/preview", "/api/months/2026-12/export"):
             self.assertIsNotNone(PEN_FREE.fullmatch(path), path)
         for path in ("/api/people/save", "/api/months/2026-12/assign", "/api/months/2026-12/undo",
-                     "/api/data/import/apply", "/api/months/create", "/api/months/2026-12/mail/send"):
+                     "/api/data/import/apply", "/api/months/create", "/api/months/2026-12/mail/send", "/api/import/workbook"):
             self.assertIsNone(PEN_FREE.fullmatch(path), path)
         for path in ("/api/sync/setup", "/api/sync/test", "/api/sync/forget", "/api/sync/stop", "/api/sync/options"):
             self.assertTrue(local_only(path), path)
-        self.assertFalse(local_only("/api/sync/pen"))
+        for path in ("/api/sync/pen", "/api/sync/status", "/api/sync/apply", "/api/people/save"):
+            self.assertFalse(local_only(path), path)
 
     def test_choosing_between_versions_needs_the_pen(self):
         self.rounds()

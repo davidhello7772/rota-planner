@@ -16,7 +16,13 @@ availability.py   reading the availability form's replies, matching by e-mail fi
 emails.py         e-mail addresses kept only as one-way fingerprints
 access.py         who may connect (this computer / allowed addresses), password, sessions
 firewall.py       looking at the firewall (read only) and the narrowest command to suggest
-sync.py           two copies kept in step through a shared folder (encrypted file per computer)
+sync.py           several computers kept in step through a meeting place (one sealed file each), the pen
+places.py         the meeting place: a shared folder or a WebDAV server
+tls.py            encrypted connections with the certificate checked (mail, WebDAV)
+updates.py        is there a newer version, and installing it when asked
+instance.py       one Rota Planner per data folder: the lock, the wake-up door
+service.py        the web server, started and stopped on demand
+window.py paint.py   the control window (Tk) and its smooth shapes and icon
 mail.py           optional: e-mailing each person their schedule with their calendar file
 editing.py        set-up changes: people, skills, areas, tasks, regular week,
                   event types and their tasks, print templates
@@ -77,7 +83,7 @@ script goes inside the files turned into PDF.
 
 Every constraint is one small function in `eligibility.RULES`, returning a
 `Finding` (block, warn or note) or `None`. The same list drives the candidate
-picker, the checks and (later) the solver. To add a rule: write the function,
+picker, the checks and the solver. To add a rule: write the function,
 add it to `RULES`, add a test in `tests/test_rules.py`.
 
 ## Data format
@@ -230,16 +236,44 @@ port up would let another account take it and receive the open tab's token);
 the port is given up only when the program ends. When Settings › Access
 changes the address it listens again on the same port; if that port was
 taken meanwhile, the new one gets a new session token and all sessions end. `--window` shows the Tk control
-window (status light, address, Open, Start/Stop, who can use it, second
-computer, data folder); closing it stops the server. SIGTERM ends the program
+window (status light, address, Open, Start/Stop, who can use it, the other
+computers, data folder); closing it stops the server. SIGTERM ends the program
 cleanly (the notes in `data/` are removed). The installer points the icons at
 the window when a Python with Tk 8.6 is found (python.org's on a Mac, whose
 own Tk is too old), with the icon drawn by `paint.py`.
 
+## A newer version (`updates.py`)
+
+For a copy installed with git. *Looking* is a `git fetch` of the program's
+own repository (once a day unless turned off, or on "Check now"), then a
+count and the subjects of the commits this copy does not have: commit
+subjects are written for the user, so they are the "what is new" list.
+`info()` never touches the network. *Installing* happens only on a yes, on
+the computer where the program runs, with the installer's steps in the
+installer's order: refuse hand-changed program files, a history that is not
+a fast-forward, and a version that holds files in the data folders (names
+compared without their case); copy the data (`before-update-…zip`, the only
+moment `app.lock` is held); `merge --ff-only`; compile (in memory) and import
+the new version in another process, and `reset --hard` back if it does not
+load, removing every `__pycache__` so no compiled file of the version taken
+back is trusted. The page sends the version it listed (`target`): if the
+repository moved on meanwhile, nothing is installed and the list is shown
+again. Then `Updates.restart` is set: the terminal loop or the window ends a
+second later, the pen is given back, and `__main__.start_again` replaces the
+process (`os.execv`; a new process on Windows). The command is rebuilt from
+the parsed arguments (`restart_command`): the same data folder by its full
+path, the port in use, the window if it had one, `--no-browser`, and never a
+`--reset-…`. `--after-update` tells the new process which port the open page
+expects: if it had to take another one, the session token is renewed (the
+port was free for a moment, and whoever took it may have received the
+token). The page waits for `boot` (a random name for each run of the
+program) to change, then reloads.
+
 ## Installing and updating (`install-rota-planner.sh`)
 
 One bash file, run by a person on a Mac or Linux computer; it is not part of
-the program, which never connects anywhere to look for updates. It installs
+the program (which looks for a newer version by itself and installs it on a
+yes: `updates.py`, the same steps as here). It installs
 with `git clone` and updates with `git fetch` + `merge --ff-only`, from the
 GitHub repository: over https when the repository is public; otherwise
 through a deploy key made for that computer (read only) and a pinned GitHub
@@ -266,8 +300,8 @@ Software Foundation's Developer ID and `spctl` accepts it. `--uninstall`
 moves `data/` and `exports/` to *~/Rota Planner data (kept <date>)* before
 removing anything (so a failure leaves everything in place), then removes the
 icons that name this folder, the deploy key and the program; with
-`--delete-data` it also deletes this computer's encrypted file in the shared
-sync folder (never the other computer's). It works on the real folder (a link
+`--delete-data` it also removes this computer's sealed file from the meeting
+place (never another computer's). It works on the real folder (a link
 is resolved), refuses a linked `data/` or `exports/`, and refuses a copy with
 program changes of its own (changed or new files, commits not on GitHub), as
 the update does. The python.org installer is checked and installed from a

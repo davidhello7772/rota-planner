@@ -19,6 +19,18 @@ export function toast(message, { actionLabel, onAction, tone = '' } = {}) {
   timer = setTimeout(dismiss, tone === 'bad' ? 8000 : 5000);
 }
 
+/** Copies a text and says so, or says how to do it by hand. True when it was copied. */
+export async function copyText(text, done = 'Copied') {
+  try {
+    await navigator.clipboard.writeText(text);
+    toast(done);
+    return true;
+  } catch {
+    toast('Could not copy: select the text and press Ctrl C', { tone: 'bad' });
+    return false;
+  }
+}
+
 export function findingsList(findings) {
   return h('ul', { class: 'findings' },
     findings.map((f) => h('li', { class: f.severity }, h('span', { 'aria-hidden': 'true' }, f.severity === 'block' ? '✕' : '!'), f.message)));

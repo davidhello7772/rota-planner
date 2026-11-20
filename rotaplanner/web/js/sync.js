@@ -8,12 +8,11 @@ import { formError, openDialog, segmented } from './components.js';
 import { fill, h } from './dom.js';
 import { icon } from './icons.js';
 import { errorText } from './setup.js';
+import { state } from './state.js';
 import { toast } from './ui.js';
 
 const REFRESH_MS = 15_000;
-const CLOUDS = { ok: 'cloudOk', sending: 'cloudUp', offline: 'cloudOff', alert: 'cloudAlert' };
-// Problems the coordinator must act on in Settings (the others pass by themselves).
-const TO_FIX = new Set(['auth', 'refused', 'missing', 'full', 'tls', 'moved', 'other', 'other-code', 'version']);
+export const CLOUDS = { ok: 'cloudOk', sending: 'cloudUp', offline: 'cloudOff', alert: 'cloudAlert' };
 
 let status = null;
 let timer = 0;
@@ -36,7 +35,6 @@ export function onSyncChange(callback) {
 function renderPen() {
   const pen = status.pen || {};
   const viewing = Boolean(pen.holder && !pen.mine);
-  document.body.classList.toggle('looking', viewing && !pen.working_offline);
   penChip.hidden = !(pen.mine || viewing || pen.working_offline);
   if (penChip.hidden) return;
   if (pen.mine) {
@@ -72,17 +70,19 @@ function banners() {
   const newer = status.units.filter((u) => u.state === 'get');
   const list = (units) => h('strong', {}, units.map((u) => u.label).join(', '));
   if (status.hold === 'restored') {
+    // Choosing is for the computer where Rota Planner runs (the program refuses it from elsewhere).
     parts.push(h('div', { class: 'notice warn sync-banner' }, icon('alert'), h('span', {}, status.problem),
-      h('button', { class: 'btn small', type: 'button', onclick: () => chooseAfterRestore() }, 'Choose…')));
+      state.boot?.auth?.local === false ? h('span', { class: 'muted' }, 'To choose on the computer where Rota Planner runs.')
+        : h('button', { class: 'btn small', type: 'button', onclick: () => chooseAfterRestore() }, 'Choose…')));
   } else if (both.length) {
     parts.push(h('div', { class: 'notice warn sync-banner' }, icon('alert'),
       h('span', {}, 'Changed on more than one computer: ', list(both), '. Choose which version to keep.'),
       h('button', { class: 'btn small primary', type: 'button', onclick: openSync }, 'Choose…')));
-  } else if (newer.length && (!status.auto || newer.some((u) => !u.auto))) {
+  } else if (newer.length && status.needs_choice) {
     parts.push(h('div', { class: 'notice warn sync-banner' }, icon('alert'),
       h('span', {}, 'Another computer has changes you do not have yet: ', list(newer), '.'),
       h('button', { class: 'btn small primary', type: 'button', onclick: openSync }, 'Synchronise')));
-  } else if (status.problem && TO_FIX.has(status.kind)) {
+  } else if (status.to_fix) {
     parts.push(h('div', { class: 'notice warn sync-banner' }, icon('alert'), h('span', {}, status.problem),
       h('a', { class: 'btn small', href: '#/settings' }, 'Open Settings')));
   }
@@ -96,7 +96,6 @@ function render() {
     pill.hidden = true;
     penChip.hidden = true;
     banner.hidden = true;
-    document.body.classList.remove('looking');
     return;
   }
   const [text, tone, title] = status.summary;  // worded by the program (sync.summary)
@@ -133,7 +132,7 @@ export async function refreshSync() {
     // Never hide the warning when something is wrong: keep what was known, and say it.
     if (status?.configured) {
       const problem = `The other computers could not be checked: ${errorText(error)}`;
-      status = { ...status, problem, kind: 'error', icon: 'alert', summary: ['Sync: look', 'bad', problem] };
+      status = { ...status, problem, kind: 'error', icon: 'alert', summary: ['Needs attention', 'bad', problem] };
     }
   }
   render();

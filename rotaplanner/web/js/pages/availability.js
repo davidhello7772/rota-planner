@@ -6,7 +6,7 @@ import { fill, formatDate, h, replaceKeepingFocus } from '../dom.js';
 import { icon } from '../icons.js';
 import { errorText } from '../setup.js';
 import { setMonth, setSession, state } from '../state.js';
-import { toast } from '../ui.js';
+import { copyText, toast } from '../ui.js';
 
 const PERIODS = [['morning', 'M', 'Morning'], ['afternoon', 'A', 'Afternoon'], ['evening', 'E', 'Evening']];
 const MATCH_WORDS = { exact: ['Found', 'ok'], close: ['Check', 'warn'], none: ['Not found', 'bad'] };
@@ -216,14 +216,8 @@ function commentsCard(data, comments) {
 function silentCard(silent) {
   return h('section', { class: 'card side-card' },
     h('div', { class: 'card-title' }, h('h2', {}, `No reply · ${silent.length}`),
-      silent.length ? h('button', { class: 'btn small', type: 'button', onclick: async () => {
-        try {
-          await navigator.clipboard.writeText(silent.map((p) => p.name).join(', '));
-          toast('Names copied: paste them in a reminder message');
-        } catch {
-          toast('Could not copy; select the names below instead', { tone: 'bad' });
-        }
-      } }, 'Copy names') : null),
+      silent.length ? h('button', { class: 'btn small', type: 'button',
+        onclick: () => copyText(silent.map((p) => p.name).join(', '), 'Names copied: paste them in a reminder message') }, 'Copy names') : null),
     silent.length ? h('p', { class: 'name-cloud' }, silent.map((p) => h('button', { class: 'link', type: 'button', onclick: () => editPerson(p) }, p.name)))
       : h('p', { class: 'ok-text' }, 'Everyone has replied.'));
 }

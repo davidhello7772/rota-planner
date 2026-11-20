@@ -88,12 +88,6 @@ def rounded_box(width: int, height: int, radius: float, fill: Colour, back: Colo
     return rows
 
 
-def disc(size: int, fill: Colour, back: Colour, ring: Optional[Colour] = None, ring_width: float = 0.0) -> Rows:
-    """A round dot (with an optional ring around it) on a plain background."""
-    return rounded_box(size, size, size / 2, fill, back, ring, ring_width) if ring else \
-        rounded_box(size, size, size / 2, fill, back)
-
-
 def light(size: int, dot: Colour, halo: Colour, back: Colour, inner: float = 0.42) -> Rows:
     """A status light: a dot inside a soft round halo."""
     c, outer_r, inner_r = size / 2, size / 2, size / 2 * inner

@@ -34,8 +34,6 @@ from .instance import Instance
 from .service import FAILED, RUNNING, STARTING, STOPPED, STOPPING, Service
 from .sync import summary as sync_summary
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-
 APP_CSS = Path(__file__).resolve().parent / "web" / "css" / "app.css"
 
 
@@ -104,13 +102,6 @@ def system_dark() -> bool:
     except Exception:  # noqa: BLE001 — no way to tell: light
         pass
     return False
-
-
-def program_version() -> str:
-    """The date of the version in place, when the program was installed with git."""
-    if not (PROJECT_ROOT / ".git").exists():
-        return ""
-    return quiet(["git", "-C", str(PROJECT_ROOT), "log", "-1", "--format=%cd", "--date=short"])
 
 
 def show_folder(path: Path) -> None:
@@ -307,6 +298,7 @@ class Window:
         self.facts_wanted = True
         self.wake_wanted = False
         self.close_wanted = False
+        self.restart_seen = 0.0  # when the tick first saw that a new version was installed
         self.closing = False
         self.pulse = 0
         self.widgets: Dict[str, object] = {}
@@ -460,7 +452,7 @@ class Window:
         rows.append(("Who can use it", who + (" · password asked" if access.has_password else ""), "", None))
         others = self.facts["others"]
         if self.service.running and others:
-            rows.append(("Other computers open", "\n".join(others), "", None))
+            rows.append(("Allowed computers open", "\n".join(others), "", None))
         sync = self.facts["sync"]
         if sync is not None:
             text, tone, explanation = sync_summary(sync)
@@ -540,7 +532,8 @@ class Window:
         w["open"].configure_button(enabled=not moving and state != STOPPING)
         w["toggle"].configure_button(text="Stop" if running else ("Try again" if state == FAILED else "Start"),
                                      kind="danger" if running else "secondary", enabled=not moving)
-        w["version"].configure(text=f"Version of {self.facts['version']}" if self.facts["version"] else "")
+        newer = " · update available" if self.service.app.updates.state["available"] else ""
+        w["version"].configure(text=f"Version of {self.facts['version']}{newer}" if self.facts["version"] else "")
         self._fill_details()
         self._draw_light()
         self.dirty = False
@@ -650,7 +643,11 @@ class Window:
     def tick(self) -> None:
         if self.closing:
             return
-        if self.close_wanted:
+        if self.service.app.updates.restart.is_set() and not self.restart_seen:
+            self.restart_seen = time.time()
+        if self.close_wanted or (self.restart_seen and time.time() - self.restart_seen > 1.0):
+            # Asked to end; or a new version was installed and the page has had its answer:
+            # the program starts again.
             self.close()
             return
         if self.wake_wanted:
@@ -679,7 +676,7 @@ class Window:
 
     def _watch(self) -> None:
         """Facts that take a moment to find out, gathered outside the window's thread."""
-        self.facts["version"] = program_version()
+        self.facts["version"] = self.service.app.updates.version()
         last_slow = last_theme = 0.0
         while not self.closing:
             if time.time() - last_theme > 12:  # a change of theme is rare: no need to ask often
@@ -689,7 +686,7 @@ class Window:
                 last_slow, self.facts_wanted = time.time(), False
                 try:
                     self.facts["sync"] = self.service.app.sync.status()
-                except Exception:  # noqa: BLE001 — shown as "Sync: look" by the program next time
+                except Exception:  # noqa: BLE001 — shown as "Needs attention" by the program next time
                     self.facts["sync"] = None
                 self.facts["others"] = self.service.other_addresses()
                 self.dirty = True

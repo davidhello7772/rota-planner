@@ -15,6 +15,7 @@ import time
 import webbrowser
 from pathlib import Path
 
+from . import updates
 from .access import Access
 from .app import App
 from .demo import build_demo
@@ -25,6 +26,7 @@ from .store import Store
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 NO_WINDOW = 3  # exit code: the window could not open and nothing else could be shown
+RESTART = 75   # (inside the program only) a new version was installed: start again
 DEFAULT_PORT = 8765
 TOKEN_FILE = ".session-token"
 RUNNING_FILE = ".running"  # read by install-rota-planner.sh: no update while the program is open
@@ -64,6 +66,8 @@ def parse_args(argv):
                         help="forgotten password: remove it and allow this computer only")
     parser.add_argument("--window", action="store_true",
                         help="show Rota Planner's own window (status, Start, Stop) instead of using this terminal")
+    # Started again by itself after an update: the page already open expects this port.
+    parser.add_argument("--after-update", action="store_true", help=argparse.SUPPRESS)
     return parser.parse_args(argv)
 
 
@@ -138,7 +142,7 @@ def already_running(root: Path, args) -> int:
 
 
 def main(argv=None) -> int:
-    os.umask(0o077)  # every file made by the program is private to this user
+    updates.FILES_UMASK = os.umask(0o077)  # every file made by the program is private to this user
     args = parse_args(sys.argv[1:] if argv is None else argv)
     demo = args.demo or args.reset_demo
     root = args.data or PROJECT_ROOT / ("data-demo" if demo else "data")
@@ -181,6 +185,8 @@ def main(argv=None) -> int:
         return 0
     finally:
         instance.release()
+    if result == RESTART:
+        return start_again(restart_command(args, root, demo))
     if result == NO_WINDOW:
         # Started from an icon, with no terminal to fall back on: open one (the lock is free now).
         return 0 if open_terminal() else NO_WINDOW
@@ -202,11 +208,17 @@ def run(root: Path, demo: bool, args, instance: Instance, closers: list) -> int:
         print("The password is removed and only this computer may use Rota Planner.")
     app = App(store)
     app.sync.start_background()
+    app.updates.start_background()
     service = Service(app, access, token, args.port, renew_token=lambda: new_session_token(root))
+    if args.after_update:
+        # The port was free for a moment: if another program took it, it may have received
+        # the open page's token. Starting on any other port makes a new token (Service._bind).
+        service.port = args.port
     service.listeners.append(lambda state: instance.serving(service.port if state == "running" else None))
     try:
         return serve(app, service, root, demo, args, instance, closers)
     finally:
+        args.port = service.port or args.port  # where a restart finds the open page again
         # Leaving: what changed is sent and the pen given back, without waiting long for a server.
         farewell = threading.Thread(target=app.sync.goodbye, name="sync-goodbye", daemon=True)
         farewell.start()
@@ -223,9 +235,10 @@ def serve(app: App, service: Service, root: Path, demo: bool, args, instance: In
             reason = error
         else:
             try:
-                return window.run(service, root, demo=demo, instance=instance,
-                                  open_browser=lambda: open_in_browser(root, service.url()),
-                                  browser_at_start=not args.no_browser, closers=closers)
+                window.run(service, root, demo=demo, instance=instance,
+                           open_browser=lambda: open_in_browser(root, service.url()),
+                           browser_at_start=not args.no_browser, closers=closers)
+                return RESTART if app.updates.restart.is_set() else 0
             except window.CannotOpen as error:
                 reason = error
         if not attended():
@@ -234,6 +247,31 @@ def serve(app: App, service: Service, root: Path, demo: bool, args, instance: In
             return NO_WINDOW if args.data is None and not demo else 1
         print(f"The window cannot open here ({reason}); Rota Planner runs in this terminal instead.")
     return run_in_terminal(service, root, demo, args)
+
+
+def restart_command(args, root: Path, demo: bool) -> list:
+    """How to start this same Rota Planner again: the same data (its full path: the
+    start is made from the program's folder), the port in use, the window if it had
+    one. Built from what was understood, never from the words typed: nothing is
+    reset a second time, and no new tab is opened (the page already open comes back)."""
+    command = [sys.executable, str(PROJECT_ROOT / "run.py"), "--port", str(args.port), "--no-browser", "--after-update"]
+    if args.data is not None:
+        command += ["--data", str(Path(root).resolve())]
+    if demo:
+        command.append("--demo")
+    if args.window:
+        command.append("--window")
+    return command
+
+
+def start_again(command: list) -> int:
+    """After an update: the same program, started afresh with the new version."""
+    if os.name == "nt":
+        subprocess.Popen(command, cwd=str(PROJECT_ROOT))  # Windows cannot replace a running program
+        return 0
+    os.chdir(str(PROJECT_ROOT))
+    os.execv(sys.executable, command)
+    return 0  # never reached
 
 
 def attended() -> bool:
@@ -283,8 +321,12 @@ def run_in_terminal(service: Service, root: Path, demo: bool, args) -> int:
     if not args.no_browser:
         open_in_browser(root, service.url())
     try:
-        while True:
+        while not service.app.updates.restart.is_set():
             time.sleep(0.5)
+        time.sleep(1.0)  # the answer "installed" reaches the page first
+        service.close()
+        print("A new version was installed: Rota Planner starts again.", flush=True)
+        return RESTART
     except KeyboardInterrupt:
         service.close()
         print("\nStopped.")

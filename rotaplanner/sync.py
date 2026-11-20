@@ -64,6 +64,7 @@ versions) never leaves the data folder.
 
 from __future__ import annotations
 
+import calendar
 import hashlib
 import hmac
 import json
@@ -117,8 +118,11 @@ MAX_COMPUTERS = 16                # other computers looked at (the place may hol
 ROUND_BYTES = 2 * MAX_FILE_BYTES  # fetched in one round at most; the rest waits for the next
 TOP_LABELS = {"people.json": "People", "catalog.json": "Tasks & areas", "settings.json": "Settings",
               "templates.json": "Saved task templates"}
-MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September",
-               "October", "November", "December"]
+# Why the place could not be used, in two families: what passes by itself (no
+# connection, a busy server, a folder not there for now), and what the
+# coordinator must put right in Settings.
+PASSING_KINDS = ("offline", "busy", "folder")
+SETTINGS_KINDS = ("auth", "refused", "missing", "full", "tls", "moved", "other")
 
 
 class SyncError(ValueError):
@@ -185,9 +189,7 @@ def unseal(key: bytes, data: bytes) -> Tuple[Json, bytes]:
     except (UnicodeDecodeError, ValueError, KeyError, TypeError):
         raise _damaged() from None
     if header.get("key") != key_id(key):
-        error = SyncError("The other computer's file was made with another pairing code.")
-        error.kind = "other-code"  # type: ignore[attr-defined]
-        raise error
+        raise _other_code()
     body, tag = data[:-32], data[-32:]
     if not hmac.compare_digest(hmac.new(_subkey(key, b"sign"), body, hashlib.sha256).digest(), tag):
         raise _damaged()
@@ -200,8 +202,14 @@ def unseal(key: bytes, data: bytes) -> Tuple[Json, bytes]:
     return header, payload
 
 
+def _other_code() -> SyncError:
+    error = SyncError("Another computer's file was made with another pairing code.")
+    error.kind = "other-code"  # type: ignore[attr-defined]
+    return error
+
+
 def _damaged() -> SyncError:
-    error = SyncError("The other computer's file is incomplete: it may still be arriving. Try again in a moment.")
+    error = SyncError("Another computer's file is incomplete: it may still be arriving. Try again in a moment.")
     error.kind = "damaged"  # type: ignore[attr-defined]
     return error
 
@@ -256,9 +264,9 @@ def summary(status: Dict[str, Any], now: Optional[float] = None) -> List[str]:
     counts = status.get("counts") or {}
     sent, get, both = counts.get("sent", 0), counts.get("get", 0), counts.get("both", 0)
     problem, kind = status.get("problem"), status.get("kind")
-    waiting = kind in ("offline", "busy", "folder")
+    waiting = kind in PASSING_KINDS
     if problem and kind != "alone" and not waiting:
-        return ["Sync: look", "bad", str(problem)]
+        return ["Needs attention", "bad", str(problem)]
     if both:
         return [f"Both changed · {both}", "bad", "Changed on more than one computer: synchronise and choose which to keep."
                 if len(others) > 1 else f"Changed here and on {other}: synchronise and choose which to keep."]
@@ -274,7 +282,9 @@ def summary(status: Dict[str, Any], now: Optional[float] = None) -> List[str]:
     if kind == "alone":
         return [f"{sent} waiting" if sent else "Waiting", "", str(problem or "")]
     if sent:
-        return [f"{sent} sent", "", f"Sent: waiting for {other} to take them."]
+        behind = [c.get("name") or "another computer" for c in others if c.get("state") == "behind"]
+        who = other if not behind else _listed(behind) if len(behind) <= 2 else f"{len(behind)} computers"
+        return [f"{sent} sent", "", f"Sent: waiting for {who} to take them."]
     if len(others) > 1:
         return ["In sync", "ok", f"Same data on all {len(others) + 1} computers."]
     written = (status.get("other") or {}).get("written")
@@ -288,7 +298,7 @@ def label(unit: str) -> str:
     match = transfer.MONTH_NAME.match(unit)
     if match:
         year, number = match.group(1).split("-")
-        return f"{MONTH_NAMES[int(number) - 1]} {year}"
+        return f"{calendar.month_name[int(number)]} {year}"
     return unit
 
 
@@ -328,7 +338,7 @@ def difference(unit: str, mine: Optional[Json], theirs: Optional[Json]) -> str:
         b = {t.get("id"): t for t in theirs.get("tasks", [])}
         changed = sum(1 for k in set(a) | set(b) if a.get(k) != b.get(k))
         return f"{changed} task{'s' if changed != 1 else ''} differ" if changed else "Skills, areas or the regular week differ."
-    return "Changed on both computers."
+    return "Changed on more than one computer."
 
 
 
@@ -916,7 +926,7 @@ class Sync:
         return result
 
     def _offline(self, error: places.PlaceError, was_online: Optional[bool]) -> None:
-        waiting = error.kind in ("offline", "busy", "folder")
+        waiting = error.kind in PASSING_KINDS
         if was_online is not False and waiting:
             self._note(("Connection lost" if was_online else "No connection") + ": working offline. "
                        "Changes are kept here and sent when it is back.")
@@ -1058,8 +1068,7 @@ class Sync:
                 continue
             refused = self.state["mirror"][name].get("bad")
             if refused:
-                words = ("Another computer's file was made with another pairing code." if refused == "other-code"
-                         else _damaged().args[0])
+                words = (_other_code() if refused == "other-code" else _damaged()).args[0]
                 found.append({"id": match.group(1), "problem": words, "kind": refused,
                               "modified": float(self.state["mirror"][name].get("modified") or 0)})
                 continue
@@ -1205,6 +1214,9 @@ class Sync:
                                   "text": words, "editing": editing})
             first = healthy[0] if healthy else None
             describe = self._place.describe()
+            auto = bool(self.state.get("auto", True))
+            units = [_shown(r) for r in rows if r["state"] != "same"] if healthy else []
+            pending = self.state["own"].get("sent") != self.state["own"].get("digest")
             result = {
                 "configured": True,
                 "name": self.state["name"],
@@ -1214,13 +1226,23 @@ class Sync:
                 "kind": kind,
                 "other": {"name": first["name"], "written": first["written"]} if first else None,
                 "others": computers,
-                "units": [_shown(r) for r in rows if r["state"] != "same"] if healthy else [],
+                "units": units,
+                # Something for the coordinator to decide: versions that differ, or newer
+                # data that is not taken by itself.
+                "needs_choice": any(u["state"] == "both" or (u["state"] == "get" and not (auto and u.get("auto")))
+                                    for u in units),
+                # A problem that does not pass by itself: to put right in Settings.
+                "to_fix": bool(problem) and kind in SETTINGS_KINDS + ("other-code", "version"),
+                "passing": kind in PASSING_KINDS,
+                "me": {"name": self.state["name"], "state": "editing" if pen.get("mine") else "ok",
+                       "editing": bool(pen.get("mine")),
+                       "text": "Editing now" if pen.get("mine") else "Has changes to send" if pending else "Up to date"},
                 "counts": counts,
                 "connection": {"online": self.connection["online"], "since": self.connection["since"],
                                "last_ok": self.connection["last_ok"], "local": self.local,
                                "text": self._connection_words()},
-                "pending": self.state["own"].get("sent") != self.state["own"].get("digest"),
-                "auto": bool(self.state.get("auto", True)),
+                "pending": pending,
+                "auto": auto,
                 "hold": self.state.get("hold", ""),
                 "applied": self.state.get("applied", {"seq": 0}),
                 "pen": pen,
@@ -1239,7 +1261,7 @@ class Sync:
             return "Looking…"
         if connection["online"]:
             return "Shared folder found" if self.local else f"Connected · last contact {clock(connection['last_ok'])}"
-        if connection["kind"] in ("offline", "busy", "folder"):
+        if connection["kind"] in PASSING_KINDS:
             return f"No connection since {clock(connection['since'])}"
         return "Not working: see below"
 
@@ -1432,7 +1454,7 @@ class Sync:
                     wait = LOCAL_SECONDS if self.local else SERVER_SECONDS
                 else:
                     retry = float(self.connection.get("retry") or 0)
-                    slow = self.connection.get("kind") in ("auth", "refused", "missing", "tls", "moved", "other")
+                    slow = self.connection.get("kind") in SETTINGS_KINDS
                     wait = max(retry, BACKOFF_MAX if slow else min(BACKOFF_MAX, max(BACKOFF_MIN, wait * 2)))
         threading.Thread(target=loop, name="sync-courier", daemon=True).start()
 
@@ -1600,7 +1622,7 @@ class Sync:
                 raise SyncError("Synchronisation is not set up.")
             if self.state["pen"].get("mine"):
                 return self._pen_status()
-        known_offline = (self.connection["online"] is False and self.connection["kind"] in ("offline", "busy", "folder")
+        known_offline = (self.connection["online"] is False and self.connection["kind"] in PASSING_KINDS
                          and time.time() - self._last_round < OFFLINE_TRUSTED_SECONDS)
         # Known to be without connection a moment ago: say so at once rather than wait for the network again.
         result = {"ok": False} if known_offline else self.exchange()

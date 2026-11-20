@@ -324,7 +324,6 @@ a.tile:hover { border-color: var(--line-strong); }
 .doc-options { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-2); }
 .doc-options .select { max-width: 100%; }
 .doc-card .card-actions { margin-top: auto; }
-.export-folder { margin: 0; }
 .versions-card { max-width: none; }
 .change-list { margin: 0; padding-left: 1.2em; font-size: var(--fs-sm); display: grid; gap: 2px; columns: 2; }
 
@@ -560,3 +559,26 @@ a.tile:hover { border-color: var(--line-strong); }
 .welcome h1 { margin: 0; font-size: 1.75rem; }
 .welcome p { margin: 0; }
 .welcome-tiles { grid-template-columns: 1fr; }
+
+/* ---- Version and updates ---- */
+.update-list { margin: var(--space-1) 0 0; padding-left: 1.25rem; font-size: var(--fs-sm); font-weight: 400; }
+.update-notice { align-items: flex-start; background: var(--accent-weak); border: 1px solid var(--accent-line); }
+.update-notice > svg { flex: none; width: 1.25rem; height: 1.25rem; margin-top: 2px; color: var(--accent); }
+.update-notice > span { flex: 1; min-width: 0; }
+.update-body { display: flex; flex-direction: column; gap: var(--space-2); }
+.update-body p { margin: 0; }
+.update-body svg { width: 1rem; height: 1rem; vertical-align: -0.15em; }
+
+/* ---- Settings: groups of cards that pack without gaps ---- */
+.group-nav { display: flex; flex-wrap: wrap; gap: var(--space-2); max-width: 64rem; margin-bottom: var(--space-4); }
+.settings-group { max-width: 64rem; margin-bottom: var(--space-6); scroll-margin-top: var(--space-4); }
+.group-title { margin: 0 0 var(--space-3); font-size: var(--fs-sm); font-weight: 650; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-2); }
+.group-title:focus { outline: none; }
+.cards.flow { display: block; columns: 2 22rem; column-gap: var(--space-4); }
+.cards.flow > .card { break-inside: avoid; margin-bottom: var(--space-4); }
+.settings-group:has(.cards.flow > .card:only-child) .cards.flow { columns: 1; max-width: 32rem; }
+/* A group with the wide "other computers" card: one column (a card spanning
+   the columns would swallow the gap above it). */
+.settings-group:has(.cards.flow > .sync-card) .cards.flow { display: flex; flex-direction: column; gap: var(--space-4); max-width: none; }
+.settings-group:has(.cards.flow > .sync-card) .cards.flow > .card { margin-bottom: 0; }
+.settings-group:has(.cards.flow > .sync-card) .cards.flow > .card:not(.sync-card) { max-width: 32rem; }

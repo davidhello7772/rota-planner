@@ -1,6 +1,5 @@
 import io
 import unittest
-from datetime import date
 
 from rotaplanner.importers.legacy_workbook import (
     WorkbookImportError,

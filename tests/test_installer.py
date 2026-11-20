@@ -2,13 +2,11 @@
 real on a pretend GitHub: a local repository in a temporary folder, a pretend
 home folder, no network. Mac and Linux only (it is a bash script)."""
 
-import json
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
-import time
 import unittest
 import zipfile
 from pathlib import Path

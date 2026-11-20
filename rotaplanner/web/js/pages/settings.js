@@ -1,13 +1,14 @@
 // Settings: usual hours, who can use the program, and importing the current Google Sheets workbook.
-import { field, formError, numberInput, openDialog, readFileBase64, segmented, textInput, toggle } from '../components.js';
+import { field, formError, numberInput, readFileBase64, segmented, textInput, toggle } from '../components.js';
 import { otherComputersCard } from '../syncsetup.js';
+import { updateCard } from '../updates.js';
 import { mailCard } from '../mailer.js';
 import { fill, h } from '../dom.js';
 import { api, setToken } from '../api.js';
 import { errorText, saveSetup } from '../setup.js';
 import { setSession, state } from '../state.js';
 import { icon } from '../icons.js';
-import { toast } from '../ui.js';
+import { copyText, toast } from '../ui.js';
 
 function settingsCard(setup) {
   const s = setup.settings;
@@ -72,15 +73,6 @@ function messageCard(setup) {
 
 function passwordInput(autocomplete) {
   return h('input', { class: 'input', type: 'password', autocomplete });
-}
-
-async function copyText(text) {
-  try {
-    await navigator.clipboard.writeText(text);
-    toast('Copied');
-  } catch {
-    toast('Could not copy: select the text instead', { tone: 'bad' });
-  }
 }
 
 function commandList(lines) {
@@ -178,7 +170,7 @@ function accessCard() {
       field('Addresses of the other computers', addresses, 'One per line: an address (192.168.1.57) or a range (192.168.1.0/24). Nobody else can connect.'),
       h('p', {}, 'On the other computer, open ', h('strong', {}, here), ' and give the password.'));
     const networkPart = h('div', { class: 'form-part' },
-      h('h3', { class: 'form-section' }, 'Other computers'),
+      h('h3', { class: 'form-section' }, 'Computers allowed to connect'),
       mode, list,
       info.public.length ? h('p', { class: 'warn-text' }, `Not addresses of a local network: ${info.public.join(', ')}. Allow only computers of the centre.`) : null,
       h('p', { class: 'warn-text' }, 'What travels between the computers is not encrypted: allow other computers only on the staff network, never on a public Wi-Fi.'),
@@ -297,7 +289,7 @@ function importCard() {
     encoded = encoded || await readFileBase64(file.files[0]);
     result.replaceChildren(h('p', { class: 'muted' }, apply ? 'Importing…' : 'Reading the workbook…'));
     try {
-      const answer = await api.post('/api/import/workbook', { file: encoded, anonymous: anonymous.input.checked, apply });
+      const answer = await api.post(apply ? '/api/import/workbook' : '/api/import/workbook/preview', { file: encoded, anonymous: anonymous.input.checked, apply });
       if (answer.applied) {
         result.replaceChildren(h('p', { class: 'ok-text' }, 'Imported. Opening the rota…'));
         setTimeout(() => { window.location.hash = '#/build'; window.location.reload(); }, 600);
@@ -336,9 +328,24 @@ export function mountSettings(container) {
     // Forms keep what is being typed: only build them once per visit.
     if (!setup || shown) return;
     shown = setup;
+    // Five groups, in the order one meets them; the chips at the top jump to a group.
+    const groups = [
+      ['The rota', [settingsCard(setup), messageCard(setup)]],
+      ['Sending by e-mail', [mailCard()]],
+      ['Who can use it, and other computers', [accessCard(), otherComputersCard()]],
+      ['Your data', [moveCard(), importCard()]],
+      ['The program', [updateCard(Boolean(state.boot?.auth?.local))]],
+    ].map(([title, cards]) => h('section', { class: 'settings-group' },
+      h('h2', { class: 'group-title', tabindex: '-1' }, title), h('div', { class: 'cards flow' }, cards)));
     root.replaceChildren(
       h('header', { class: 'page-head' }, h('div', {}, h('h1', {}, 'Settings'))),
-      h('div', { class: 'cards' }, settingsCard(setup), messageCard(setup), mailCard(), accessCard(), otherComputersCard(), moveCard(), importCard()));
+      h('nav', { class: 'group-nav', 'aria-label': 'Parts of the settings' }, groups.map((group) => h('button', {
+        class: 'btn small', type: 'button', onclick: () => {
+          group.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          group.querySelector('.group-title').focus({ preventScroll: true });
+        },
+      }, group.querySelector('.group-title').textContent))),
+      ...groups);
   }
 
   return { render };

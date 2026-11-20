@@ -35,7 +35,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from . import firewall
 from .access import Access, AccessError, is_loopback
-from .app import ApiError, App, Json, to_int
+from .app import ApiError, App, Json
 from .sync import PenError, SyncError
 from .store import StoreError
 
@@ -119,6 +119,7 @@ SETUP_ACTIONS = {
     "regulars/set": "set_regular",
     "settings/save": "save_settings",
     "import/workbook": "import_workbook",
+    "import/workbook/preview": "import_workbook_preview",
     "data/export": "export_data",
     "data/import/preview": "import_preview",
     "data/import/apply": "import_apply",
@@ -129,24 +130,24 @@ SETUP_ACTIONS = {
     "mail/stop": "mail_stop",
 }
 
-# Only from the computer where the program runs: paths and codes of this computer,
-# opening the exports folder (a window on this computer's screen), and everything
-# about e-mail (the account, and the list of addresses given when sending, which
-# must not cross the network).
-LOCAL_ONLY = {"/api/sync/setup", "/api/sync/code", "/api/sync/stop", "/api/sync/test", "/api/sync/forget",
-              "/api/sync/options"}
+# Only from the computer where the program runs: the meeting place and the pairing
+# code of this computer, installing a new version, opening the exports folder (a
+# window on this computer's screen), and everything about e-mail (the account, and
+# the list of addresses given when sending, which must not cross the network).
+LOCAL_ONLY = re.compile(r"/api/(sync/(setup|code|stop|test|forget|options)|mail(/[a-z]+)?|update/[a-z]+"
+                        r"|months/\d{4}-\d{2}/(exports/open|mail/[a-z]+))")
 
 # Changes that do not need the pen (see sync.py: one computer edits at a time): looking
 # before deciding, this computer's own settings (e-mail account, saved files), and
 # synchronisation itself. Every other POST changes the shared data.
-PEN_FREE = re.compile(r"/api/(sync/[a-z-]+|mail/[a-z]+|data/export|data/import/preview|people/import/preview"
+PEN_FREE = re.compile(r"/api/(sync/[a-z-]+|mail/[a-z]+|update/[a-z]+|data/export|data/import/preview|people/import/preview"
+                      r"|import/workbook/preview"
                       r"|months/\d{4}-\d{2}/(availability/preview|mail/preview|mail/plan|export|exports/open))")
-LOCAL_ONLY_PATH = re.compile(r"/api/(mail(/[a-z]+)?|months/\d{4}-\d{2}/(exports/open|mail/[a-z]+))")
 
 
 def local_only(path: str) -> bool:
     path = path.rstrip()  # routes are matched with "$", which also accepts a final line break
-    return path in LOCAL_ONLY or LOCAL_ONLY_PATH.fullmatch(path) is not None
+    return LOCAL_ONLY.fullmatch(path) is not None
 
 
 def unlocked(handler: Callable[..., Json]) -> Callable[..., Json]:
@@ -176,6 +177,11 @@ def build_routes(app: App) -> List[Route]:
           for path, name in SETUP_ACTIONS.items()],
         ("GET", r"/api/bootstrap", lambda q, b: app.bootstrap()),
         ("GET", r"/api/sync/status", unlocked(lambda q, b: app.sync_status())),
+        # A newer version: looking asks the program's repository, installing takes the lock itself.
+        ("GET", r"/api/update", unlocked(lambda q, b: app.update_info())),
+        ("POST", r"/api/update/check", unlocked(lambda q, b: app.update_check(b))),
+        ("POST", r"/api/update/options", unlocked(lambda q, b: app.update_options(b))),
+        ("POST", r"/api/update/install", unlocked(lambda q, b: app.update_install(b))),
         # These talk to the meeting place (a server may be slow): never under the app lock.
         ("POST", r"/api/sync/apply", unlocked(lambda q, b: app.sync_choose(b))),
         ("POST", r"/api/sync/setup", unlocked(lambda q, b: app.sync_setup(b))),

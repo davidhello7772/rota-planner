@@ -244,13 +244,18 @@ class SyncWordsTest(unittest.TestCase):
         self.assertEqual(sync.summary(base, now=1000.0 + 300), ["In sync", "ok", "Same data as office (its file: 5 min ago)."])
         self.assertEqual(sync.summary(dict(base, counts={"sent": 0, "get": 2, "both": 0}))[:2], ["2 to get", "warn"])
         self.assertEqual(sync.summary(dict(base, counts={"sent": 0, "get": 2, "both": 1}))[:2], ["Both changed · 1", "bad"])
-        self.assertEqual(sync.summary(dict(base, problem="Refused", kind="auth"))[:2], ["Sync: look", "bad"])
+        self.assertEqual(sync.summary(dict(base, problem="Refused", kind="auth"))[:2], ["Needs attention", "bad"])
         self.assertEqual(sync.summary(dict(base, problem="Folder gone", kind="folder"))[:2], ["Offline", ""])
         self.assertEqual(sync.summary(dict(base, problem="No answer", kind="offline", pending=True))[0],
                          "Offline · changes waiting")
         three = dict(base, others=[{"id": "x"}, {"id": "y"}])
         self.assertEqual(sync.summary(three)[2], "Same data on all 3 computers.")
-        self.assertEqual(sync.summary(dict(base, counts={"sent": 3, "get": 0, "both": 0}))[0], "3 sent")
+        sent = dict(base, counts={"sent": 3, "get": 0, "both": 0})
+        self.assertEqual(sync.summary(sent)[::2], ["3 sent", "Sent: waiting for office to take them."])
+        # With several computers, the ones named are those that have not taken the changes yet.
+        rows = [{"name": "office", "state": "ok"}, {"name": "desk", "state": "behind"}, {"name": "home", "state": "behind"}]
+        self.assertEqual(sync.summary(dict(sent, others=rows))[2], "Sent: waiting for desk and home to take them.")
+        self.assertEqual(sync.summary(dict(sent, others=rows[:2]))[2], "Sent: waiting for desk to take them.")
 
 
 def screen_available() -> bool:

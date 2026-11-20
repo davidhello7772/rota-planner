@@ -7,7 +7,7 @@ import { h } from './dom.js';
 import { icon } from './icons.js';
 import { errorText } from './setup.js';
 import { setSession, state, subscribe } from './state.js';
-import { toast } from './ui.js';
+import { copyText, toast } from './ui.js';
 
 const SHOWN = 8;  // names listed at once
 let loading = null;
@@ -28,16 +28,7 @@ function messages() {
   return loaded?.of.id === month.id ? loaded.people : null;  // the previous version meanwhile
 }
 
-async function copyText(text, who) {
-  try {
-    await navigator.clipboard.writeText(text);
-    toast(`${who}’s schedule copied: paste it in your e-mail`);
-    return true;
-  } catch {
-    toast('Could not copy: select the text and press Ctrl C', { tone: 'bad' });
-    return false;
-  }
-}
+const copyMessage = (text, who) => copyText(text, `${who}’s schedule copied: paste it in your e-mail`);
 
 /** Copy one person's schedule (from the Build panel, for instance). */
 export async function copySchedule(personId) {
@@ -49,7 +40,7 @@ export async function copySchedule(personId) {
     people = result.people;
   }
   const person = people.find((p) => p.id === personId);
-  if (person) await copyText(person.message, person.name);
+  if (person) await copyMessage(person.message, person.name);
 }
 
 function download(name, content) {
@@ -123,7 +114,7 @@ export function schedulesFinder() {
   async function copyAndNext() {
     const person = chosen();
     if (!person) return;
-    if (await copyText(person.message, person.name)) {
+    if (await copyMessage(person.message, person.name)) {
       query.value = '';
       active = 0;
       refresh();

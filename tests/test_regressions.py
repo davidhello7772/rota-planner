@@ -9,7 +9,7 @@ from pathlib import Path
 
 from rotaplanner import demand, editing, month_setup, transfer
 from rotaplanner.app import App
-from rotaplanner.model import Area, Assignment, Month, PersonAvailability, Settings, to_minutes
+from rotaplanner.model import Area, Assignment, PersonAvailability, Settings, to_minutes
 from rotaplanner.schedule import Schedule
 from rotaplanner.solver import Proposal
 from rotaplanner.store import Store

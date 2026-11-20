@@ -28,6 +28,7 @@ from .model import (
 from .schedule import Schedule
 from .store import Store
 from .sync import PenError, Sync
+from .updates import UpdateError, Updates
 
 TYPICAL = "typical"
 """Scope name of the typical month: the configuration new months start from."""
@@ -60,6 +61,7 @@ class App:
         self._proposals: Dict[str, List[solver.Proposal]] = {}  # suggestions not yet accepted, per month
         self.sync = Sync(store)
         self.sync.on_incoming = self.sync_auto
+        self.updates = Updates(Path(__file__).resolve().parent.parent, store)  # is there a newer version?
         self.mail = mail.Mail(store.root)  # optional: off until an account is set up in Settings
         self.forget_old_comments(today or date.today())
 
@@ -1174,12 +1176,12 @@ class App:
 
     def sync_test(self, body: Json) -> Json:
         """"Test the connection": can this computer use that meeting place?"""
-        return {"ok": True, "place": self.sync.test_place(body.get("place") if "place" in body else body.get("folder"))}
+        return {"ok": True, "place": self.sync.test_place(body.get("place"))}
 
     def sync_setup(self, body: Json) -> Json:
         """Start (make a pairing code), join (type it), rename this computer, or meet elsewhere."""
         action = body.get("action")
-        place = body.get("place") if "place" in body else body.get("folder")
+        place = body.get("place")
         code = ""
         if action == "start":
             code = self.sync.start(str(body.get("name") or ""), place)
@@ -1237,7 +1239,32 @@ class App:
         removed = self.sync.stop()
         return {**self.sync.status(), "removed": removed}
 
+    # -- a newer version of the program (updates.py) ----------------------------
+
+    def update_info(self) -> Json:
+        return self.updates.info()
+
+    def update_check(self, _body: Json) -> Json:
+        """"Check now" (asks the program's repository; never under the app lock)."""
+        return self.updates.check()
+
+    def update_options(self, body: Json) -> Json:
+        return self.updates.set_auto(bool(body.get("auto")))
+
+    def update_install(self, body: Json) -> Json:
+        """Put the new version in place (the one the screen listed), then the program
+        starts again. The app lock is held only while the data is copied, never while
+        the repository is asked or the new version is tried."""
+        try:
+            return self.updates.install(expected=str(body.get("target") or ""), data_lock=self.lock)
+        except UpdateError as error:
+            raise ApiError(HTTPStatus.CONFLICT, str(error)) from None
+
     # -- importing the current workbook --------------------------------------
+
+    def import_workbook_preview(self, body: Json) -> Json:
+        """"Check the file": what the workbook holds, nothing changed (so no pen is needed)."""
+        return self.import_workbook(dict(body, apply=False))
 
     def import_workbook(self, body: Json) -> Json:
         """Read the workbook; with ``apply``, replace the set-up and those months."""

@@ -12,6 +12,7 @@ import { pageFor } from './pages.js';
 import { openSchedules } from './schedules.js';
 import { mountSync } from './sync.js';
 import { welcomeScreen } from './syncsetup.js';
+import { announceUpdate } from './updates.js';
 import { mountAvailability } from './pages/availability.js';
 import { mountCheck } from './pages/check.js';
 import { mountMonthSetup } from './pages/monthsetup.js';
@@ -93,7 +94,8 @@ function shell() {
     h('button', { class: 'btn ghost', id: 'size', title: 'Interface size', onclick: (e) => openMenu(e.currentTarget,
       SIZES.map((size) => ({ value: size, label: `${size}%`, checked: state.ui.size === size })),
       (size) => setUi({ size })) }, icon('type'), h('span', { id: 'size-label' })),
-    h('button', { class: 'btn ghost', title: 'Focus: give the whole screen to the rota (F)', onclick: toggleFocus }, icon('maximize'), 'Focus'),
+    h('button', { class: 'btn ghost', 'aria-label': 'Focus', title: 'Focus: give the whole screen to the rota (F)', onclick: toggleFocus },
+      icon('maximize'), h('span', { class: 'topbar-label' }, 'Focus')),
     h('button', { class: 'btn ghost icon-only', id: 'help', 'aria-label': 'Help', title: 'Help (?)', onclick: () => openHelp() }, icon('help')));
   const syncBanner = h('div', { class: 'sync-slot', id: 'sync-banner', hidden: true });
   app.replaceChildren(sidebar, h('div', { class: 'main' }, topbar, syncBanner, h('div', { class: 'coach-slot', id: 'coach', hidden: true }), content));
@@ -275,6 +277,7 @@ async function start() {
   try {
     state.boot = await api.get('/api/bootstrap');
     mountSync(document.getElementById('sync-pill'), document.getElementById('sync-banner'));
+    announceUpdate();
     if (state.boot.current) await loadMonth(state.boot.current);
     else setRoute(state.route);
   } catch (error) {

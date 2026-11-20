@@ -13,19 +13,22 @@ a Google Sheet. The user is not a programmer.
 ## Rules that are not negotiable
 
 1. **Personal data never leaves this computer, except where the coordinator
-   chose.** No network calls, no CDN, no fonts or scripts from outside, no
-   telemetry, no "check for updates". The server listens on 127.0.0.1 unless
+   chose.** No CDN, no fonts or scripts from outside, no telemetry, and no
+   network call other than the three named below. The server listens on 127.0.0.1 unless
    the coordinator allows other addresses (Settings › Access), and then only
    answers those addresses, behind the password. The only data that leaves
    the data folder is the **sealed** sync file (and the pen note), put in the
    place the coordinator chose: a shared folder, or a WebDAV server. There
-   are two outgoing connections, both optional and both to a server the
+   are three outgoing connections, all optional. Two go to a server the
    coordinator set up, encrypted with the certificate checked (`tls.py`):
    the e-mail (`mail.py`), only when they press Test or Send (names and
    shifts then pass through that provider); and the WebDAV server
    (`places.py`), talked to in the background by the courier (`sync.py`),
-   which only ever receives sealed files. Without either set up, nothing
-   connects. Do not paste real names, phone numbers,
+   which only ever receives sealed files. The third asks the program's own
+   repository on GitHub whether a newer version exists (`updates.py`: a
+   `git fetch`, once a day unless turned off in Settings, or on "Check now");
+   it sends nothing about the data, and nothing is ever installed without
+   the coordinator's yes. Do not paste real names, phone numbers,
    e-mail addresses or comments into prompts, commits, tests, screenshots or
    issue text.
 2. **Never read the real data to develop or test.** `data/` (git-ignored) and
@@ -109,12 +112,14 @@ rotaplanner/
   places.py         where the computers meet: a shared folder or a WebDAV server (list, read, write, delete)
   tls.py            encrypted connections with the certificate checked (mail, WebDAV)
   mail.py           optional: e-mailing each person their schedule
+  updates.py        is there a newer version (git fetch), and installing it on a yes
   editing.py        set-up changes: people, tasks, event types, print templates…
   solver.py         prefill, rebalance, shortages, ideas
   report.py tips.py view.py   what the Check screen, the Assistant and the grid show
   transfer.py       all data in one file (move to another computer)
   exporters/        printed documents, versions, personal rotas, .ics, .xlsx, PDF
   importers/        the legacy Google Sheets workbook
+  people_import.py xlsx_read.py   a list of people from a spreadsheet; reading .xlsx safely
   app.py            every action of the program (state in memory, undo, saving)
   server.py         HTTP: static files, JSON API, print pages
   demo.py           demonstration data
@@ -132,8 +137,12 @@ Front end (`rotaplanner/web/js`): `main.js` (shell, routes, shortcuts),
 rota goes through here: toast with Undo, "assign anyway"), `api.js`,
 `components.js` (inputs, dialog, drawer), `build/` (the rota grid and its
 side panel), `pages/` (one module per screen), `eventtask.js`,
-`schedules.js`, `help.js` + `help-content.js`, `print-page.js` (runs on the
-print pages only).
+`schedules.js`, `mailer.js` (e-mailing the schedules), `login.js` (the
+password), `sync.js` (other computers: the cloud in the top bar, the pen,
+the banners, choosing between versions), `syncsetup.js` (their card in
+Settings, the set-up assistant, the first screen of an empty computer),
+`updates.js` (a newer version), `ui.js` (toast, menu, copy), `help.js` +
+`help-content.js`, `print-page.js` (runs on the print pages only).
 
 ## How a change usually goes
 
@@ -229,9 +238,10 @@ cost a bug report.
   route that changes data needs nothing; one that only looks, or only
   changes this computer's own settings, must be added to `PEN_FREE`.
 - **`install-rota-planner.sh` installs and updates** (git clone/fetch from
-  GitHub with a read-only deploy key and GitHub's pinned host key). It is the
-  only thing that downloads, and only when the person runs it: the program
-  never looks for updates. Keep it working with the Mac's bash 3.2, keep the
+  GitHub: over https when the repository is public, else with a read-only
+  deploy key and GitHub's pinned host key). The program can also update itself
+  from Settings (`updates.py`), with the same steps in the same order: keep
+  the two in step. Keep it working with the Mac's bash 3.2, keep the
   whole script inside `main` (it may replace itself while running), and keep
   its tests (`tests/test_installer.py`) green. It refuses to update while
   `data/.running` names a live Rota Planner (written by `__main__.mark_running`),
@@ -250,7 +260,7 @@ cost a bug report.
   Windows); colours are read from the tokens in `web/css/app.css`
   (`window.palettes`), so the window follows any change there. Tk is touched only from its own thread: other threads set a
   flag that `Window.tick` picks up. It shows, never decides: wording such as
-  the second computer's status comes from Python (`sync.summary`, also used
+  the other computers' status comes from Python (`sync.summary`, also used
   by the top bar). Without Tk 8.6 or a screen, `--window` falls back to the
   terminal, or opens one when started from an icon (never runs unseen).
 - **One Rota Planner per data folder** (`instance.py`): the lock on

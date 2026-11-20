@@ -33,8 +33,8 @@
 # and python.org (the download is checked as signed by the Python Software
 # Foundation and accepted by the Mac before it is installed).
 #
-# This script runs outside Rota Planner: the program itself never connects to
-# the internet to look for updates (AGENTS.md, rule 1). Keep it working with the
+# This script runs outside Rota Planner, which can also update itself (Settings ›
+# Version and updates: the same steps, see rotaplanner/updates.py). Keep it working with the
 # Mac's own bash 3.2: no associative arrays, no ${x,,}, no mapfile.
 
 set -u
@@ -611,7 +611,7 @@ bring_data() {  # bring_data <old copy or its data folder> <new data folder>: sa
     fi
   done
   if running "$source"; then
-    say "The copy in $1 is open: close it (its Terminal window) first."
+    say "The copy in $1 is open: close it (its window, or its Terminal window) first."
     return 1
   fi
   mkdir -p "$target" || { say "Could not make $target."; return 1; }
@@ -624,7 +624,7 @@ bring_data() {  # bring_data <old copy or its data folder> <new data folder>: sa
   rm -f "$target/.running"
   say "The data was copied from $source."
   say "From now on use only this new copy: the old one is left as it was, but it"
-  say "has the same settings (password, second computer), so do not open it again."
+  say "has the same settings (password, other computers), so do not open it again."
   say "Delete it once all is well."
 }
 
@@ -684,8 +684,9 @@ Ask whoever looks after the program."
 
   # data/, data-demo/ and exports/ are ignored by git, and git treats ignored
   # files as disposable: a version that (by mistake) contains anything there
-  # could replace or delete the data. Never apply one.
-  if [ -n "$(git -C "$folder" ls-tree -r --name-only '@{u}' -- data data-demo exports)" ]; then
+  # could replace or delete the data. Never apply one. (Names compared without
+  # their case: on a Mac's disk, Data/ is the same folder as data/.)
+  if git -C "$folder" ls-tree --name-only "$there" | tr 'A-Z' 'a-z' | grep -qx -e data -e data-demo -e exports; then
     die "The new version contains files in the data folder, which could replace your data,
 so it was not applied. Tell whoever looks after the program."
   fi
@@ -702,11 +703,14 @@ so it was not applied. Tell whoever looks after the program."
   copy=$(safety_copy "$folder") || die "The copy of the data could not be made, so nothing was updated."
   [ -n "$copy" ] && say "Your data was copied first to data/backups/$copy"
 
-  if ! git -C "$folder" merge --quiet --ff-only "$upstream"; then
+  if ! git -C "$folder" merge --quiet --ff-only "$there"; then
     die "The update could not be applied; the program was not changed."
   fi
   if ! works "$folder"; then
     git -C "$folder" reset --quiet --hard "$here"
+    # No compiled file of the version taken back may stay: Python would trust
+    # one made in the same second as the file put back.
+    find "$folder/rotaplanner" -type d -name __pycache__ -prune -exec rm -rf {} + 2>/dev/null
     die "The new version does not start on this computer (see above), so the previous
 version was put back. Tell whoever looks after the program."
   fi
@@ -715,7 +719,7 @@ version was put back. Tell whoever looks after the program."
   window_hint
   if [ -f "$folder/data/sync.json" ]; then
     say ""
-    say "This computer is paired with a second computer: update that one today too."
+    say "This computer shares its rota with other computers: update them today too."
   fi
   finish 0
 }
@@ -738,8 +742,13 @@ PYTHON
 }
 
 works() {  # does the new version load on this computer's Python?
-  python3 -I -m compileall -q "$1/rotaplanner" || return 1  # -q: prints only the errors
-  python3 -I -c 'import sys; sys.path.insert(0, sys.argv[1]); import rotaplanner.app, rotaplanner.server, rotaplanner.__main__' "$1"
+  # Every file is compiled in memory, then the program is imported; -B: no compiled file is written.
+  python3 -I -B -c 'import pathlib, sys
+root = pathlib.Path(sys.argv[1])
+for path in sorted((root / "rotaplanner").rglob("*.py")):
+    compile(path.read_bytes(), str(path), "exec")
+sys.path.insert(0, str(root))
+import rotaplanner.app, rotaplanner.server, rotaplanner.__main__' "$1" 2>&1  # what is wrong is shown
 }
 
 # -- icons ----------------------------------------------------------------

@@ -299,8 +299,8 @@ class AppSyncTest(unittest.TestCase):
             fill(store_a)
             fill(store_b)
             app_a, app_b = App(store_a), App(store_b)
-            code = app_a.sync_setup({"action": "start", "name": "A", "folder": str(base / "shared")})["code"]
-            joining = {"action": "join", "name": "B", "folder": str(base / "shared"), "code": code}
+            code = app_a.sync_setup({"action": "start", "name": "A", "place": str(base / "shared")})["code"]
+            joining = {"action": "join", "name": "B", "place": str(base / "shared"), "code": code}
             with self.assertRaisesRegex(Exception, "already has data"):  # never over existing data without a word
                 app_b.sync_setup(joining)
             app_b.sync_setup(dict(joining, confirmed=True))

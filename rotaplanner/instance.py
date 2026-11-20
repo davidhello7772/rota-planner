@@ -56,10 +56,6 @@ class Instance:
         self._info = {"pid": os.getpid(), "port": None, "door": None, "window": False}
         self._writing = threading.Lock()
 
-    @property
-    def held(self) -> bool:
-        return self._fd is not None
-
     def acquire(self) -> bool:
         """Take the lock. False when another Rota Planner already uses this folder."""
         if self._fd is not None:

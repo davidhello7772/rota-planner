@@ -1,8 +1,9 @@
 # Rota Planner
 
 A local helper for preparing the monthly service rota. It runs on your own
-computer (macOS, Linux or Windows), needs only Python 3.9 or newer, and never
-sends anything over the internet: residents' details stay on this machine.
+computer (macOS, Linux or Windows) and needs only Python 3.9 or newer.
+Residents' details stay on this machine; the internet is used for three
+things only, each optional (see *Privacy* below).
 
 ## Start
 
@@ -13,10 +14,13 @@ made by the installer:
 - macOS: `Rota Planner.command` (or *Rota Planner* in Applications)
 - Linux: `rota-planner.sh` (or *Rota Planner* in the applications menu)
 
-**Rota Planner's window** opens: whether it is running (the green light),
-its address with *Copy*, **Open Rota Planner** (the browser), **Stop** and
-**Start**, who can use it, the other computers and where the data is. The
-browser opens on the rota. Closing the window stops Rota Planner.
+From the installer's icon, and on Windows, **Rota Planner's window** opens:
+whether it is running (the green light), its address with *Copy*, **Open
+Rota Planner** (the browser), **Stop** and **Start**, who can use it, the
+other computers and where the data is. Closing the window stops Rota
+Planner. Started from the start file on a Mac or Linux, it runs in a
+Terminal window instead (Ctrl+C stops it). Either way the browser opens on
+the rota.
 
 Only one Rota Planner runs with the same data: starting it again brings its
 window to the front (or opens the browser on it) instead of starting a
@@ -56,8 +60,7 @@ curl -fsSLO https://raw.githubusercontent.com/davidhello7772/rota-planner/master
 bash install-rota-planner.sh
 ```
 
-(Or bring the file on a USB stick. While the repository is private, the
-first line does not work: download the file from GitHub's website instead.)
+(Or bring the file on a USB stick.)
 
 - **The first time** it installs Rota Planner in *Rota Planner* in your home
   folder, and adds *Rota Planner* and *Update Rota Planner* to the
@@ -94,8 +97,12 @@ first line does not work: download the file from GitHub's website instead.)
   installed. On GitHub, also remove the computer's key (Settings › Deploy
   keys).
 
-Rota Planner itself never looks for updates: updating is always this step,
-done by you.
+**From inside Rota Planner**: *Settings › Version and updates* says whether
+a new version exists (it looks once a day, unless you turn that off, and when
+you press *Check now*), lists what is new, and installs it when you say so:
+a copy of the data is saved first, and Rota Planner starts again by itself.
+Looking only asks the program's page on GitHub what is new; nothing about
+your data is sent, and nothing is installed without your yes.
 
 **On Windows** there is no installer yet: on the repository's page choose
 *Code › Download ZIP*, unpack it in your own user folder, and start
@@ -269,7 +276,8 @@ Then:
   offline, or after *Take over* from a computer that went away), you are
   asked which to keep; the choice then reaches every computer. A copy of the
   data is kept first in `data/backups/` (`before-sync-…`, `before-choice-…`).
-- A computer that no longer takes part can be *forgotten* from another one;
+- A computer that no longer takes part can be *forgotten* from another one
+  (Settings › Other computers, *Forget this computer* next to its name);
   *Stop synchronising* removes this computer's file from the meeting place.
 
 What sits on the server is sealed with the pairing code: the service cannot
@@ -278,11 +286,14 @@ e-mail).
 
 ## Privacy
 
-Everything stays in the `data` folder on this computer; the program never
-uses the internet, unless you set up the optional e-mail: it then connects
-to that mail server only, when you press Send. With other computers set up, a sealed copy goes to the
-server or shared folder you chose (Rota Planner talks to that server in the background, and to nothing
-else); comments of a finished month never do. E-mail
+Everything stays in the `data` folder on this computer. Rota Planner uses
+the internet for three things only, each optional: looking once a day
+whether a newer version exists (nothing about your data is sent; it can be
+turned off in Settings › Version and updates); the e-mail if you set it up
+(that mail server only, when you press Send); and other computers if you set
+them up (a sealed copy goes to the server or shared folder you chose, which
+cannot read it; Rota Planner talks to that server in the background, and to
+nothing else; comments of a finished month never go there). E-mail
 addresses are never kept: only a fingerprint that recognises an address in
 the form's replies but cannot be read back. Notes on a person and on a shift
 are for practical matters only, never health. Comments left with availability replies can be private:

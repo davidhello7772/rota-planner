@@ -7,18 +7,12 @@ import { field, formError, openDialog, segmented, textInput, toggle } from './co
 import { fill, h } from './dom.js';
 import { icon } from './icons.js';
 import { errorText } from './setup.js';
-import { onSyncChange, openSync, refreshSync, syncStatus, useStatus } from './sync.js';
-import { toast } from './ui.js';
+import { CLOUDS, onSyncChange, openSync, refreshSync, syncStatus, useStatus } from './sync.js';
+import { copyText, toast } from './ui.js';
 
 const KOOFR = 'https://app.koofr.net/dav/Koofr/Rota Planner/';
 const FOLDER_HINT = 'The full path of a folder every computer sees, e.g. /home/you/Google Drive/Rota (Linux), '
   + '/Users/you/Google Drive/My Drive/Rota (Mac) or G:\\My Drive\\Rota (Windows).';
-const CLOUDS = { ok: 'cloudOk', sending: 'cloudUp', offline: 'cloudOff', alert: 'cloudAlert' };
-
-function copyText(text) {
-  navigator.clipboard?.writeText(text).then(() => toast('Copied'), () => toast('Select the text and copy it by hand.'));
-}
-
 function codeBox(code) {
   return h('div', { class: 'form-part' },
     h('p', {}, 'On each other computer, choose “Join the others” and type this pairing code:'),
@@ -212,7 +206,8 @@ function computerCard(computer, { self = false, local } = {}) {
     icon('computer'),
     h('span', { class: 'computer-name' }, computer.name, self ? h('span', { class: 'tag' }, 'this computer') : null),
     h('span', { class: 'computer-state' }, computer.editing ? [icon('pen'), ' '] : null, computer.text),
-    computer.state === 'gone' && local ? h('button', { class: 'btn small ghost', type: 'button',
+    // For a computer that no longer takes part (uninstalled, stopped, gone): never the one editing.
+    !self && local && !computer.editing ? h('button', { class: 'btn small ghost', type: 'button',
       title: 'It no longer takes part: remove its file from the meeting place', onclick: () => forget(computer) }, 'Forget this computer') : null);
 }
 
@@ -236,7 +231,6 @@ function forget(computer) {
 function panel(card, status, local) {
   const [text, tone, title] = status.summary;
   const pen = status.pen || {};
-  const needsChoice = status.units.some((u) => u.state === 'both' || (u.state === 'get' && (!status.auto || !u.auto)));
   const codeSlot = h('div', {});
   const stop = () => {
     const dialog = openDialog({
@@ -264,19 +258,17 @@ function panel(card, status, local) {
     }
   });
   auto.input.disabled = !local;
-  const me = { name: status.name, state: pen.mine ? 'editing' : 'ok', editing: pen.mine,
-    text: pen.mine ? 'Editing now' : status.pending ? 'Has changes to send' : 'Up to date' };
   fill(card, h('h2', {}, 'Other computers'),
     h('div', { class: ['sync-head', tone] },
       icon(CLOUDS[status.icon] || 'cloud'),
       h('div', { class: 'sync-head-text' }, h('strong', {}, text), h('span', {}, title)),
-      needsChoice ? h('button', { class: 'btn primary', type: 'button', onclick: openSync }, icon('sync'), 'Synchronise…') : null,
+      status.needs_choice ? h('button', { class: 'btn primary', type: 'button', onclick: openSync }, icon('sync'), 'Synchronise…') : null,
       h('button', { class: 'btn', type: 'button', title: 'Look at the meeting place now', onclick: async (e) => {
         e.currentTarget.disabled = true;
         try { useStatus(await api.post('/api/sync/check', {})); } catch (error) { toast(errorText(error), { tone: 'bad' }); refreshSync(); }
       } }, 'Check now')),
     h('div', { class: ['sync-map', status.connection.online === false ? 'offline' : ''] },
-      h('ul', { class: 'computers' }, computerCard(me, { self: true })),
+      h('ul', { class: 'computers' }, computerCard(status.me, { self: true })),
       h('div', { class: 'sync-link' },
         h('span', { class: 'sync-line', 'aria-hidden': 'true' }),
         h('span', { class: 'sync-place' }, icon(status.place.kind === 'folder' ? 'folder' : 'cloud'),
@@ -286,7 +278,7 @@ function panel(card, status, local) {
       status.others.length
         ? h('ul', { class: 'computers' }, status.others.map((c) => computerCard(c, { local })))
         : h('p', { class: 'muted computers-none' }, 'No other computer yet. On another computer: Settings › Other computers › Join the others.')),
-    status.problem && status.kind !== 'alone' ? h('p', { class: ['offline', 'busy', 'folder'].includes(status.kind) ? 'muted' : 'warn-text' }, status.problem) : null,
+    status.problem && status.kind !== 'alone' ? h('p', { class: status.passing ? 'muted' : 'warn-text' }, status.problem) : null,
     pen.text && !pen.mine ? h('p', { class: 'muted' }, icon('eye'), ' ', pen.text) : null,
     status.log.length ? h('details', { class: 'sync-activity', open: true },
       h('summary', {}, 'Activity'),
