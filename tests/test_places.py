@@ -18,6 +18,11 @@ class AddressTest(unittest.TestCase):
         self.assertEqual(places.webdav_address("https://app.koofr.net/dav/Koofr/Rota"),
                          ("https", "app.koofr.net", 443, "/dav/Koofr/Rota/"))
         self.assertEqual(places.webdav_address("example.org/dav/My%20Rota/")[3], "/dav/My%20Rota/")
+        # A folder's name with a space or an accent, typed as it reads (Koofr's own suggestion has a space).
+        self.assertEqual(places.webdav_address("https://app.koofr.net/dav/Koofr/Rota Planner")[3], "/dav/Koofr/Rota%20Planner/")
+        self.assertEqual(places.webdav_address("https://example.org/dav/Été 2026/")[3], "/dav/%C3%89t%C3%A9%202026/")
+        place = WebDavPlace("https://app.koofr.net/dav/Koofr/Rota Planner/", "me", "x")
+        self.assertEqual(place.describe()["label"], "app.koofr.net/dav/Koofr/Rota Planner/")  # shown as it reads
         self.assertEqual(places.webdav_address("http://127.0.0.1:8899/rota/")[:3], ("http", "127.0.0.1", 8899))
         for bad in ("", "http://example.org/dav/", "https://user:pass@example.org/dav/", "https://example.org/dav/?x=1",
                     "https:///dav/", "https://example.org:port/"):

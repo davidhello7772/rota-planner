@@ -184,6 +184,9 @@ def webdav_address(url: str) -> Tuple[str, str, int, str]:
         raise PlaceError("other", "This is not a web address.")
     if not path.endswith("/"):
         path += "/"
+    # As it travels: a space or an accent in a folder's name is written %20, %C3%A9…
+    # (typed either way, it becomes the same address).
+    path = quote(unquote(path), safe="/")
     return scheme, host, port or (443 if scheme == "https" else 80), path
 
 
