@@ -207,21 +207,12 @@ one event, planned and printed whole.
 Every change is saved immediately. Previous versions of each file are kept in
 `data/backups/`.
 
-## Password and other computers
+## Who can open it
 
-*Settings › Who can use Rota Planner*:
-
-- **Password**: once set, it is asked each time Rota Planner is opened, on
-  this computer too. *Log out* is at the bottom left. Forgotten? On the
-  computer where it runs, start it from a terminal with
-  `python3 run.py --reset-access`: the password is removed and only that
-  computer can open it (the data is not touched).
-- **Other computers**: with a password set, choose *Also other computers* and
-  type their addresses (192.168.1.57) or a range (192.168.1.0/24). The card
-  shows the address to open on them. *Check the firewall* says whether the
-  port must be opened, with the exact command limited to those addresses.
-  Rota Planner never changes the firewall itself. The connection is not
-  encrypted: use this on the staff network only, never on a public Wi-Fi.
+Rota Planner opens only on the computer where it runs: nothing on the
+network can reach it, even if the firewall is open, so it needs no password.
+To work on another computer too, install Rota Planner there and connect the
+two (see *Several computers* below): each keeps its own copy.
 
 ## Sending the schedules by e-mail (optional)
 

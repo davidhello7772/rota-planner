@@ -269,8 +269,7 @@ export function mountPublish(container) {
           h('div', {}, h('h2', {}, 'E-mail everyone their schedule'),
             h('p', { class: 'muted' }, `From ${mailInfo.address}: one message per person, with their shifts and their calendar file. You give the list of addresses; none is kept.`)),
           h('button', { class: 'btn primary', type: 'button', onclick: openMailer }, icon('message'), 'Send by e-mail…')))
-        : h('p', { class: 'faint mail-off' }, mailInfo?.elsewhere ? 'Sending by e-mail is done on the computer where Rota Planner runs.'
-          : ['Sending by e-mail from Rota Planner is not set up (optional). ', h('a', { class: 'link', href: '#/settings' }, 'Settings › E-mail')]),
+        : h('p', { class: 'faint mail-off' }, ['Sending by e-mail from Rota Planner is not set up (optional). ', h('a', { class: 'link', href: '#/settings' }, 'Settings › E-mail')]),
       h('section', { class: 'card schedules-card' },
         h('div', { class: 'card-title' },
           h('div', {}, h('h2', {}, mailInfo?.configured ? 'Or one person at a time' : 'Send each person their schedule'),

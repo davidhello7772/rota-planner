@@ -15,7 +15,6 @@ from pathlib import Path
 
 from rotaplanner import instance as inst
 from rotaplanner import paint, sync
-from rotaplanner.access import Access
 from rotaplanner.app import App
 from rotaplanner.service import FAILED, RUNNING, STOPPED, Service
 from rotaplanner.store import Store
@@ -97,10 +96,6 @@ class InstanceTest(unittest.TestCase):
                                 cwd=PROJECT, capture_output=True, text=True, timeout=30)
         self.assertEqual(second.returncode, 0, second.stdout + second.stderr)
         self.assertIn("already running", second.stdout)
-        reset = subprocess.run([sys.executable, "run.py", "--data", str(self.root), "--reset-access", "--no-browser"],
-                               cwd=PROJECT, capture_output=True, text=True, timeout=30)
-        self.assertNotEqual(reset.returncode, 0)
-        self.assertIn("close it first", reset.stdout)
         first.terminate()  # as the system does at log-out: the program ends cleanly
         first.wait(timeout=10)
         self.assertFalse((self.root / inst.INFO_FILE).exists())
@@ -111,8 +106,7 @@ class ServiceTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         root = Path(self.tmp.name)
-        self.access = Access(root)
-        self.service = Service(App(tiny_store(root)), self.access, "token", 0)
+        self.service = Service(App(tiny_store(root)), "token", 0)
         self.states = []
         self.service.listeners.append(self.states.append)
         self.addCleanup(self.service.close)
@@ -152,15 +146,12 @@ class ServiceTest(unittest.TestCase):
         with self.assertRaises(OSError):
             self.get(port)
 
-    def test_a_new_port_gets_a_new_token_and_ends_sessions(self):
+    def test_a_new_port_gets_a_new_token(self):
         renewed = []
         self.service.renew_token = lambda: renewed.append(True) or "fresh"
-        self.access.set_password("", "a-long-password")
         self.service.start()
         port = self.service.port
-        session = self.access.login("127.0.0.1", "a-long-password")
-        self.assertTrue(self.access.check_session(session, "127.0.0.1"))
-        self.service.close()  # as when the address changes (Settings › Access)
+        self.service.close()
         squatter = socket.socket()
         squatter.bind(("127.0.0.1", port))  # meanwhile, something else took the port
         self.addCleanup(squatter.close)
@@ -168,16 +159,12 @@ class ServiceTest(unittest.TestCase):
         self.assertTrue(self.service.start())
         self.assertNotEqual(self.service.port, port)
         self.assertEqual((renewed, self.service.token), ([True], "fresh"))
-        self.assertFalse(self.access.check_session(session, "127.0.0.1"))
-
-    def test_with_a_password_the_address_holds_no_token(self):
-        self.access.set_password("", "a-long-password")
-        self.service.start()
-        self.assertNotIn("token", self.service.url())
+        self.assertEqual(self.get(self.service.port, "/api/bootstrap", "token")[0], 403)
+        self.assertEqual(self.get(self.service.port, "/api/bootstrap", "fresh")[0], 200)
 
     def test_a_port_in_use_is_reported(self):
         self.service.start()
-        busy = Service(self.service.app, Access(Path(self.tmp.name)), "token", self.service.port)
+        busy = Service(self.service.app, "token", self.service.port)
         import rotaplanner.service as svc
         original = svc.first_free_server
         svc.first_free_server = lambda *a, **k: (_ for _ in ()).throw(OSError("No free port"))
@@ -187,18 +174,6 @@ class ServiceTest(unittest.TestCase):
             svc.first_free_server = original
         self.assertEqual(busy.state, FAILED)
         self.assertIn("No free port", busy.problem)
-
-    def test_listening_again_when_access_changes(self):
-        self.service.start()
-        port = self.service.port
-        self.access.on_listen_change()
-        for _ in range(100):
-            if self.states.count("running") == 2:
-                break
-            time.sleep(0.02)
-        self.assertEqual(self.states.count("running"), 2)
-        self.assertEqual(self.service.port, port)
-        self.assertEqual(self.service.state, RUNNING)
 
 
 class PaletteTest(unittest.TestCase):
@@ -284,7 +259,7 @@ class WindowTest(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         root = Path(self.tmp.name)
-        self.service = Service(App(tiny_store(root)), Access(root), "token", 0)
+        self.service = Service(App(tiny_store(root)), "token", 0)
         self.addCleanup(self.service.stop)
         self.opened = []
         self.tk = tkinter.Tk(className="RotaPlanner")
@@ -334,7 +309,7 @@ class WindowTest(unittest.TestCase):
         self.window.dirty = True
         self.settle(lambda: not self.window.dirty)
         shown = [row[0] for row in self.window.widgets["detail_rows_shown"]]
-        self.assertEqual(shown, ["Who can use it", "Other computers", "Data"])
+        self.assertEqual(shown, ["Several computers", "Data"])
         self.window.facts["dark"] = True
         self.assertTrue(self.settle(lambda: self.window.c["bg"] == "#0f1217"))
         self.assertEqual(self.tk.cget("bg"), "#0f1217")

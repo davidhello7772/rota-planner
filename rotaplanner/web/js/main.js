@@ -1,13 +1,12 @@
 // Application shell: sidebar, top bar, routing and keyboard shortcuts.
 import { redo, undo } from './actions.js';
-import { api, ApiError, monthPath, onLoginNeeded, setToken } from './api.js';
+import { api, ApiError, monthPath } from './api.js';
 import { h, isTyping } from './dom.js';
 import { icon } from './icons.js';
 import { mountBuild } from './build/index.js';
 import { closePicker } from './build/picker.js';
 import { zoomBy } from './build/toolbar.js';
 import { openHelp, renderCoach } from './help.js';
-import { showLogin } from './login.js';
 import { pageFor } from './pages.js';
 import { openSchedules } from './schedules.js';
 import { mountSync } from './sync.js';
@@ -68,8 +67,6 @@ function shell() {
     h('nav', { class: 'nav' }, NAV.map((item) => h('a', { class: 'nav-item', href: `#/${item.route}`, dataset: { route: item.route }, title: item.label },
       icon(item.icon), h('span', { class: 'nav-label' }, item.label)))),
     h('div', { class: 'sidebar-foot' },
-      h('button', { class: 'nav-item', id: 'logout', hidden: true, title: 'Log out: the password is asked next time', onclick: logOut },
-        icon('lock'), h('span', { class: 'nav-label' }, 'Log out')),
       h('button', { class: 'nav-item', id: 'rail-toggle', onclick: () => setUi({ rail: !state.ui.rail }) },
         icon('sidebar'), h('span', { class: 'nav-label' }, 'Collapse'))));
   const topbar = h('header', { class: 'topbar' },
@@ -101,12 +98,6 @@ function shell() {
   app.replaceChildren(sidebar, h('div', { class: 'main' }, topbar, syncBanner, h('div', { class: 'coach-slot', id: 'coach', hidden: true }), content));
 }
 
-async function logOut() {
-  try { await api.post('/api/logout', {}); } catch { /* the session may already be over */ }
-  setToken('');
-  window.location.reload();
-}
-
 function toggleFocus() {
   setSession({ focus: !state.session.focus });
 }
@@ -130,7 +121,6 @@ function renderShell() {
   document.documentElement.style.setProperty('font-size', `${ui.size}%`);
   document.getElementById('size-label').textContent = `${ui.size}%`;
   document.getElementById('centre').textContent = state.boot?.centre || '';
-  document.getElementById('logout').hidden = !state.boot?.auth?.password;
   document.getElementById('month-title').textContent = month ? month.title : 'No rota yet';
   const phase = document.getElementById('phase');
   phase.hidden = !month?.phase;
@@ -184,7 +174,7 @@ async function refreshData() {
       check: null, versions: null, schedules: null, otherMonths: {} });
     if (month) setMonth(month); else setRoute(state.route);
   } catch (error) {
-    if (!(error instanceof ApiError && error.status === 401)) toast(error.message, { tone: 'bad' });
+    toast(error.message, { tone: 'bad' });
   }
 }
 
@@ -273,7 +263,6 @@ async function start() {
     resizeTimer = setTimeout(() => setSession({}), 150);
   });
   state.route = routeFromHash();
-  onLoginNeeded(() => showLogin('Your session is over: please give the password again.'));
   try {
     state.boot = await api.get('/api/bootstrap');
     mountSync(document.getElementById('sync-pill'), document.getElementById('sync-banner'));
@@ -281,10 +270,6 @@ async function start() {
     if (state.boot.current) await loadMonth(state.boot.current);
     else setRoute(state.route);
   } catch (error) {
-    if (error instanceof ApiError && error.status === 401) {
-      showLogin();
-      return;
-    }
     const message = error instanceof ApiError && error.status === 403
       ? 'Please open Rota Planner with the link shown in the window where it was started.'
       : error.message;

@@ -59,7 +59,7 @@ async function confirmInstall(known, onDone) {
 }
 
 /** The Settings card: which version, whether a newer one exists, and installing it. */
-export function updateCard(local) {
+export function updateCard() {
   const card = h('section', { class: 'card update-card' }, h('h2', {}, 'Version and updates'), h('p', { class: 'muted' }, 'Loading…'));
   const show = (info) => {
     if (!info.supported) {
@@ -69,7 +69,6 @@ export function updateCard(local) {
     const auto = toggle('Look for a new version by itself, once a day', info.auto, async (event) => {
       try { show(await api.post('/api/update/options', { auto: event.target.checked })); } catch (error) { formError(card, errorText(error)); }
     });
-    auto.input.disabled = !local;
     const check = h('button', { class: 'btn', type: 'button', onclick: async () => {
       check.disabled = true;
       check.textContent = 'Looking…';
@@ -80,10 +79,10 @@ export function updateCard(local) {
       info.available
         ? [h('div', { class: 'notice update-notice' }, icon('download'),
           h('span', {}, h('strong', {}, 'A new version is available.'), whatIsNew(info)),
-          local ? h('button', { class: 'btn primary', type: 'button', onclick: () => confirmInstall(info, refresh) }, 'Update…') : null)]
+          h('button', { class: 'btn primary', type: 'button', onclick: () => confirmInstall(info, refresh) }, 'Update…'))]
         : h('p', { class: info.problem ? 'warn-text' : info.checked_text ? 'ok-text' : 'muted' },
           info.problem || (info.checked_text ? `Up to date (looked on ${info.checked_text}).` : 'Not looked yet.')),
-      local ? h('div', { class: 'card-actions' }, check) : h('p', { class: 'muted' }, 'Updating is done on the computer where Rota Planner runs.'),
+      h('div', { class: 'card-actions' }, check),
       auto,
       h('p', { class: 'faint' }, 'Looking only asks the program’s page on GitHub what is new: nothing about your data is sent. Nothing is ever installed without your yes.'));
   };

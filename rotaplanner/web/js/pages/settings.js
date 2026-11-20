@@ -1,10 +1,10 @@
-// Settings: usual hours, who can use the program, and importing the current Google Sheets workbook.
-import { field, formError, numberInput, readFileBase64, segmented, textInput, toggle } from '../components.js';
+// Settings: usual hours, the schedule message, e-mail, other computers, moving the data, the program, and importing the current Google Sheets workbook.
+import { field, formError, numberInput, readFileBase64, textInput, toggle } from '../components.js';
 import { otherComputersCard } from '../syncsetup.js';
 import { updateCard } from '../updates.js';
 import { mailCard } from '../mailer.js';
 import { fill, h } from '../dom.js';
-import { api, setToken } from '../api.js';
+import { api } from '../api.js';
 import { errorText, saveSetup } from '../setup.js';
 import { setSession, state } from '../state.js';
 import { icon } from '../icons.js';
@@ -72,130 +72,6 @@ function messageCard(setup) {
         formError(card, errorText(error));
       }
     } }, 'Save')));
-  return card;
-}
-
-// ---- Who can use Rota Planner: password, other computers, firewall -----------
-
-function passwordInput(autocomplete) {
-  return h('input', { class: 'input', type: 'password', autocomplete });
-}
-
-function commandList(lines) {
-  return h('div', { class: 'command-list' }, lines.map((line) => h('div', { class: 'command' },
-    h('code', {}, line),
-    h('button', { class: 'btn small ghost icon-only', type: 'button', 'aria-label': 'Copy the command', title: 'Copy',
-      onclick: () => copyText(line) }, icon('copy')))));
-}
-
-const FIREWALL_STATE = {
-  on: ['The firewall of this computer is on.', 'ok-text'],
-  off: ['The firewall of this computer is off.', 'warn-text'],
-  unknown: ['Whether the firewall is on could not be checked without administrator rights.', 'muted'],
-};
-
-function firewallBox(info) {
-  const box = h('div', { class: 'firewall' });
-  const check = async () => {
-    fill(box, h('p', { class: 'muted' }, 'Looking at the firewall…'));
-    try {
-      const fw = await api.get('/api/access/firewall');
-      const [words, tone] = FIREWALL_STATE[fw.state] || FIREWALL_STATE.unknown;
-      const open = info.mode === 'network';
-      fill(box,
-        h('p', { class: tone }, words, fw.detail ? ` ${fw.detail}` : ''),
-        fw.state === 'off' && open ? h('p', { class: 'warn-text' },
-          'With the firewall off, every program of this computer can be reached from the network, not only Rota Planner. Turning it on is advised.') : null,
-        fw.rule === true ? h('p', { class: 'ok-text' }, 'A “Rota Planner” rule is already there.') : null,
-        open && fw.commands.open.length ? [
-          h('p', {}, 'For the other computers to get through, open this port to them only. ', fw.commands.where),
-          commandList(fw.commands.open)] : null,
-        !open && fw.commands.close.length ? [
-          h('p', {}, 'If you opened the port before, close it again. ', fw.commands.where),
-          commandList(fw.commands.close)] : null,
-        fw.commands.note ? h('p', { class: 'muted' }, fw.commands.note) : null,
-        h('p', { class: 'faint' }, 'Rota Planner never changes the firewall itself.'),
-        h('button', { class: 'btn small', type: 'button', onclick: check }, 'Check again'));
-    } catch (error) {
-      formError(box, errorText(error));
-    }
-  };
-  fill(box, h('button', { class: 'btn', type: 'button', onclick: check }, 'Check the firewall'));
-  return box;
-}
-
-function accessCard() {
-  const card = h('section', { class: 'card' }, h('h2', {}, 'Who can use Rota Planner'), h('p', { class: 'muted' }, 'Loading…'));
-
-  const show = (info) => {
-    if (!info.local) {
-      fill(card, h('h2', {}, 'Who can use Rota Planner'),
-        h('p', { class: 'muted' }, 'You are using Rota Planner from another computer. The password and the computers allowed are changed on the computer where it runs.'));
-      return;
-    }
-    // Password
-    const current = passwordInput('current-password');
-    const fresh = passwordInput('new-password');
-    const repeat = passwordInput('new-password');
-    const savePassword = async (remove) => {
-      if (!remove && fresh.value !== repeat.value) {
-        formError(passwordPart, 'The two new passwords are not the same.');
-        return;
-      }
-      try {
-        const answer = await api.post('/api/access/password', { current: current.value, new: remove ? '' : fresh.value });
-        if (answer.session) setToken(answer.session);
-        toast(remove ? 'Password removed' : 'Password saved');
-        load();
-        if (state.boot?.auth) { state.boot.auth.password = !remove; setSession({}); }
-      } catch (error) {
-        formError(passwordPart, errorText(error));
-      }
-    };
-    const passwordPart = h('div', { class: 'form-part' },
-      h('h3', { class: 'form-section' }, 'Password'),
-      h('p', { class: 'muted' }, info.has_password
-        ? 'A password is asked each time Rota Planner is opened, on this computer too.'
-        : 'No password: anyone using this computer can open Rota Planner. A password is needed before other computers can be allowed.'),
-      info.password_unreadable ? h('p', { class: 'warn-text' }, 'The password file is damaged: set a new password.') : null,
-      h('div', { class: 'form-grid' },
-        info.has_password && !info.password_unreadable ? field('Current password', current) : null,
-        field(info.has_password ? 'New password' : 'Password', fresh, 'At least 8 characters'),
-        field('The same again', repeat)),
-      h('div', { class: 'card-actions' },
-        h('button', { class: 'btn primary', type: 'button', onclick: () => savePassword(false) }, info.has_password ? 'Change the password' : 'Set the password'),
-        info.has_password && info.mode === 'local' ? h('button', { class: 'btn ghost danger', type: 'button', onclick: () => savePassword(true) }, 'Remove the password') : null));
-
-    // Other computers
-    const mode = segmented([{ value: 'local', label: 'This computer only' }, { value: 'network', label: 'Also other computers' }],
-      info.mode, { label: 'Who can connect', onchange: (value) => { list.hidden = value !== 'network'; } });
-    const addresses = h('textarea', { class: 'input textarea', rows: 3, placeholder: '192.168.1.57' }, info.allowed.join('\n'));
-    const here = info.computer.addresses.length
-      ? info.computer.addresses.map((a) => `http://${a}:${info.port}`).join('  or  ') : 'no network address found';
-    const list = h('div', { class: 'form-part', hidden: info.mode !== 'network' },
-      field('Addresses of the other computers', addresses, 'One per line: an address (192.168.1.57) or a range (192.168.1.0/24). Nobody else can connect.'),
-      h('p', {}, 'On the other computer, open ', h('strong', {}, here), ' and give the password.'));
-    const networkPart = h('div', { class: 'form-part' },
-      h('h3', { class: 'form-section' }, 'Computers allowed to connect'),
-      mode, list,
-      info.public.length ? h('p', { class: 'warn-text' }, `Not addresses of a local network: ${info.public.join(', ')}. Allow only computers of the centre.`) : null,
-      h('p', { class: 'warn-text' }, 'What travels between the computers is not encrypted: allow other computers only on the staff network, never on a public Wi-Fi.'),
-      h('div', { class: 'card-actions' }, h('button', { class: 'btn primary', type: 'button', onclick: async () => {
-        try {
-          const answer = await api.post('/api/access/network', { mode: mode.getValue(), allowed: addresses.value.split(/[\s,;]+/) });
-          toast(answer.mode === 'network' ? 'Other computers allowed' : 'This computer only');
-          show(answer);
-        } catch (error) {
-          formError(networkPart, errorText(error));
-        }
-      } }, 'Save')));
-
-    fill(card, h('h2', {}, 'Who can use Rota Planner'), passwordPart, networkPart,
-      h('h3', { class: 'form-section' }, 'Firewall'), firewallBox(info));
-  };
-
-  const load = () => api.get('/api/access').then(show).catch((error) => formError(card, errorText(error)));
-  load();
   return card;
 }
 
@@ -338,9 +214,9 @@ export function mountSettings(container) {
     const groups = [
       ['The rota', [settingsCard(setup), messageCard(setup)]],
       ['Sending by e-mail', [mailCard()]],
-      ['Who can use it, and other computers', [accessCard(), otherComputersCard()]],
+      ['Other computers', [otherComputersCard()]],
       ['Your data', [moveCard(), importCard()]],
-      ['The program', [updateCard(Boolean(state.boot?.auth?.local))]],
+      ['The program', [updateCard()]],
     ].map(([title, cards]) => h('section', { class: 'settings-group' },
       h('h2', { class: 'group-title', tabindex: '-1' }, title), h('div', { class: 'cards flow' }, cards)));
     root.replaceChildren(

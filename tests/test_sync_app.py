@@ -8,9 +8,8 @@ import threading
 import unittest
 from pathlib import Path
 
-from rotaplanner.access import Access
 from rotaplanner.app import App
-from rotaplanner.server import PEN_FREE, TOKEN_HEADER, create_server, local_only
+from rotaplanner.server import PEN_FREE, TOKEN_HEADER, create_server
 from rotaplanner.store import Store
 
 from . import helpers as h
@@ -38,7 +37,7 @@ class TwoPrograms(unittest.TestCase):
         self.joined = answer
         self.servers = {}
         for name, app in (("a", self.a), ("b", self.b)):
-            server = create_server(app, Access(app.store.root), TOKEN, 0)
+            server = create_server(app, TOKEN, 0)
             threading.Thread(target=server.serve_forever, daemon=True).start()
             self.addCleanup(server.server_close)
             self.addCleanup(server.shutdown)
@@ -143,7 +142,7 @@ class TwoPrograms(unittest.TestCase):
         self.assertIn("Front desk took over", notice["text"])
         self.assertIsNone(self.call("a", "POST", "/api/sync/pen", {"action": "release"})[1]["pen"]["notice"])
 
-    def test_which_requests_need_the_pen_or_this_computer(self):
+    def test_which_requests_need_the_pen(self):
         for path in ("/api/sync/apply", "/api/sync/pen", "/api/mail/test", "/api/data/export", "/api/import/workbook/preview",
                      "/api/settings/message/preview", "/api/tasks/times",
                      "/api/months/2026-12/availability/preview", "/api/months/2026-12/export"):
@@ -151,10 +150,6 @@ class TwoPrograms(unittest.TestCase):
         for path in ("/api/people/save", "/api/months/2026-12/assign", "/api/months/2026-12/undo",
                      "/api/data/import/apply", "/api/months/create", "/api/months/2026-12/mail/send", "/api/import/workbook"):
             self.assertIsNone(PEN_FREE.fullmatch(path), path)
-        for path in ("/api/sync/setup", "/api/sync/test", "/api/sync/forget", "/api/sync/stop", "/api/sync/options"):
-            self.assertTrue(local_only(path), path)
-        for path in ("/api/sync/pen", "/api/sync/status", "/api/sync/apply", "/api/people/save"):
-            self.assertFalse(local_only(path), path)
 
     def test_choosing_between_versions_needs_the_pen(self):
         self.rounds()

@@ -1,6 +1,5 @@
-// Talks to the server. Every call carries the session token (or, when a
-// password is set, the session given at login), which the server checks so
-// that no other web page can use this API.
+// Talks to the server. Every call carries the session token, which the
+// server checks so that no other web page can use this API.
 
 const TOKEN_KEY = 'rota-planner-token';
 
@@ -19,20 +18,6 @@ function readToken() {
 }
 
 let token = readToken();
-let loginNeeded = null;  // called when the server asks for the password (session over)
-let answered = false;  // a call succeeded since the page opened: a later 401 means the session ran out
-
-/** Use this session from now on (after the password, or when it changes). */
-export function setToken(value) {
-  token = value || '';
-  unproven = false;
-  try {
-    if (token) localStorage.setItem(TOKEN_KEY, token); else localStorage.removeItem(TOKEN_KEY);
-  } catch { /* storage may be blocked */ }
-}
-
-export function onLoginNeeded(callback) { loginNeeded = callback; }
-
 let refused = null;  // called when a change was refused because of the pen, or newer data arrived
 /** (status, payload) for 423 "another computer is editing" and 409 "newer data was just taken". */
 export function onRefused(callback) { refused = callback; }
@@ -66,8 +51,6 @@ async function request(method, path, body) {
     unproven = false;
     try { localStorage.setItem(TOKEN_KEY, token); } catch { /* storage may be blocked */ }
   }
-  if (response.ok) answered = true;
-  if (response.status === 401 && payload?.login && path !== '/api/login' && answered && loginNeeded) loginNeeded();
   if (refused && (response.status === 423 || (response.status === 409 && payload?.updated))) refused(response.status, payload || {});
   if (!response.ok) throw new ApiError(response.status, payload);
   return payload;

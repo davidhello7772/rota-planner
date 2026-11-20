@@ -4,7 +4,7 @@ Opened by the launchers (``run.py --window``) instead of a terminal. It uses
 Tk, which comes with Python on Mac and Windows (on Linux: the package
 ``python3-tk``). Closing the window stops Rota Planner.
 
-Everything shown is read from the program (``Service``, ``Access``,
+Everything shown is read from the program (``Service``,
 ``sync.summary``); nothing here decides anything. Shapes are painted by
 ``paint.py`` so the edges are smooth on every system. The colours are read
 from the interface's own (``web/css/app.css``), light or dark like the system.
@@ -293,7 +293,7 @@ class Window:
         self.palettes = palettes()
         self.c = self.palettes["dark" if self.dark else "light"]
         self.fonts = self._fonts()
-        self.facts = {"sync": None, "others": [], "version": "", "dark": self.dark}
+        self.facts = {"sync": None, "version": "", "dark": self.dark}
         self.dirty = True
         self.facts_wanted = True
         self.wake_wanted = False
@@ -443,22 +443,13 @@ class Window:
 
     def _detail_rows(self) -> List[tuple]:
         """(label, value, tone, button) for the details card."""
-        access, rows = self.service.access, []
-        if access.network_open:
-            count = len(access.allowed)
-            who = f"This computer and {count} other address{'es' if count != 1 else ''} of the network"
-        else:
-            who = "Only this computer"
-        rows.append(("Who can use it", who + (" · password asked" if access.has_password else ""), "", None))
-        others = self.facts["others"]
-        if self.service.running and others:
-            rows.append(("Allowed computers open", "\n".join(others), "", None))
+        rows = []
         sync = self.facts["sync"]
         if sync is not None:
             text, tone, explanation = sync_summary(sync)
             pen = (sync.get("pen") or {}).get("text") or ""
             words = text if not sync.get("configured") else f"{text}\n{pen or explanation}"
-            rows.append(("Other computers", words, tone, None))
+            rows.append(("Several computers", words, tone, None))
         rows.append(("Data", short_path(self.data_root), "",
                      ("Show", lambda: show_folder(self.data_root))))
         return rows
@@ -688,7 +679,6 @@ class Window:
                     self.facts["sync"] = self.service.app.sync.status()
                 except Exception:  # noqa: BLE001 — shown as "Needs attention" by the program next time
                     self.facts["sync"] = None
-                self.facts["others"] = self.service.other_addresses()
                 self.dirty = True
             for _ in range(15):  # about 3 s, but quick to notice a start or stop
                 if self.closing or self.facts_wanted:

@@ -201,13 +201,13 @@ export function openSyncWizard({ join = false, placeOnly = false, onDone } = {})
 
 // ---- The panel: how things stand ---------------------------------------------
 
-function computerCard(computer, { self = false, local } = {}) {
+function computerCard(computer, { self = false } = {}) {
   return h('li', { class: ['computer', computer.state, self && 'self'] },
     icon('computer'),
     h('span', { class: 'computer-name' }, computer.name, self ? h('span', { class: 'tag' }, 'this computer') : null),
     h('span', { class: 'computer-state' }, computer.editing ? [icon('pen'), ' '] : null, computer.text),
     // For a computer that no longer takes part (uninstalled, stopped, gone): never the one editing.
-    !self && local && !computer.editing ? h('button', { class: 'btn small ghost', type: 'button',
+    !self && !computer.editing ? h('button', { class: 'btn small ghost', type: 'button',
       title: 'It no longer takes part: remove its file from the meeting place', onclick: () => forget(computer) }, 'Forget this computer') : null);
 }
 
@@ -228,7 +228,7 @@ function forget(computer) {
   });
 }
 
-function panel(card, status, local) {
+function panel(card, status) {
   const [text, tone, title] = status.summary;
   const pen = status.pen || {};
   const codeSlot = h('div', {});
@@ -257,7 +257,6 @@ function panel(card, status, local) {
       toast(errorText(error), { tone: 'bad' });
     }
   });
-  auto.input.disabled = !local;
   fill(card, h('h2', {}, 'Other computers'),
     h('div', { class: ['sync-head', tone] },
       icon(CLOUDS[status.icon] || 'cloud'),
@@ -276,7 +275,7 @@ function panel(card, status, local) {
         h('span', { class: 'sync-connection' }, status.connection.text),
         h('span', { class: 'sync-line', 'aria-hidden': 'true' })),
       status.others.length
-        ? h('ul', { class: 'computers' }, status.others.map((c) => computerCard(c, { local })))
+        ? h('ul', { class: 'computers' }, status.others.map((c) => computerCard(c)))
         : h('p', { class: 'muted computers-none' }, 'No other computer yet. On another computer: Settings › Other computers › Join the others.')),
     status.problem && status.kind !== 'alone' ? h('p', { class: status.passing ? 'muted' : 'warn-text' }, status.problem) : null,
     pen.text && !pen.mine ? h('p', { class: 'muted' }, icon('eye'), ' ', pen.text) : null,
@@ -284,7 +283,7 @@ function panel(card, status, local) {
       h('summary', {}, 'Activity'),
       h('ul', {}, status.log.map((entry) => h('li', { class: entry.tone }, h('span', { class: 'faint' }, entry.when), ' ', entry.text)))) : null,
     auto,
-    local ? h('div', { class: 'card-actions' },
+    h('div', { class: 'card-actions' },
       h('button', { class: 'btn', type: 'button', onclick: async () => {
         try {
           fill(codeSlot, codeBox((await api.post('/api/sync/code', {})).code));
@@ -294,17 +293,16 @@ function panel(card, status, local) {
       } }, 'Show the pairing code'),
       h('button', { class: 'btn', type: 'button', onclick: () => openSyncWizard({ placeOnly: true }) },
         status.place.kind === 'folder' ? 'Change the meeting place' : 'Change the server or password'),
-      h('button', { class: 'btn ghost danger', type: 'button', onclick: stop }, 'Stop synchronising'))
-      : h('p', { class: 'muted' }, 'This is set up on the computer where Rota Planner runs.'),
+      h('button', { class: 'btn ghost danger', type: 'button', onclick: stop }, 'Stop synchronising')),
     codeSlot,
     h('p', { class: 'faint' }, 'Everything at the meeting place is sealed with the pairing code: the server cannot read it. Comments of a month that is over are never sent.'));
 }
 
-function intro(card, local) {
+function intro(card) {
   fill(card, h('h2', {}, 'Other computers'),
     h('p', { class: 'muted' }, 'Use Rota Planner on several computers, here or elsewhere. Each keeps its own copy and works without '
       + 'connection too; changes travel by themselves, and only one computer changes the rota at a time.'),
-    !local ? h('p', { class: 'muted' }, 'This is set up on the computer where Rota Planner runs.') : h('div', { class: 'choice-tiles' },
+    h('div', { class: 'choice-tiles' },
       tile('plus', 'Set up the first computer', 'Choose where the computers meet and get a pairing code.', false,
         () => openSyncWizard({})),
       tile('users', 'Join the others', 'Another computer is already set up: type its pairing code here.', false,
@@ -314,20 +312,17 @@ function intro(card, local) {
 /** The Settings card. */
 export function otherComputersCard() {
   const card = h('section', { class: 'card sync-card' }, h('h2', {}, 'Other computers'), h('p', { class: 'muted' }, 'Loading…'));
-  let local = null;  // not known yet: nothing is drawn before, so the right buttons show at once
   const show = (status) => {
     if (!card.isConnected && card.dataset.shown) { stopWatching(); return; }
-    if (local === null || !status) return;
+    if (!status) return;
     card.dataset.shown = '1';
     // While something is being typed or read in the card (a code shown, a menu open), leave it alone.
     if (card.contains(document.activeElement) && document.activeElement.tagName === 'INPUT') return;
     const open = card.querySelector('.sync-code');
-    if (status.configured) { if (!open) panel(card, status, local); } else intro(card, local);
+    if (status.configured) { if (!open) panel(card, status); } else intro(card);
   };
   const stopWatching = onSyncChange(show);
-  Promise.all([refreshSync(), api.get('/api/access')])
-    .then(([status, access]) => { local = Boolean(access.local); show(status); })
-    .catch((error) => formError(card, errorText(error)));
+  refreshSync().then(show).catch((error) => formError(card, errorText(error)));
   return card;
 }
 

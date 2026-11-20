@@ -1,4 +1,3 @@
-import http.client
 import json
 import smtplib
 import tempfile
@@ -8,11 +7,9 @@ import unittest
 from pathlib import Path
 
 from rotaplanner import emails, mail, transfer
-from rotaplanner.access import Access
 from rotaplanner.app import ApiError, App
 from rotaplanner.exporters import versions
 from rotaplanner.model import Assignment
-from rotaplanner.server import TOKEN_HEADER, create_server
 from rotaplanner.store import Store
 
 from . import helpers as h
@@ -300,57 +297,6 @@ class MailTest(unittest.TestCase):
         self.assertNotIn("Bcc", message.keys())
         self.assertEqual(len(message["To"].addresses), 1)
         self.assertNotIn("\n", message["Subject"])
-
-
-class MailRoutesTest(unittest.TestCase):
-    """Everything about e-mail is for the computer where the program runs."""
-
-    def test_refused_from_another_computer(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            store = Store(Path(tmp))
-            store.save_catalog(h.catalog())
-            store.save_people(h.people())
-            store.save_month(h.month())
-            access = Access(Path(tmp))
-            access.set_password("", "a long password")
-            access.save_network("network", ["192.168.1.57"])
-            server = create_server(App(store), access, "token", 0)
-            base = server.RequestHandlerClass
-
-            class Pretend(base):
-                @property
-                def client(self):
-                    return self.headers.get("X-Test-Client") or super().client
-
-            server.RequestHandlerClass = Pretend
-            port = server.server_address[1]
-            threading.Thread(target=server.serve_forever, daemon=True).start()
-            try:
-                def call(method, path, client, body=None):
-                    session = access.login(client, "a long password")
-                    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
-                    headers = {"Host": f"127.0.0.1:{port}", TOKEN_HEADER: session, "X-Test-Client": client}
-                    payload = json.dumps(body).encode() if body is not None else None
-                    if payload is not None:
-                        headers["Content-Type"] = "application/json"
-                    conn.request(method, path, body=payload, headers=headers)
-                    response = conn.getresponse()
-                    data = json.loads(response.read())
-                    conn.close()
-                    return response.status, data
-
-                other = "192.168.1.57"
-                self.assertEqual(call("GET", "/api/mail", other), (200, {"configured": False, "elsewhere": True}))
-                for method, path in (("POST", "/api/mail/save"), ("POST", "/api/mail/test"), ("POST", "/api/mail/remove"),
-                                     ("GET", "/api/mail/status"), ("POST", "/api/mail/stop"),
-                                     ("POST", "/api/months/2026-12/mail/preview"), ("POST", "/api/months/2026-12/mail/send")):
-                    self.assertEqual(call(method, path, other, {} if method == "POST" else None)[0], 403, path)
-                status, info = call("GET", "/api/mail", "127.0.0.1")
-                self.assertEqual((status, info["configured"], info["has_password"]), (200, False, False))
-                self.assertEqual(call("GET", "/api/mail/status", "127.0.0.1")[0], 200)
-            finally:
-                server.shutdown()
-                server.server_close()
 
 
 if __name__ == "__main__":

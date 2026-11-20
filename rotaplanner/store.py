@@ -82,7 +82,7 @@ function turning a version-N document into a version-N+1 document.
 
 
 def write_private_json(path: Path, document: Dict[str, Any]) -> None:
-    """A small settings file of this computer only (``access.json``, ``sync.json``):
+    """A small settings file of this computer only (``sync.json``, ``mail.json``):
     written whole (temporary file, then rename), readable by this user only, no backup."""
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(path.name + ".tmp")

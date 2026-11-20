@@ -14,9 +14,11 @@ a Google Sheet. The user is not a programmer.
 
 1. **Personal data never leaves this computer, except where the coordinator
    chose.** No CDN, no fonts or scripts from outside, no telemetry, and no
-   network call other than the three named below. The server listens on 127.0.0.1 unless
-   the coordinator allows other addresses (Settings › Access), and then only
-   answers those addresses, behind the password. The only data that leaves
+   network call other than the three named below. The server listens on
+   127.0.0.1 and answers this computer only (`server.is_loopback`, checked
+   first on every request): other computers share the data through sync,
+   never by connecting to the server. Do not add a way in from the network
+   (no password screen, no other addresses). The only data that leaves
    the data folder is the **sealed** sync file (and the pen note), put in the
    place the coordinator chose: a shared folder, or a WebDAV server. There
    are three outgoing connections, all optional. Two go to a server the
@@ -67,8 +69,7 @@ a Google Sheet. The user is not a programmer.
    the addresses live in memory for the sending only, are shown back masked
    (`an•••@example.org`), and never cross the network (this computer only).
 9. **Passwords and keys are never sent to the screen** and never leave the
-   data folder: the password as a slow hash (`access.py`), the sync key and
-   the WebDAV app password in `sync.json`, the mail account's app password in
+   data folder: the sync key and the WebDAV app password in `sync.json`, the mail account's app password in
    `mail.json` (these must stay readable to log in: private files of this
    computer, never exported or synchronised). The WebDAV password is sent
    only to the server it belongs to: https only, no redirect followed.
@@ -106,8 +107,6 @@ rotaplanner/
   month_setup.py    new month, events (also over two months), closures, event tasks
   availability.py   reading the form's replies (e-mail fingerprint, then name); comments and their deletion
   emails.py         e-mail addresses as one-way fingerprints only
-  access.py         who may connect, password, sessions (access.json: never exported or synced)
-  firewall.py       reads the firewall's state; suggests the narrowest rule; never changes it
   sync.py           several computers: one sealed file each, version vectors, the courier, the pen
   places.py         where the computers meet: a shared folder or a WebDAV server (list, read, write, delete)
   tls.py            encrypted connections with the certificate checked (mail, WebDAV)
@@ -137,8 +136,7 @@ Front end (`rotaplanner/web/js`): `main.js` (shell, routes, shortcuts),
 rota goes through here: toast with Undo, "assign anyway"), `api.js`,
 `components.js` (inputs, dialog, drawer), `build/` (the rota grid and its
 side panel), `pages/` (one module per screen), `eventtask.js`,
-`schedules.js`, `mailer.js` (e-mailing the schedules), `login.js` (the
-password), `sync.js` (other computers: the cloud in the top bar, the pen,
+`schedules.js`, `mailer.js` (e-mailing the schedules), `sync.js` (other computers: the cloud in the top bar, the pen,
 the banners, choosing between versions), `syncsetup.js` (their card in
 Settings, the set-up assistant, the first screen of an empty computer),
 `updates.js` (a newer version), `ui.js` (toast, menu, copy), `help.js` +
@@ -235,7 +233,7 @@ cost a bug report.
   held; the screens read the local mirror (`data/sync-cache/`) and never wait
   for a server. Lock order: `app.lock`, then `sync.lock`. Any new data file
   must be added to `transfer.TOP_LEVEL` (so it is exported, checked and
-  synchronised) or deliberately kept local like `access.json` and `sync.json`.
+  synchronised) or deliberately kept local like `sync.json` and `mail.json`.
 - **One computer edits at a time (the pen).** Every POST that changes shared
   data passes `server._pen` first (`PEN_FREE` lists the exceptions): a new
   route that changes data needs nothing; one that only looks, or only
@@ -269,7 +267,7 @@ cost a bug report.
 - **One Rota Planner per data folder** (`instance.py`): the lock on
   `data/.lock` is taken before anything else; a second start wakes the first
   through a socket on 127.0.0.1 that only reacts to the secret in the private
-  `data/.instance`. `--reset-access` and `--reset-demo` refuse while it runs.
+  `data/.instance`. `--reset-demo` refuses while it runs.
 - **Direct PDF needs Edge, Chrome or Chromium.** Vivaldi and snap browsers
   hang in headless mode and are deliberately not used (`exporters/pdf.py`);
   the fallback is the browser's Print → Save as PDF.
@@ -284,7 +282,7 @@ cost a bug report.
   rules, data format, saving or more than a few files), **run a code review**
   of the whole change (`/code-review`) and fix what it finds before saying it
   is done.
-- **When access, passwords, sessions, the sync file, imports or personal data
+- **When the server's checks, the session token, keys, the sync file, imports or personal data
   are touched, also run a security review** (`/security-review`) and fix what
   it finds.
 - **Update the help** (`web/js/help-content.js`: screen points, tips,

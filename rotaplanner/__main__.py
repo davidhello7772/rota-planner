@@ -16,7 +16,6 @@ import webbrowser
 from pathlib import Path
 
 from . import updates
-from .access import Access
 from .app import App
 from .demo import build_demo
 from .exporters import pdf
@@ -55,6 +54,16 @@ def session_token(root: Path) -> str:
     return new_session_token(root)
 
 
+def forget_old_access(root: Path) -> None:
+    """Older versions could set a password and let other computers connect
+    (``access.json``). Rota Planner now answers this computer only: that file
+    (a password's hash, a list of addresses) is no longer used, so it goes."""
+    try:
+        (root / "access.json").unlink()
+    except OSError:
+        pass  # not there, or not removable here: it is ignored anyway
+
+
 def parse_args(argv):
     parser = argparse.ArgumentParser(prog="rota-planner", description="Prepare the monthly rota.")
     parser.add_argument("--data", type=Path, help="data folder (default: ./data next to the program)")
@@ -62,8 +71,6 @@ def parse_args(argv):
     parser.add_argument("--reset-demo", action="store_true", help="rebuild the demonstration data first")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT, help=f"preferred port (default {DEFAULT_PORT})")
     parser.add_argument("--no-browser", action="store_true", help="do not open the browser")
-    parser.add_argument("--reset-access", action="store_true",
-                        help="forgotten password: remove it and allow this computer only")
     parser.add_argument("--window", action="store_true",
                         help="show Rota Planner's own window (status, Start, Stop) instead of using this terminal")
     # Started again by itself after an update: the page already open expects this port.
@@ -132,7 +139,7 @@ def already_running(root: Path, args) -> int:
         time.sleep(0.2)
     port = note.get("port")
     if isinstance(port, int):
-        url = f"http://127.0.0.1:{port}/" + ("" if Access(root).has_password else f"?t={session_token(root)}")
+        url = f"http://127.0.0.1:{port}/?t={session_token(root)}"
         print(f"Rota Planner is already running: http://127.0.0.1:{port}/")
         if not args.no_browser:
             open_in_browser(root, url)
@@ -154,7 +161,7 @@ def main(argv=None) -> int:
     private_folder(root)
     instance = Instance(root)
     if not instance.acquire():
-        if args.reset_access or args.reset_demo:
+        if args.reset_demo:
             print("Rota Planner is open with this data: close it first, then start again.")
             return 1
         return already_running(root, args)
@@ -202,14 +209,11 @@ def run(root: Path, demo: bool, args, instance: Instance, closers: list) -> int:
         build_demo(store)
 
     token = session_token(root)
-    access = Access(root)
-    if args.reset_access:
-        access.reset()
-        print("The password is removed and only this computer may use Rota Planner.")
+    forget_old_access(root)
     app = App(store)
     app.sync.start_background()
     app.updates.start_background()
-    service = Service(app, access, token, args.port, renew_token=lambda: new_session_token(root))
+    service = Service(app, token, args.port, renew_token=lambda: new_session_token(root))
     if args.after_update:
         # The port was free for a moment: if another program took it, it may have received
         # the open page's token. Starting on any other port makes a new token (Service._bind).
@@ -306,12 +310,8 @@ def run_in_terminal(service: Service, root: Path, demo: bool, args) -> int:
         if state != "running":
             return
         # 127.0.0.1, not "localhost": the name could lead to another program listening on IPv6.
-        # With a password, the address holds no secret: the password is asked.
         print(f"Rota Planner is running{' (demo data)' if demo else ''}.")
         print(f"Open: {service.url()}")
-        if service.access.network_open:
-            others = ", ".join(service.other_addresses()) or "(no network address found)"
-            print(f"Other allowed computers open: {others}")
         print("Press Ctrl+C to stop.", flush=True)
 
     service.listeners.append(announce)

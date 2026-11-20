@@ -26,11 +26,6 @@ export function mailCard() {
 
   const show = (info, problem = '') => {
     setSession({ mailInfo: info });
-    if (info.elsewhere) {
-      fill(card, h('h2', {}, 'E-mail (optional)'),
-        h('p', { class: 'muted' }, 'Sending schedules by e-mail is set up and used on the computer where Rota Planner runs.'));
-      return;
-    }
     const address = textInput(info.address, { type: 'email', placeholder: 'rota@example.org', autocomplete: 'off' });
     const name = textInput(info.name, { placeholder: 'Rota – name of the centre', autocomplete: 'off' });
     const password = h('input', { class: 'input', type: 'password', autocomplete: 'off',

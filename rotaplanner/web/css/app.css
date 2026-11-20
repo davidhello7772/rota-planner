@@ -240,15 +240,6 @@ a.btn { text-decoration: none; }
   .stepper { margin-left: 0; }
 }
 
-/* ---- Password screen ---------------------------------------------------- */
-.login-page { grid-column: 1 / -1; min-height: 100vh; display: grid; place-items: center; padding: var(--space-4); background: var(--bg); }
-.login-card { width: min(22rem, 100%); display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-6);
-  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg); }
-.login-card .brand { height: auto; padding: 0 0 var(--space-3); margin-bottom: var(--space-2); }
-.login-card .input { width: 100%; }
-.login-card .faint { margin: var(--space-2) 0 0; font-size: var(--fs-xs); overflow-wrap: anywhere; }
-.login-message { margin: 0; min-height: 1.2em; color: var(--bad); font-size: var(--fs-sm); }
-
 /* ---- Other computers: the cloud in the top bar, the banners, the choice ---- */
 .sync-pill { border: 1px solid var(--line); text-decoration: none; }
 .sync-pill.ok { color: var(--ok); }

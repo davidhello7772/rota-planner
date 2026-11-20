@@ -2,20 +2,16 @@
 
 Security model:
 
-- By default the server listens on 127.0.0.1 only, so nothing on the network
-  can reach it. When the coordinator allows other addresses (``access.py``),
-  it listens on the network but answers only this computer and those
-  addresses, and then a password is always needed.
-- Without a password, every API call carries the permanent session token;
-  with one, a session id given at login (tied to the address that logged
-  in). Either travels in a custom header, which other web sites cannot add
-  without a CORS pre-flight this server never grants. A POST that names
-  another origin is refused.
-- Requests whose Host is not this server are refused (DNS rebinding): only
-  127.0.0.1 / localhost, and, when other computers are allowed, an IP
-  address or this computer's own name.
-- Who may connect, the password and the firewall check can only be changed
-  or run from this computer itself.
+- Rota Planner answers this computer only. The server listens on 127.0.0.1,
+  and, as a second lock that does not depend on how it listens or on the
+  firewall, refuses every request that does not come from this computer.
+  Other computers share the data through the sealed sync file (``sync.py``),
+  never by connecting here.
+- Every API call carries the session token (kept in the data folder) in a
+  custom header, which other web sites cannot add without a CORS pre-flight
+  this server never grants. A POST that names another origin is refused.
+- Requests whose Host is not 127.0.0.1 or localhost are refused (DNS
+  rebinding: a web page cannot reach this server under a name of its own).
 """
 
 from __future__ import annotations
@@ -25,7 +21,6 @@ import ipaddress
 import json
 import os
 import re
-import socket
 import traceback
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -33,15 +28,13 @@ from pathlib import Path
 from typing import Any, Callable, List, Optional, Tuple
 from urllib.parse import parse_qs, urlsplit
 
-from . import firewall
-from .access import Access, AccessError, is_loopback
 from .app import ApiError, App, Json
 from .sync import PenError, SyncError
 from .store import StoreError
 
 WEB_ROOT = Path(__file__).resolve().parent / "web"
 TOKEN_HEADER = "X-Rota-Token"
-MAX_BODY_BYTES = 30_000_000  # uploads of workbooks travel as base64 JSON
+MAX_BODY_BYTES = 30_000_000  # uploaded files (a backup copy, a list of people) travel as base64 JSON
 
 CONTENT_TYPES = {
     ".html": "text/html; charset=utf-8",
@@ -132,13 +125,6 @@ SETUP_ACTIONS = {
     "mail/stop": "mail_stop",
 }
 
-# Only from the computer where the program runs: the meeting place and the pairing
-# code of this computer, installing a new version, opening the exports folder (a
-# window on this computer's screen), and everything about e-mail (the account, and
-# the list of addresses given when sending, which must not cross the network).
-LOCAL_ONLY = re.compile(r"/api/(sync/(setup|code|stop|test|forget|options)|mail(/[a-z]+)?|update/[a-z]+"
-                        r"|months/\d{4}-\d{2}/(exports/open|mail/[a-z]+))")
-
 # Changes that do not need the pen (see sync.py: one computer edits at a time): looking
 # before deciding, this computer's own settings (e-mail account, saved files), and
 # synchronisation itself. Every other POST changes the shared data.
@@ -147,9 +133,12 @@ PEN_FREE = re.compile(r"/api/(sync/[a-z-]+|mail/[a-z]+|update/[a-z]+|data/export
                       r"|months/\d{4}-\d{2}/(availability/preview|mail/preview|mail/plan|export|exports/open))")
 
 
-def local_only(path: str) -> bool:
-    path = path.rstrip()  # routes are matched with "$", which also accepts a final line break
-    return LOCAL_ONLY.fullmatch(path) is not None
+def is_loopback(address: str) -> bool:
+    """Is this address this computer itself?"""
+    try:
+        return ipaddress.ip_address(address).is_loopback
+    except ValueError:
+        return False
 
 
 def unlocked(handler: Callable[..., Json]) -> Callable[..., Json]:
@@ -219,48 +208,14 @@ def build_routes(app: App) -> List[Route]:
     return [(verb, re.compile(f"^{pattern}$"), handler) for verb, pattern, handler in table]
 
 
-def this_computer() -> Json:
-    """This computer's name and its address on the network, to type on another computer.
-
-    Connecting a UDP socket sends nothing: it only asks the system which
-    address it would use.
-    """
-    addresses = []
-    for probe in ("192.168.0.1", "10.0.0.1", "8.8.8.8"):
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-                sock.connect((probe, 9))
-                address = sock.getsockname()[0]
-        except OSError:
-            continue
-        if address not in addresses and not is_loopback(address):
-            addresses.append(address)
-    return {"name": socket.gethostname(), "addresses": addresses}
-
-
-def host_allowed(host: str, port: int, access: Access, own_names: List[str]) -> bool:
+def host_allowed(host: str, port: int) -> bool:
     """Is the Host header this server? (A name an attacker controls is not.)"""
     name, sep, host_port = host.rpartition(":")
-    if not sep or host_port != str(port):
-        return False
-    name = name.lower()
-    if name in ("127.0.0.1", "localhost"):
-        return True
-    if not access.network_open:
-        return False
-    if name in own_names:
-        return True
-    try:
-        ipaddress.ip_address(name.strip("[]"))
-    except ValueError:
-        return False
-    return True
+    return bool(sep) and host_port == str(port) and name.lower() in ("127.0.0.1", "localhost")
 
 
-def make_handler(app: App, access: Access, token: str, port: int) -> type:
+def make_handler(app: App, token: str, port: int) -> type:
     routes = build_routes(app)
-    machine = socket.gethostname().lower()
-    own_names = [machine, f"{machine}.local", f"{machine}.lan"]
 
     class Handler(BaseHTTPRequestHandler):
         server_version = "RotaPlanner"
@@ -280,12 +235,12 @@ def make_handler(app: App, access: Access, token: str, port: int) -> type:
             return str(self.client_address[0])
 
         def _dispatch(self, verb: str) -> None:
-            if not access.allows(self.client):
-                # Not this computer and not an allowed address: say nothing more.
+            if not is_loopback(self.client):
+                # Not this computer: say nothing more.
                 self._send(HTTPStatus.FORBIDDEN, b"Not allowed.", "text/plain; charset=utf-8")
                 return
             host = self.headers.get("Host", "")
-            if not host_allowed(host, port, access, own_names):
+            if not host_allowed(host, port):
                 self._send_json(HTTPStatus.FORBIDDEN, {"error": "Unexpected host."})
                 return
             origin = self.headers.get("Origin")
@@ -293,9 +248,7 @@ def make_handler(app: App, access: Access, token: str, port: int) -> type:
                 self._send_json(HTTPStatus.FORBIDDEN, {"error": "Request from another site."})
                 return
             url = urlsplit(self.path)
-            if url.path == "/api/login" and verb == "POST":
-                self._login()
-            elif url.path.startswith("/api/"):
+            if url.path.startswith("/api/"):
                 self._api(verb, url.path, url.query)
             elif url.path.startswith("/print/") and verb == "GET":
                 self._print(url.path, url.query)
@@ -305,97 +258,16 @@ def make_handler(app: App, access: Access, token: str, port: int) -> type:
                 self._send_json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "Not allowed."})
 
         def _authorised(self, supplied: str) -> bool:
-            if access.has_password:
-                return access.check_session(supplied, self.client)
-            return is_loopback(self.client) and hmac.compare_digest(supplied.encode(), token.encode())
-
-        def _refuse(self) -> None:
-            if access.has_password:
-                self._send_json(HTTPStatus.UNAUTHORIZED, {"error": "Please give the password.", "login": True})
-            else:
-                self._send_json(HTTPStatus.FORBIDDEN, {"error": "Missing or wrong session token."})
-
-        def _login(self) -> None:
-            if not (self.headers.get("Content-Type") or "").startswith("application/json"):
-                self._send_json(HTTPStatus.BAD_REQUEST, {"error": "A JSON request was expected."})
-                return
-            try:
-                body = self._read_body()
-            except ApiError as error:
-                self._send_json(error.status, error.payload)
-                return
-            if not access.has_password:
-                self._send_json(HTTPStatus.BAD_REQUEST, {"error": "No password is set."})
-                return
-            wait = access.wait_left(self.client)
-            session = None if wait else access.login(self.client, str(body.get("password") or ""))
-            if session:
-                self._send_json(HTTPStatus.OK, {"session": session})
-                return
-            wait = access.wait_left(self.client)
-            message = (f"Too many wrong passwords: wait {wait} seconds, then try again." if wait
-                       else "This is not the password.")
-            if access.password_unreadable:
-                message = ("The password file is damaged, so no password can be checked. On the computer where "
-                           "Rota Planner runs, start it with: python3 run.py --reset-access, then set a new password.")
-            self._send_json(HTTPStatus.TOO_MANY_REQUESTS if wait else HTTPStatus.UNAUTHORIZED,
-                            {"error": message, "wait": wait, "login": True})
-
-        def _access_route(self, verb: str, path: str, body: Json) -> Json:
-            """Who may connect, the password, the firewall: changed from this computer only."""
-            local = is_loopback(self.client)
-            if path == "/api/logout" and verb == "POST":
-                access.logout(self.headers.get(TOKEN_HEADER, ""))
-                return {"ok": True}
-            if path == "/api/access" and verb == "GET":
-                return {**access.describe(), "local": local, "port": port, "computer": this_computer()}
-            if not local:
-                raise ApiError(HTTPStatus.FORBIDDEN, "This can only be changed on the computer where Rota Planner runs.")
-            try:
-                if path == "/api/access/network" and verb == "POST":
-                    moved = access.save_network(str(body.get("mode") or ""), [str(a) for a in body.get("allowed") or []][:100])
-                    if moved and access.on_listen_change:
-                        access.on_listen_change()
-                    return {**access.describe(), "local": local, "port": port, "computer": this_computer(), "moved": moved}
-                if path == "/api/access/password" and verb == "POST":
-                    new = str(body.get("new") or "")
-                    if new:
-                        access.set_password(str(body.get("current") or ""), new, keep_session=self.headers.get(TOKEN_HEADER, ""))
-                        if not access.check_session(self.headers.get(TOKEN_HEADER, ""), self.client):
-                            # Setting the first password: this browser gets its session at once.
-                            return {**access.describe(), "session": access.login(self.client, new)}
-                    else:
-                        access.remove_password(str(body.get("current") or ""))
-                        return {**access.describe(), "session": token}  # back to the permanent token
-                    return access.describe()
-                if path == "/api/access/firewall" and verb == "GET":
-                    return firewall.status(port, access.allowed)
-            except AccessError as error:
-                raise ApiError(HTTPStatus.BAD_REQUEST, str(error)) from None
-            raise ApiError(HTTPStatus.NOT_FOUND, "Unknown address.")
+            return hmac.compare_digest(supplied.encode(), token.encode())
 
         def _api(self, verb: str, path: str, query: str) -> None:
             supplied = self.headers.get(TOKEN_HEADER, "")
             if not self._authorised(supplied):
-                self._refuse()
+                self._send_json(HTTPStatus.FORBIDDEN, {"error": "Missing or wrong session token."})
                 return
             try:
                 body = self._read_body() if verb == "POST" else {}
                 params = {key: values[-1] for key, values in parse_qs(query).items()}
-                if path == "/api/logout" or path == "/api/access" or path.startswith("/api/access/"):
-                    self._send_json(HTTPStatus.OK, self._access_route(verb, path, body))
-                    return
-                if local_only(path) and not is_loopback(self.client):
-                    if path == "/api/mail" and verb == "GET":  # the screens only need to know it is not for them
-                        self._send_json(HTTPStatus.OK, {"configured": False, "elsewhere": True})
-                        return
-                    raise ApiError(HTTPStatus.FORBIDDEN, "This can only be done on the computer where Rota Planner runs.")
-                if path == "/api/bootstrap":
-                    with app.lock:
-                        result = app.bootstrap()
-                    result["auth"] = {"password": access.has_password, "local": is_loopback(self.client)}
-                    self._send_json(HTTPStatus.OK, result)
-                    return
                 for route_verb, pattern, handler in routes:
                     match = pattern.match(path)
                     if match and route_verb == verb:
@@ -408,9 +280,6 @@ def make_handler(app: App, access: Access, token: str, port: int) -> type:
                                 result = handler(params, body, **match.groupdict())
                         if verb == "POST" and not PEN_FREE.fullmatch(path.rstrip()):
                             app._publish()  # noqa: SLF001 — what changed is sent to the other computers
-                        if path.rstrip() == "/api/sync/status" and not is_loopback(self.client) and result.get("configured"):
-                            # Where the computers meet (address, account) is this computer's business only.
-                            result = dict(result, folder="", place={"kind": result["place"]["kind"], "label": ""})
                         self._send_json(HTTPStatus.OK, result)
                         return
                 raise ApiError(HTTPStatus.NOT_FOUND, "Unknown address.")
@@ -519,21 +388,20 @@ class _Server(ThreadingHTTPServer):
     allow_reuse_address = os.name != "nt"
 
 
-def create_server(app: App, access: Access, token: str, port: int) -> ThreadingHTTPServer:
-    """Bind on 127.0.0.1, or on the network when other computers are allowed.
-    ``port`` 0 lets the system choose a free port."""
-    server = _Server((access.bind_host(), port), BaseHTTPRequestHandler)
+def create_server(app: App, token: str, port: int) -> ThreadingHTTPServer:
+    """Listen on 127.0.0.1 only. ``port`` 0 lets the system choose a free port."""
+    server = _Server(("127.0.0.1", port), BaseHTTPRequestHandler)
     server.daemon_threads = True
-    server.RequestHandlerClass = make_handler(app, access, token, server.server_address[1])
+    server.RequestHandlerClass = make_handler(app, token, server.server_address[1])
     return server
 
 
-def first_free_server(app: App, access: Access, token: str, preferred: int, attempts: int = 20) -> ThreadingHTTPServer:
+def first_free_server(app: App, token: str, preferred: int, attempts: int = 20) -> ThreadingHTTPServer:
     """Use the preferred port if free (stable bookmarks), else a nearby one."""
     last_error: Optional[OSError] = None
     for port in range(preferred, preferred + attempts):
         try:
-            return create_server(app, access, token, port)
+            return create_server(app, token, port)
         except OSError as error:
             last_error = error
     raise OSError(f"No free port between {preferred} and {preferred + attempts - 1}") from last_error

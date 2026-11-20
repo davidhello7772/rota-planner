@@ -5,14 +5,11 @@ Used both by the window (Start, Stop) and by the terminal mode. The program
 
 **Stopping keeps the address.** While stopped, the server still holds its
 port but answers every request with a short "Rota Planner is stopped" page,
-before looking at any token or password. Giving the port up instead would let
-another account on the same computer take it, and the browser tab still open
-on Rota Planner would then hand that account its session token.
-
-When who may connect changes (Settings › Access), the server is opened again
-on the new address, on the same port. If that port is no longer free, the
-new one gets a new session token and every session ends: whatever took the
-old port may have seen the old ones.
+before looking at any token. Giving the port up instead would let another
+account on the same computer take it, and the browser tab still open on Rota
+Planner would then hand that account its session token. If the usual port is
+no longer free when the server opens again, the new one gets a new session
+token: whatever took the old port may have seen the old one.
 """
 
 from __future__ import annotations
@@ -22,9 +19,8 @@ import time
 from http import HTTPStatus
 from typing import Callable, List, Optional
 
-from .access import Access
 from .app import App
-from .server import SECURITY_HEADERS, first_free_server, make_handler, this_computer
+from .server import SECURITY_HEADERS, first_free_server, make_handler
 
 STOPPED, STARTING, RUNNING, STOPPING, FAILED = "stopped", "starting", "running", "stopping", "failed"
 
@@ -57,9 +53,9 @@ def guarded(handler: type) -> type:
 
 
 class Service:
-    def __init__(self, app: App, access: Access, token: str, port: int,
+    def __init__(self, app: App, token: str, port: int,
                  renew_token: Optional[Callable[[], str]] = None) -> None:
-        self.app, self.access, self.token = app, access, token
+        self.app, self.token = app, token
         self.renew_token = renew_token
         self.preferred = port
         self.state = STOPPED
@@ -70,7 +66,6 @@ class Service:
         self._server = None
         self._thread: Optional[threading.Thread] = None
         self._lock = threading.RLock()
-        access.on_listen_change = self._listen_again
 
     # -- state ------------------------------------------------------------
 
@@ -87,21 +82,14 @@ class Service:
         return self.state == RUNNING
 
     def url(self) -> str:
-        """The address to open on this computer. Without a password it carries
-        the session token; with one, the password is asked instead."""
+        """The address to open on this computer, with the session token."""
         if not self.running:
             return ""
-        return f"http://127.0.0.1:{self.port}/" + ("" if self.access.has_password else f"?t={self.token}")
+        return f"http://127.0.0.1:{self.port}/?t={self.token}"
 
     def plain_url(self) -> str:
         """The address without the token: safe to show and copy."""
         return f"http://127.0.0.1:{self.port}/" if self.running else ""
-
-    def other_addresses(self) -> List[str]:
-        """Addresses for the other allowed computers (empty: this computer only)."""
-        if not self.running or not self.access.network_open:
-            return []
-        return [f"http://{address}:{self.port}/" for address in this_computer()["addresses"]]
 
     # -- start and stop ---------------------------------------------------
 
@@ -123,17 +111,16 @@ class Service:
 
     def _bind(self) -> bool:
         try:
-            server = first_free_server(self.app, self.access, self.token, self.preferred)
+            server = first_free_server(self.app, self.token, self.preferred)
         except OSError as error:
             self.problem = str(error)
             return False
         port = server.server_address[1]
         if self.port is not None and port != self.port and self.renew_token is not None:
             # The usual port was taken meanwhile, perhaps by another account that
-            # received the browser's token or session: neither is valid any more.
+            # received the browser's token: it is not valid any more.
             self.token = self.renew_token()
-            self.access.end_sessions()
-        server.RequestHandlerClass = guarded(make_handler(self.app, self.access, self.token, port))
+        server.RequestHandlerClass = guarded(make_handler(self.app, self.token, port))
         server.paused = False
         self._server = server
         self.port = self.preferred = port
@@ -167,17 +154,3 @@ class Service:
             self.since = None
             if self.state != STOPPED:
                 self._set(STOPPED)
-
-    def restart(self) -> bool:
-        """Listen again (on a new address), on the same port if it can."""
-        with self._lock:
-            was_running = self.state == RUNNING
-            self.close()
-            if not was_running:
-                return True
-            return self.start()
-
-    def _listen_again(self) -> None:
-        """Who may connect changed: listen again on the new address. Called
-        while a request is being answered, so it happens beside it."""
-        threading.Thread(target=self.restart, name="rota-restart", daemon=True).start()

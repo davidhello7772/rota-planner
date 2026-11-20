@@ -10,7 +10,7 @@ import zipfile
 from pathlib import Path
 
 from rotaplanner import __main__ as program
-from rotaplanner.server import PEN_FREE, local_only
+from rotaplanner.server import PEN_FREE
 from rotaplanner.store import Store
 from rotaplanner.updates import UpdateError, Updates
 
@@ -212,7 +212,7 @@ class StartingAgainTest(unittest.TestCase):
         self.assertIn("--window", self.command("--window"))
 
     def test_nothing_is_reset_a_second_time(self):
-        for typed in (["--reset-demo"], ["--reset-dem"], ["--demo", "--reset-access"], ["--demo", "--reset-acc"]):
+        for typed in (["--reset-demo"], ["--reset-dem"]):
             command = self.command(*typed)
             self.assertIn("--demo", command, typed)  # still the demonstration data, never the real one
             self.assertFalse([word for word in command if word.startswith("--reset")], typed)
@@ -225,11 +225,10 @@ class StartingAgainTest(unittest.TestCase):
 
 
 class UpdateRoutesTest(unittest.TestCase):
-    def test_installing_is_for_this_computer_and_needs_no_pen(self):
+    def test_installing_needs_no_pen(self):
+        # Only this computer can reach the program at all (server.is_loopback): installing is for it alone.
         for path in ("/api/update/check", "/api/update/install", "/api/update/options"):
-            self.assertTrue(local_only(path), path)
             self.assertIsNotNone(PEN_FREE.fullmatch(path), path)
-        self.assertFalse(local_only("/api/update"))  # anyone using the program may read which version it is
 
 
 if __name__ == "__main__":

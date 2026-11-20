@@ -6,9 +6,8 @@ import threading
 import unittest
 from pathlib import Path
 
-from rotaplanner.access import Access
 from rotaplanner.app import App
-from rotaplanner.server import TOKEN_HEADER, create_server
+from rotaplanner.server import TOKEN_HEADER, create_server, host_allowed, is_loopback
 from rotaplanner.store import Store
 
 from . import helpers as h
@@ -24,7 +23,7 @@ class ServerTest(unittest.TestCase):
         store.save_catalog(h.catalog())
         store.save_people(h.people())
         store.save_month(h.month())
-        cls.server = create_server(App(store), Access(Path(cls.tmp.name)), TOKEN, 0)
+        cls.server = create_server(App(store), TOKEN, 0)
         cls.port = cls.server.server_address[1]
         threading.Thread(target=cls.server.serve_forever, daemon=True).start()
 
@@ -94,6 +93,34 @@ class ServerTest(unittest.TestCase):
         status, body = self.json("GET", "/api/bootstrap")
         self.assertEqual(status, 200)
         self.assertEqual(body["current"], "2026-12")
+
+    def test_other_site_cannot_post(self):
+        def post(origin):
+            conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+            conn.request("POST", "/api/settings/save", body=b'{"settings": {}}',
+                         headers={"Host": f"127.0.0.1:{self.port}", TOKEN_HEADER: TOKEN, "Origin": origin,
+                                  "Content-Type": "application/json"})
+            status = conn.getresponse().status
+            conn.close()
+            return status
+        self.assertEqual(post("http://evil.example"), 403)
+        self.assertEqual(post(f"http://127.0.0.1:{self.port}"), 200)
+
+    def test_listens_on_this_computer_only(self):
+        self.assertEqual(self.server.server_address[0], "127.0.0.1")
+        for gone in ("/api/login", "/api/logout", "/api/access", "/api/access/network", "/api/access/password"):
+            self.assertEqual(self.request("POST", gone, {})[0].status, 404, gone)
+
+    def test_host_names(self):
+        self.assertTrue(host_allowed("127.0.0.1:8765", 8765))
+        self.assertTrue(host_allowed("LOCALHOST:8765", 8765))
+        self.assertFalse(host_allowed("127.0.0.1:8766", 8765))
+        self.assertFalse(host_allowed("127.0.0.1", 8765))
+        self.assertFalse(host_allowed("192.168.1.5:8765", 8765))
+        self.assertFalse(host_allowed("office-pc.local:8765", 8765))
+        self.assertFalse(host_allowed("evil.example:8765", 8765))  # DNS rebinding
+        self.assertTrue(is_loopback("127.0.0.1") and is_loopback("::1"))
+        self.assertFalse(is_loopback("192.168.1.57") or is_loopback("not an address"))
 
     def test_no_file_outside_the_web_folder(self):
         for path in ("/../server.py", "/js/../../server.py", "/%2e%2e/server.py", "/..%2fserver.py", "/css/missing.css"):
@@ -325,3 +352,52 @@ class ServerTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OtherComputerTest(unittest.TestCase):
+    """A request from another computer is refused, even with the right token and host
+    (as if the firewall were open and the server reachable)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        store = Store(Path(self.tmp.name))
+        store.save_catalog(h.catalog())
+        store.save_people(h.people())
+        store.save_month(h.month())
+        self.server = create_server(App(store), TOKEN, 0)
+        base = self.server.RequestHandlerClass
+
+        class FromElsewhere(base):
+            @property
+            def client(self):
+                return "192.168.1.57"
+
+        self.server.RequestHandlerClass = FromElsewhere
+        self.port = self.server.server_address[1]
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    def tearDown(self):
+        self.server.shutdown()
+        self.server.server_close()
+        self.tmp.cleanup()
+
+    def test_refused_before_anything_else(self):
+        for method, path in (("GET", "/"), ("GET", "/api/bootstrap"), ("GET", f"/print/2026-12/month?t={TOKEN}"),
+                             ("POST", "/api/settings/save")):
+            conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+            conn.request(method, path, body=b"{}" if method == "POST" else None,
+                         headers={"Host": f"127.0.0.1:{self.port}", TOKEN_HEADER: TOKEN, "Content-Type": "application/json"})
+            response = conn.getresponse()
+            self.assertEqual((response.status, response.read()), (403, b"Not allowed."), path)
+            conn.close()
+
+
+class OldAccessFileTest(unittest.TestCase):
+    def test_left_over_password_file_is_removed_at_start(self):
+        from rotaplanner.__main__ import forget_old_access
+        with tempfile.TemporaryDirectory() as tmp:
+            old = Path(tmp) / "access.json"
+            old.write_text('{"mode": "network", "allowed": ["192.168.1.57"], "password": {"hash": "x"}}')
+            forget_old_access(Path(tmp))
+            self.assertFalse(old.exists())
+            forget_old_access(Path(tmp))  # nothing there: nothing happens

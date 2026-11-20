@@ -14,8 +14,6 @@ months.py         regular week, assign, one-day changes
 month_setup.py    new month from the previous one; events, closures, notes; hours overview
 availability.py   reading the availability form's replies, matching by e-mail fingerprint then name
 emails.py         e-mail addresses kept only as one-way fingerprints
-access.py         who may connect (this computer / allowed addresses), password, sessions
-firewall.py       looking at the firewall (read only) and the narrowest command to suggest
 sync.py           several computers kept in step through a meeting place (one sealed file each), the pen
 places.py         the meeting place: a shared folder or a WebDAV server
 tls.py            encrypted connections with the certificate checked (mail, WebDAV)
@@ -35,7 +33,7 @@ report.py         the Check step: to fix, open, overrides, balance
 tips.py           hints shown in the Assistant panel
 view.py           the month as the screen needs it (all numbers computed here)
 app.py            what the program can do: state in memory, undo, saving
-server.py         HTTP server: static files + JSON API, token or password protected
+server.py         HTTP server: static files + JSON API, this computer only, token protected
 exporters/        printed documents: sheet.py (what each cell shows), documents.py
                   (main rota from a print template, event rota, weekly sheets,
                   sign-up sheet), personal.py (each person's rota, message,
@@ -95,27 +93,19 @@ function in `store.MIGRATIONS`.
 
 ## Security and privacy
 
-By default the server listens on 127.0.0.1 only. The coordinator may allow
-other computers by address (`access.py`, Settings › Who can use Rota
-Planner): the server then listens on the network, answers only this computer
-and those addresses, and a password is always required. Who may connect, the
-password and the firewall check can only be changed from this computer;
-`--reset-access` removes a forgotten password. The connection is plain HTTP:
-other computers are meant for the staff network only (the screen says so).
+Rota Planner answers this computer only. The server listens on 127.0.0.1,
+and the first thing it does with every request is refuse any that does not
+come from this computer (`server.is_loopback`): a second lock that holds even
+if the firewall is open or the way it listens changes. There is no password
+and no way in from the network; other computers share the data through the
+sealed sync file (below). Versions that could allow other addresses kept a
+password hash and the list in `access.json`: it is deleted at start
+(`__main__.forget_old_access`).
 
-Without a password, API calls need the permanent session token; with one, a
-session id given at login, kept in memory only, ended after 8 hours unused,
-and tied to the address that logged in. Either travels in the header
+API calls need the session token kept in `data/.session-token`, in the header
 `X-Rota-Token`, which other sites cannot add without a CORS pre-flight this
 server never grants. A POST naming another origin is refused, and so are
-requests for a host name other than 127.0.0.1, localhost, an IP address or
-this computer's own name (DNS rebinding). Wrong passwords make the address
-wait (doubling, up to 15 minutes). The password is kept as an scrypt hash (PBKDF2 where scrypt is missing) in
-`access.json`, which is never exported or synchronised.
-
-`firewall.py` only reads the firewall's state (fixed commands, no shell,
-never elevated) and shows the narrowest rule to type: this port, TCP, from
-the allowed addresses only. The program never changes the firewall.
+requests for a host name other than 127.0.0.1 or localhost (DNS rebinding).
 Print pages open in their own tab, so they take the token in their address
 (`/print/<month>/<document>?t=…`), like the program's own address. Pages are
 served with a strict Content-Security-Policy; the interface inserts text with
@@ -156,9 +146,8 @@ returns addresses masked. On Send the list is read again, messages are built
 with `email.message.EmailMessage` (one recipient each, the schedule text and
 the calendar file) and sent by a background thread; `mail.status` reports
 counts and names only. Addresses are dropped when the thread ends;
-`Month.mailed` keeps who was reached for which version. Every mail route is
-refused from another computer (`server.local_only`), so the list never
-crosses the network.
+`Month.mailed` keeps who was reached for which version. The server answers
+this computer only, so the list never crosses the network.
 
 ## Several computers (`sync.py`, `places.py`, `tls.py`)
 
@@ -239,11 +228,10 @@ window, the browser opens on the running one. `Service` starts and stops the
 HTTP server while `App` stays loaded. *Stop* keeps the port and answers every
 request with a fixed "stopped" page before any token is looked at (giving the
 port up would let another account take it and receive the open tab's token);
-the port is given up only when the program ends. When Settings › Access
-changes the address it listens again on the same port; if that port was
-taken meanwhile, the new one gets a new session token and all sessions end. `--window` shows the Tk control
-window (status light, address, Open, Start/Stop, who can use it, the other
-computers, data folder); closing it stops the server. SIGTERM ends the program
+the port is given up only when the program ends. If the usual port was
+taken meanwhile when it starts again, the new one gets a new session token. `--window` shows the Tk control
+window (status light, address, Open, Start/Stop, the other computers, data
+folder); closing it stops the server. SIGTERM ends the program
 cleanly (the notes in `data/` are removed). The installer points the icons at
 the window when a Python with Tk 8.6 is found (python.org's on a Mac, whose
 own Tk is too old), with the icon drawn by `paint.py`.

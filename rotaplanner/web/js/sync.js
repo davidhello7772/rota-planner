@@ -85,10 +85,8 @@ function banners() {
   const newer = status.units.filter((u) => u.state === 'get');
   const list = (units) => h('strong', {}, units.map((u) => u.label).join(', '));
   if (status.hold === 'restored') {
-    // Choosing is for the computer where Rota Planner runs (the program refuses it from elsewhere).
     parts.push(h('div', { class: 'notice warn sync-banner' }, icon('alert'), h('span', {}, status.problem),
-      state.boot?.auth?.local === false ? h('span', { class: 'muted' }, 'To choose on the computer where Rota Planner runs.')
-        : h('button', { class: 'btn small', type: 'button', onclick: () => chooseAfterRestore() }, 'Choose…')));
+      h('button', { class: 'btn small', type: 'button', onclick: () => chooseAfterRestore() }, 'Choose…')));
   } else if (both.length) {
     parts.push(h('div', { class: 'notice warn sync-banner' }, icon('alert'),
       h('span', {}, 'Changed on more than one computer: ', list(both), '. Choose which version to keep.'),
