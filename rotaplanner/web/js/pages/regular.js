@@ -9,9 +9,6 @@ const DAY_NAMES = {
   mon: 'Monday', tue: 'Tuesday', wed: 'Wednesday', thu: 'Thursday', fri: 'Friday', sat: 'Saturday', sun: 'Sunday',
 };
 
-// Roughly how many times a month each frequency comes round.
-const PER_MONTH = { weekly: 4.33, odd: 2.17, even: 2.17, '1st': 1, '2nd': 1, '3rd': 1, '4th': 1, last: 1 };
-
 function editRegular(task, weekday, position, current) {
   const setup = state.session.setup;
   const active = setup.people.filter((p) => p.active && !p.archived).sort((a, b) => a.name.localeCompare(b.name));
@@ -49,20 +46,6 @@ function editRegular(task, weekday, position, current) {
       h('button', { class: 'btn primary', type: 'button', onclick: () => send(person.value) }, 'Save'),
     ],
   });
-}
-
-function weeklyLoad(setup) {
-  const tasks = new Map(setup.catalog.tasks.map((t) => [t.id, t]));
-  const load = new Map();
-  for (const regular of setup.catalog.regulars) {
-    const task = tasks.get(regular.task_id);
-    if (!task) continue;
-    const entry = load.get(regular.person_id) || { shifts: 0, hours: 0 };
-    entry.shifts += 1;
-    entry.hours += task.hours * (PER_MONTH[regular.frequency] || 4.33);
-    load.set(regular.person_id, entry);
-  }
-  return [...load.entries()].sort((a, b) => b[1].hours - a[1].hours);
 }
 
 export function mountRegular(container) {
@@ -109,7 +92,7 @@ export function mountRegular(container) {
       }
     }
 
-    const load = weeklyLoad(setup);
+    const load = setup.regular_load;  // hours a month from the regular week, counted by the program
     root.replaceChildren(
       h('header', { class: 'page-head' },
         h('div', {}, h('h1', {}, 'Regular week'),
@@ -121,12 +104,12 @@ export function mountRegular(container) {
         h('aside', { class: 'regular-side' },
           h('h3', {}, 'From the regular week'),
           h('p', { class: 'field-hint' }, 'About how many hours a month each person gets before anything else is added.'),
-          load.length ? h('ul', { class: 'bars' }, load.map(([personId, entry]) => {
-            const person = people.get(personId);
+          load.length ? h('ul', { class: 'bars' }, load.map((entry) => {
+            const person = people.get(entry.person_id);
             return h('li', { class: 'bar-row static' },
               h('span', { class: 'name' }, person ? person.name : '?'),
               h('span', { class: 'faint' }, `${entry.shifts}×`),
-              h('span', { class: 'num' }, `≈${Math.round(entry.hours)} h`));
+              h('span', { class: 'num' }, `≈${entry.hours} h`));
           })) : h('p', { class: 'faint' }, 'Nobody yet. Click a day to choose someone.'),
           h('p', { class: 'field-hint' }, icon('info'), ' Grey days: the task is not usually needed that weekday.'))));
   }

@@ -89,6 +89,18 @@ class DaysTest(unittest.TestCase):
         self.assertEqual(result["hours_available"], 30)  # three active people × 10 h
         self.assertEqual(len(result["weeks"]), 5)
         self.assertEqual(result["days"]["2026-12-05"]["shifts"], 6)
+        self.assertEqual((result["balance"], result["hours_short"]), ("bad", 327 - 30))
+
+    def test_can_the_people_give_what_the_month_needs(self):
+        # 327 h of work, three active people: just enough, only just, plenty, and nobody at all.
+        def balance(target):
+            result = month_setup.overview(self.month, h.people(), Settings(default_target_hours=target))
+            return result["balance"], result["hours_short"]
+        self.assertEqual(balance(108.9), ("bad", 1))    # 0.3 h short still says "1 h short", never "0 h"
+        self.assertEqual(balance(109), ("warn", 0))     # exactly enough: nothing to spare
+        self.assertEqual(balance(120), ("warn", 0))     # more than nine tenths of what people can give
+        self.assertEqual(balance(125), ("ok", 0))
+        self.assertEqual(month_setup.overview(self.month, [], Settings())["balance"], "bad")
 
 
 class OverTwoMonthsTest(unittest.TestCase):

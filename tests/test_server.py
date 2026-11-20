@@ -156,6 +156,64 @@ class ServerTest(unittest.TestCase):
         status, body = self.json("POST", "/api/people/import/preview", {"text": "Ana Berg\nNew Person"})
         self.assertEqual([r["status"] for r in body["rows"]], ["exists", "new"])
 
+    def test_figures_for_the_screens_come_from_the_program(self):
+        setup = self.json("GET", "/api/setup")[1]
+        self.assertIsInstance(setup["regular_load"], list)
+        totals = self.json("GET", "/api/months/2026-12/setup")[1]["totals"]
+        self.assertIn(totals["balance"], ("ok", "warn", "bad"))
+        self.assertEqual(totals["hours_short"] > 0, totals["balance"] == "bad")
+        report = self.json("GET", "/api/months/2026-12/check")[1]
+        self.assertEqual(sorted(report["averages"]), ["evenings", "hours", "target", "weekends"])
+        self.assertTrue(all({"ratio", "load", "uneven"} <= set(p) for p in report["balance"]))
+
+    def test_the_example_message_is_written_by_the_program_and_saves_nothing(self):
+        before = self.json("GET", "/api/setup")[1]["settings"]
+        status, body = self.json("POST", "/api/settings/message/preview",
+                                 {"message_greeting": "  Dear   {name},", "message_closing": "See you   soon"})
+        lines = body["text"].splitlines()
+        self.assertEqual((status, lines[0], lines[-1]), (200, "Dear Ana,", "See you soon"))
+        self.assertTrue(lines[2].startswith("Here are your shifts for "))
+        self.assertEqual(len([line for line in lines if line.startswith("• ")]), 2)
+        self.assertNotIn("Thank you", self.json("POST", "/api/settings/message/preview", {"message_closing": ""})[1]["text"])
+        self.assertEqual(self.json("GET", "/api/setup")[1]["settings"], before)
+
+    def test_a_skill_is_renamed_and_deleted(self):
+        skills = self.json("POST", "/api/skills/save", {"skill": {"name": "First aid"}, "people": ["ana"]})[1]
+        skill = next(s for s in skills["catalog"]["skills"] if s["name"] == "First aid")
+        renamed = self.json("POST", "/api/skills/save", {"skill": {"id": skill["id"], "name": "First aider"}})[1]
+        self.assertIn("First aider", [s["name"] for s in renamed["catalog"]["skills"]])
+        self.assertIn(skill["id"], next(p for p in renamed["people"] if p["id"] == "ana")["skills"])
+        status, body = self.json("POST", "/api/skills/delete", {"id": skill["id"]})
+        self.assertEqual(status, 200)
+        self.assertNotIn(skill["id"], [s["id"] for s in body["catalog"]["skills"]])
+        self.assertNotIn(skill["id"], next(p for p in body["people"] if p["id"] == "ana")["skills"])  # off everyone who had it
+        status, body = self.json("POST", "/api/skills/delete", {"id": "cook"})  # a task still needs it
+        self.assertEqual(status, 400)
+        self.assertIn("needed for", body["error"])
+        self.assertIn("cook", [s["id"] for s in self.json("GET", "/api/setup")[1]["catalog"]["skills"]])
+
+    def test_areas_and_the_tasks_of_an_event_type_are_put_in_order(self):
+        order = lambda scope: [a["id"] for a in self.json("GET", f"/api/config?scope={scope}")[1]["areas"]]  # noqa: E731
+        self.assertEqual(order("typical"), ["kitchen", "security"])
+        status, body = self.json("POST", "/api/areas/order", {"ids": ["security", "kitchen"], "scope": "typical"})
+        self.assertEqual((status, [a["id"] for a in body["areas"]]), (200, ["security", "kitchen"]))
+        self.assertEqual(order("2026-12"), ["kitchen", "security"])  # a month keeps its own order
+        self.json("POST", "/api/areas/order", {"ids": ["kitchen", "security"], "scope": "typical"})
+        self.assertEqual(order("typical"), ["kitchen", "security"])
+
+        made = self.json("POST", "/api/event-types/save", {"type": {"name": "Open day"}})[1]
+        type_id = next(t["id"] for t in made["event_types"] if t["name"] == "Open day")
+        for name in ("Welcome desk", "Tea table", "Car park"):
+            made = self.json("POST", "/api/event-types/tasks/save",
+                             {"task": {"type_id": type_id, "name": name, "area_id": "kitchen", "people": 1}})[1]
+        tasks = next(t for t in made["event_types"] if t["id"] == type_id)["tasks"]
+        ids = [tasks[2]["id"], tasks[0]["id"], tasks[1]["id"]]
+        status, body = self.json("POST", "/api/event-types/tasks/order", {"type_id": type_id, "ids": ids})
+        self.assertEqual(status, 200)
+        self.assertEqual([t["name"] for t in next(t for t in body["event_types"] if t["id"] == type_id)["tasks"]],
+                         ["Car park", "Welcome desk", "Tea table"])
+        self.json("POST", "/api/event-types/delete", {"id": type_id})
+
     def test_templates_and_using_a_configuration(self):
         status, body = self.json("POST", "/api/templates/save", {"scope": "typical", "name": "Quiet month"})
         template = body["templates"][-1]

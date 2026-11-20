@@ -315,7 +315,8 @@ class App:
                 for iso in month.dates()
             ],
             "weeks": days_overview["weeks"],
-            "totals": {k: days_overview[k] for k in ("hours_needed", "hours_available", "people", "replied")},
+            "totals": {k: days_overview[k] for k in ("hours_needed", "hours_available", "balance", "hours_short",
+                                                     "people", "replied")},
             "events": [{**e.to_dict(), "tasks": [self._event_task_json(t, month) for t in month_setup.event_tasks(month, e.id)]}
                        for e in month.events],
             "markers": [m.to_dict() for m in month.markers],
@@ -636,6 +637,7 @@ class App:
             "people": [emails.public(p) for p in self.people],
             "settings": self.settings.to_dict(),
             "frequencies": FREQUENCIES,
+            "regular_load": editing.regular_load(self.catalog),
             "colours": list(editing.AREA_COLOURS),
             "weekdays": list(WEEKDAY_KEYS),
             "months": self.store.list_months(),
@@ -691,6 +693,12 @@ class App:
     def save_settings(self, body: Json) -> Json:
         editing.save_settings(self.settings, body.get("settings") or {})
         return self._save_setup(settings=True)
+
+    def message_preview(self, body: Json) -> Json:
+        """What a schedule message looks like with these words (nothing is saved)."""
+        greeting = editing.message_words(body.get("message_greeting"), editing.GREETING_LENGTH)
+        closing = editing.message_words(body.get("message_closing"), editing.CLOSING_LENGTH)
+        return {"text": personal.sample_message(date.today(), self.settings.centre_name, greeting, closing)}
 
     # -- task configurations: each month has its own; "typical" starts new ones
 

@@ -125,6 +125,7 @@ class TwoPrograms(unittest.TestCase):
 
     def test_which_requests_need_the_pen_or_this_computer(self):
         for path in ("/api/sync/apply", "/api/sync/pen", "/api/mail/test", "/api/data/export", "/api/import/workbook/preview",
+                     "/api/settings/message/preview",
                      "/api/months/2026-12/availability/preview", "/api/months/2026-12/export"):
             self.assertIsNotNone(PEN_FREE.fullmatch(path), path)
         for path in ("/api/people/save", "/api/months/2026-12/assign", "/api/months/2026-12/undo",

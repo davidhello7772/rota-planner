@@ -141,6 +141,28 @@ class DaysPatternTest(unittest.TestCase):
         self.assertIn("6 days in a row", ben["notes"])
         self.assertEqual(len(report["weeks"]), 5)
         self.assertEqual(sum(ben["weeks"]), 6)
+        # What the screen sorts and colours by is counted here, not on the screen.
+        self.assertEqual(ana["uneven"], 5 / 5 + len(ana["notes"]))  # all on one weekday, plus what is worth a look
+        self.assertEqual(ben["uneven"], round(1 / 6 + len(ben["notes"]), 4))  # six different weekdays
+
+    def test_hours_against_the_target_and_the_averages(self):
+        from rotaplanner.report import check_report
+        month = h.month()
+        # Ana: 4 lunches of 4 h (16 h for a target of 12); Ben: one breakfast (2 h); Cleo: nothing.
+        month.assignments = [Assignment("lunch", f"2026-12-{d:02d}", 0, person_id="ana") for d in (1, 2, 5, 6)]
+        month.assignments.append(Assignment("breakfast", "2026-12-07", 0, person_id="ben"))
+        report = check_report(month, h.people(), Settings(default_target_hours=12, prorate_target=False), [])
+        rows = {p["id"]: p for p in report["balance"]}
+        self.assertEqual([(rows[i]["ratio"], rows[i]["load"]) for i in ("ana", "ben", "cleo")],
+                         [(round(16 / 12, 4), "over"), (round(2 / 12, 4), "under"), (0.0, "under")])
+        self.assertEqual(report["averages"], {"hours": 6.0, "target": 12.0, "weekends": round(2 / 3, 1), "evenings": 0.0})
+        nobody = check_report(h.month(), [], Settings(), [])
+        self.assertEqual(nobody["averages"], {"hours": 0, "target": 0, "weekends": 0, "evenings": 0})
+        # Without a target there is nothing to be over or under.
+        people = h.people()
+        people[0].target_hours = 0
+        ana = next(p for p in check_report(month, people, Settings(), [])["balance"] if p["id"] == "ana")
+        self.assertEqual(ana["ratio"], 0.0)
 
 
     def test_days_away_and_the_month_day_by_day(self):

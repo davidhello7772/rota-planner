@@ -9,6 +9,7 @@ one click gives a month ready for availability and fine-tuning.
 from __future__ import annotations
 
 import copy
+import math
 from collections import defaultdict
 from datetime import timedelta
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set
@@ -34,6 +35,7 @@ from .schedule import Schedule
 
 Json = Dict[str, Any]
 MARKER_KINDS = {"closed": "Closed", "offrota": "Off-rota event", "note": "Note"}
+NEARLY_ALL = 0.9  # needing more than this share of what people can give is worth a warning
 DAY_TYPES = (NORMAL_DAY, EVENT_DAY)
 
 
@@ -387,7 +389,11 @@ def overview(month: Month, people: List[Person], settings: Settings) -> Json:
     active = [p for p in people if p.active and not p.archived]
     available = sum(schedule.target(p.id) for p in active)
     needed = sum(d["hours"] for d in per_day.values())
+    short = needed - available
     return {
+        # Can the people give the hours the month needs? "bad": not enough; "warn": only just.
+        "balance": "bad" if short > 0 else "warn" if needed > NEARLY_ALL * available else "ok",
+        "hours_short": math.ceil(short) if short > 0 else 0,
         "days": {iso: {**d, "hours": round(d["hours"], 2)} for iso, d in per_day.items()},
         "weeks": [{"start": start, **{**w, "hours": round(w["hours"], 1)}} for start, w in sorted(weeks.items())],
         "hours_needed": round(needed, 1),

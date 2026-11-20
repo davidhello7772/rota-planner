@@ -406,13 +406,13 @@ function calendar(setup) {
 }
 
 function balance(setup) {
-  const { hours_needed: needed, hours_available: available, people, replied } = setup.totals;
-  const ratio = available ? needed / available : 0;
+  // Whether the people can give what the month needs is judged by the program (totals.balance).
+  const { hours_needed: needed, hours_available: available, balance: tone, hours_short: short, people, replied } = setup.totals;
   return h('div', { class: 'tiles setup-tiles' },
     h('div', { class: 'tile' }, h('span', { class: 'tile-value' }, `${Math.round(needed)} h`), h('span', { class: 'tile-label' }, 'of work to cover')),
-    h('div', { class: ['tile', ratio > 1 ? 'bad' : ratio > 0.9 ? 'warn' : 'ok'] },
+    h('div', { class: ['tile', tone] },
       h('span', { class: 'tile-value' }, `${Math.round(available)} h`),
-      h('span', { class: 'tile-label' }, `people can give${ratio > 1 ? ` — ${Math.round(needed - available)} h short` : ''}`, hint('target'))),
+      h('span', { class: 'tile-label' }, `people can give${short ? ` — ${short} h short` : ''}`, hint('target'))),
     h('a', { class: 'tile', href: '#/availability' }, h('span', { class: 'tile-value' }, `${replied}/${people}`), h('span', { class: 'tile-label' }, 'availability replies')));
 }
 

@@ -41,15 +41,21 @@ function messageCard(setup) {
   const greeting = textInput(s.message_greeting, { placeholder: 'Hello {name},' });
   const closing = textInput(s.message_closing, { placeholder: 'Thank you!' });
   const subject = textInput(s.message_subject, { placeholder: 'Your shifts for {month}' });
-  const preview = h('pre', { class: 'finder-text' });
-  const show = () => {
-    const hello = greeting.value.replace('{name}', 'Ana').trim();
-    preview.textContent = [hello ? `${hello}\n` : '', 'Here are your shifts for December 2026:',
-      '• Tue 1 Dec · 09:00–13:00 · Lunch cook', '• Sat 5 Dec · 16:00–19:00 · Supper cook',
-      closing.value.trim() ? `\n${closing.value.trim()}` : ''].filter((line) => line !== '').join('\n');
+  // The example is written by the program, exactly as a real message would be.
+  const preview = h('pre', { class: 'finder-text', 'aria-live': 'polite' });
+  let wait = 0;
+  let asked = 0;
+  const show = async () => {
+    const mine = (asked += 1);
+    try {
+      const answer = await api.post('/api/settings/message/preview',
+        { message_greeting: greeting.value, message_closing: closing.value });
+      if (mine === asked) preview.textContent = answer.text;  // a later keystroke may have answered first
+    } catch { /* the example simply stays as it was */ }
   };
-  greeting.addEventListener('input', show);
-  closing.addEventListener('input', show);
+  const later = () => { clearTimeout(wait); wait = setTimeout(show, 250); };
+  greeting.addEventListener('input', later);
+  closing.addEventListener('input', later);
   show();
   const card = h('section', { class: 'card' },
     h('h2', {}, 'Message with each schedule'),

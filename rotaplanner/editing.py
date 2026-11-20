@@ -20,6 +20,7 @@ from .model import (
     PERIODS,
     PRINT_SIZES,
     PRIORITIES,
+    TIMES_A_MONTH,
     WEEKDAY_KEYS,
     Area,
     Catalog,
@@ -43,6 +44,7 @@ TaskConfig = Union[Catalog, Month, ConfigTemplate]
 """Anything holding ``areas`` and ``tasks``: a month, the typical month, a template."""
 AREA_COLOURS = ("slate", "red", "orange", "amber", "lime", "green", "teal", "sky", "indigo", "violet", "pink")
 MAX_TEXT = 200
+GREETING_LENGTH, CLOSING_LENGTH = 120, 200  # the words around a schedule sent by message
 MAX_HEADCOUNT = 30
 
 
@@ -507,6 +509,27 @@ def duplicate_print_template(settings: Settings, template_id: str) -> PrintTempl
     return copy_
 
 
+def regular_load(catalog: Catalog) -> List[Json]:
+    """About how many hours a month the regular week gives each person, before
+    anything else is added: [{"person_id", "shifts", "hours"}], the most hours first."""
+    tasks = {t.id: t for t in catalog.tasks}
+    load: Dict[str, Json] = {}
+    for regular in catalog.regulars:
+        task = tasks.get(regular.task_id)
+        if task is None:
+            continue
+        entry = load.setdefault(regular.person_id, {"person_id": regular.person_id, "shifts": 0, "hours": 0.0})
+        entry["shifts"] += 1
+        entry["hours"] += task.hours * TIMES_A_MONTH.get(regular.frequency, TIMES_A_MONTH["weekly"])
+    ordered = sorted(load.values(), key=lambda entry: -entry["hours"])
+    return [dict(entry, hours=round(entry["hours"])) for entry in ordered]
+
+
+def message_words(text: Any, limit: int) -> str:
+    """The greeting or the closing of the schedule message, as it is kept."""
+    return " ".join(str(text or "").split())[:limit]
+
+
 def save_settings(settings: Settings, data: Json) -> Settings:
     settings.centre_name = _text(data, "centre_name")
     target = number(data, "default_target_hours", 0, 300, "Default target hours")
@@ -517,9 +540,9 @@ def save_settings(settings: Settings, data: Json) -> Settings:
         settings.default_max_hours_per_day = daily
     settings.prorate_target = bool(data.get("prorate_target", settings.prorate_target))
     if "message_greeting" in data:
-        settings.message_greeting = " ".join(str(data["message_greeting"] or "").split())[:120]
+        settings.message_greeting = message_words(data["message_greeting"], GREETING_LENGTH)
     if "message_subject" in data:
         settings.message_subject = " ".join(str(data["message_subject"] or "").split())[:120] or "Your shifts for {month}"
     if "message_closing" in data:
-        settings.message_closing = " ".join(str(data["message_closing"] or "").split())[:200]
+        settings.message_closing = message_words(data["message_closing"], CLOSING_LENGTH)
     return settings

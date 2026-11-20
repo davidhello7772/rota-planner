@@ -15,7 +15,7 @@ const SORTS = {
 };
 let loadingFor = '';
 
-const ratio = (p) => (p.target > 0 ? p.hours / p.target : 0);
+const ratio = (p) => p.ratio;  // hours against the target, from the program
 
 /** Open the rota on a shift's day. */
 /** Show a shift on the rota: its day, or its event's rota for a task kept there. */
@@ -70,7 +70,7 @@ function hoursRows(report, rows) {
       return h('tr', {},
         h('th', { scope: 'row' }, p.name, !p.replied ? h('span', { class: 'faint' }, ' · no reply') : null),
         h('td', {}, h('div', { class: 'balance-bar', title: `${Math.round(r * 100)}% of target` },
-          h('span', { class: ['fill', r > 1.15 && 'over', r < 0.5 && 'under'], style: { width: `${Math.min(100, (r / maxRatio) * 100)}%` } }),
+          h('span', { class: ['fill', p.load], style: { width: `${Math.min(100, (r / maxRatio) * 100)}%` } }),
           h('span', { class: 'target-mark', style: { left: `${(1 / maxRatio) * 100}%` } }),
           h('span', { class: 'balance-text' }, `${formatHours(p.hours)} / ${formatHours(p.target)}`))),
         h('td', { class: 'num' }, p.shifts),
@@ -131,14 +131,14 @@ function showPerson(personId) {
   window.location.hash = '#/build';
 }
 
-const unevenness = (p) => (p.shifts >= 4 ? Math.max(...p.weekdays) / p.shifts : 0) + p.notes.length;
+const unevenness = (p) => p.uneven;  // how unevenly the shifts fall, from the program
 
 function balanceTable(report) {
   const view = state.session.checkView || 'hours';
   const days = view === 'days' || view === 'calendar';
   const sort = state.session.checkSort || 'ratio';
   const rows = [...report.balance].sort(days && sort === 'ratio' ? (a, b) => unevenness(b) - unevenness(a) : SORTS[sort][1]);
-  const average = (key) => rows.reduce((sum, p) => sum + p[key], 0) / Math.max(1, rows.length);
+  const average = report.averages;
   const noted = rows.filter((p) => p.notes.length).length;
   return h('section', { class: 'card' },
     h('div', { class: 'card-title' }, h('h2', {}, 'Balance'),
@@ -155,8 +155,8 @@ function balanceTable(report) {
       ? h('p', { class: 'muted' }, 'Each person’s month day by day: the number of tasks each date (hover or click for which). Hatched: away that day, part of it or all of it. Red outline: a task while they said they are away.')
       : days
       ? h('p', { class: 'muted' }, 'Where each person’s shifts fall. A darker box holds a larger share of their month: one dark weekday means always the same day; one dark week means everything at once. Hatched: away on some of those days (darker: away all day, every one of them); hover or click to see which.')
-      : h('p', { class: 'muted' }, `On average ${formatHours(average('hours'))} for ${formatHours(average('target'))} targeted · `
-        + `${average('weekends').toFixed(1)} weekend and ${average('evenings').toFixed(1)} evening shifts each. Targets are lowered for people away part of the month.`),
+      : h('p', { class: 'muted' }, `On average ${formatHours(average.hours)} for ${formatHours(average.target)} targeted · `
+        + `${average.weekends.toFixed(1)} weekend and ${average.evenings.toFixed(1)} evening shifts each. Targets are lowered for people away part of the month.`),
     days ? h('p', { class: 'balance-detail', id: 'balance-detail', role: 'status', hidden: true }) : null,
     h('div', { class: 'table-scroll', dataset: { scrollId: 'balance' } },
       view === 'calendar' ? calendarRows(report, rows) : days ? daysRows(report, rows) : hoursRows(report, rows)));

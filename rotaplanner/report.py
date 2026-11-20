@@ -18,6 +18,7 @@ MOSTLY = 0.6          # share of someone's shifts on one weekday (or in one week
 MOSTLY_FROM = 4       # …once they have at least this many shifts
 MANY_IN_A_DAY = 3     # shifts on the same day
 LONG_RUN = 6          # days in a row with a shift
+WELL_OVER, WELL_UNDER = 1.15, 0.5  # hours against the target that stand out in the balance
 
 
 def month_weeks(dates: List[str]) -> List[List[str]]:
@@ -171,15 +172,24 @@ def check_report(month: Month, people: List[Person], settings: Settings, previou
         # Where the checks (the same rules as the picker) found a task while they are away.
         clashes = {a.date for a in shifts if any(f.rule in AWAY_RULES for f in
                    getattr(statuses.get((a.task_id, a.date, a.position)), "findings", []))}
+        pattern = days_pattern(schedule, shifts, weeks)
+        hours, target = schedule.hours(person.id), schedule.target(person.id)
+        ratio = hours / target if target > 0 else 0.0
         balance.append({
-            **days_pattern(schedule, shifts, weeks),
+            **pattern,
+            # Hours against the target (1 = exactly the target), and whether it stands out.
+            "ratio": round(ratio, 4),
+            "load": "over" if ratio > WELL_OVER else "under" if ratio < WELL_UNDER else "",
+            # How unevenly the shifts fall, to put first those worth a look (Balance › Days).
+            "uneven": round((max(pattern["weekdays"]) / len(shifts) if len(shifts) >= MOSTLY_FROM else 0)
+                            + len(pattern["notes"]), 4),
             "weekday_away": [away_summary(person, by_weekday[i], away, weekday=WEEKDAY_KEYS[i]) for i in range(7)],
             "week_away": [away_summary(person, week, away) for week in weeks],
             "calendar": calendar_row(schedule, shifts, away, clashes),
             "id": person.id,
             "name": person.name,
-            "hours": round(schedule.hours(person.id), 2),
-            "target": round(schedule.target(person.id), 1),
+            "hours": round(hours, 2),
+            "target": round(target, 1),
             "shifts": len(shifts),
             "weekends": schedule.weekends(person.id),
             "evenings": schedule.evenings(person.id),
@@ -200,6 +210,8 @@ def check_report(month: Month, people: List[Person], settings: Settings, previou
                        key=lambda item: ({"critical": 0, "normal": 1, "optional": 2}.get(item["priority"], 1), item["date"])),
         "open_by_day": [{"date": iso, "label": parse_date(iso).strftime("%a %d"), "open": n} for iso, n in sorted(by_day.items())],
         "balance": balance,
+        "averages": {key: round(sum(p[key] for p in balance) / max(1, len(balance)), digits)
+                     for key, digits in (("hours", 2), ("target", 2), ("weekends", 1), ("evenings", 1))},
         "weeks": [{"start": week[0], "label": f"{parse_date(week[0]).day}–{parse_date(week[-1]).day}"} for week in weeks],
         "dates": [{"date": iso, "day": parse_date(iso).day, "weekday": "MTWTFSS"[parse_date(iso).weekday()],
                    "weekend": parse_date(iso).weekday() >= 5,

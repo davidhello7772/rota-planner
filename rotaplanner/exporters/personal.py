@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Dict, List, Optional
 
 from ..model import Month, Person, Settings, parse_date
@@ -97,13 +97,16 @@ def message(month: Month, person: Person, shifts: List[Shift], centre: str = "",
             greeting: str = "Hello {name},", closing: str = "Thank you!") -> str:
     """A plain text to paste in an e-mail or a chat message. ``greeting`` may
     contain {name} (the person's first name)."""
-    first = person.first_name or person.name.split()[0]
-    hello = greeting.replace("{name}", first).strip()
+    return message_text(month.title(), person.first_name or person.name.split()[0], shifts, centre, greeting, closing)
+
+
+def message_text(month_title: str, first_name: str, shifts: List[Shift], centre: str, greeting: str, closing: str) -> str:
+    hello = greeting.replace("{name}", first_name).strip()
     lines = [hello, ""] if hello else []
     if not shifts:
-        lines.append(f"You have no shift on the rota for {month.title()}.")
+        lines.append(f"You have no shift on the rota for {month_title}.")
     else:
-        lines.append(f"Here are your shifts for {month.title()}" + (f" at {centre}" if centre else "") + ":")
+        lines.append(f"Here are your shifts for {month_title}" + (f" at {centre}" if centre else "") + ":")
     for s in shifts:
         extra = f" ({s.event})" if s.event else ""
         mark = " (changed)" if s.changed else ""
@@ -112,6 +115,19 @@ def message(month: Month, person: Person, shifts: List[Shift], centre: str = "",
     if closing.strip():  # no total of hours: the message only lists the shifts
         lines += ["", closing.strip()]
     return "\n".join(lines)
+
+
+def sample_message(today: date, centre: str, greeting: str, closing: str) -> str:
+    """What a message looks like with these words, for an invented person with two
+    shifts this month (Settings shows it while the words are typed)."""
+    def shift(day: int, time: str, task: str, hours: float) -> Shift:
+        iso = today.replace(day=day).isoformat()
+        start, _, end = time.partition("–")
+        return Shift(key=f"sample|{iso}|0", date=iso, task=task, area="", time=time, start=start, end=end,
+                     hours=hours, event="", note="", changed=False)
+
+    shifts = [shift(1, "09:00–13:00", "Lunch cook", 4.0), shift(5, "16:00–19:00", "Supper cook", 3.0)]
+    return message_text(today.strftime("%B %Y"), "Ana", shifts, centre, greeting, closing)
 
 
 # ---- Calendar file (.ics) -----------------------------------------------------------

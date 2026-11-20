@@ -205,6 +205,9 @@ FREQUENCIES = {
     "4th": "4th of the month",
     "last": "Last of the month",
 }
+# About how many times a month each comes round (a year has 52 weeks in 12 months).
+TIMES_A_MONTH = {"weekly": 52 / 12, "odd": 26 / 12, "even": 26 / 12, "1st": 1.0, "2nd": 1.0, "3rd": 1.0, "4th": 1.0,
+                 "last": 1.0}
 
 
 @dataclass

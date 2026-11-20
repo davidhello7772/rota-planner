@@ -118,6 +118,7 @@ SETUP_ACTIONS = {
     "event-types/tasks/order": "order_type_tasks",
     "regulars/set": "set_regular",
     "settings/save": "save_settings",
+    "settings/message/preview": "message_preview",
     "import/workbook": "import_workbook",
     "import/workbook/preview": "import_workbook_preview",
     "data/export": "export_data",
@@ -141,7 +142,7 @@ LOCAL_ONLY = re.compile(r"/api/(sync/(setup|code|stop|test|forget|options)|mail(
 # before deciding, this computer's own settings (e-mail account, saved files), and
 # synchronisation itself. Every other POST changes the shared data.
 PEN_FREE = re.compile(r"/api/(sync/[a-z-]+|mail/[a-z]+|update/[a-z]+|data/export|data/import/preview|people/import/preview"
-                      r"|import/workbook/preview"
+                      r"|import/workbook/preview|settings/message/preview"
                       r"|months/\d{4}-\d{2}/(availability/preview|mail/preview|mail/plan|export|exports/open))")
 
 
