@@ -11,7 +11,7 @@ import unittest.mock
 from datetime import date
 from pathlib import Path
 
-from rotaplanner import sync as sy
+from rotaplanner import places, sync as sy
 from rotaplanner.model import Assignment, PersonAvailability
 from rotaplanner.store import Store
 from rotaplanner.sync import PenError, Sync, SyncError
@@ -555,6 +555,37 @@ class HandOverTest(Computers):
         self.b.exchange()
         self.b.follow_up()
         self.assertTrue(self.b.pen()["mine"])
+
+    def test_two_asking_the_first_one_has_it(self):
+        self.b.ask_pen()
+        self.c.ask_pen()
+        # B asked a minute before C, and has written its note again since.
+        self.b.state["pen"]["asked_there"] -= 60
+        self.b.state["pen"]["beat"] = 0
+        self.round(self.b)
+        self.a.release_pen()
+        self.round(self.c)
+        self.c.follow_up()  # C comes back first, but stands behind B
+        self.assertFalse(self.c.pen()["mine"])
+        self.assertIn("Front desk asked for the editing first", self.c.pen()["notice"]["text"])
+        self.b.exchange()
+        self.b.follow_up()
+        self.assertTrue(self.b.pen()["mine"])
+
+    def test_the_order_in_line(self):
+        entry = lambda modified: places.Entry("sig", modified, 10)
+        note = lambda id, asked: {"id": id, "asked": asked}
+        same_second = entry(100.0)
+        # Asked first wins, whatever the order of the files (kept to the second only).
+        self.assertTrue(sy._ahead(note("b", 50.2), same_second, 50.7, same_second, "a"))
+        self.assertFalse(sy._ahead(note("a", 50.7), same_second, 50.2, same_second, "b"))
+        # One that asked is before one that simply takes, even with a newer note.
+        self.assertTrue(sy._ahead(note("b", 50.0), entry(200.0), 0.0, entry(100.0), "a"))
+        self.assertFalse(sy._ahead(note("a", 0.0), entry(100.0), 50.0, entry(200.0), "b"))
+        # Two that simply take: the note that reached the place first, then the name.
+        self.assertTrue(sy._ahead(note("b", 0.0), entry(99.0), 0.0, entry(100.0), "a"))
+        self.assertTrue(sy._ahead(note("a", 0.0), same_second, 0.0, same_second, "b"))
+        self.assertFalse(sy._ahead(note("b", 0.0), same_second, 0.0, same_second, "a"))
 
     def test_asking_and_changing_ones_mind(self):
         self.b.ask_pen()

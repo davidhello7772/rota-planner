@@ -1517,6 +1517,8 @@ class Sync:
                 "holding": holding, "since": float(self.state["pen"].get("since") or 0), "beat": self._now_there()}
         if not holding and self.state["pen"].get("asking"):
             note["asking"] = self.state["pen"]["asking"]
+        if not holding and self.state["pen"].get("asked_there"):
+            note["asked"] = float(self.state["pen"]["asked_there"])  # its place in line
         return seal(self._key, self.state["computer_id"], json.dumps(note).encode("utf-8"))
 
     def _read_pen(self, data: bytes, computer: str) -> Optional[Json]:
@@ -1530,6 +1532,7 @@ class Sync:
             return None
         try:
             beat, since = float(note.get("beat") or 0), float(note.get("since") or 0)
+            asked = float(note.get("asked") or 0)
         except (TypeError, ValueError):
             return None
         asking = note.get("asking")
@@ -1537,6 +1540,7 @@ class Sync:
         return {"id": computer, "name": str(note.get("name") or "")[:40] or "Another computer",
                 "holding": bool(note.get("holding")), "since": since, "beat": beat,
                 "asking": "" if note.get("holding") else asking,
+                "asked": 0.0 if note.get("holding") else asked,
                 # Recent by its own (sealed) time: putting an old note back does not revive it.
                 "live": -PEN_STALE_SECONDS < self._now_there() - beat < PEN_STALE_SECONDS}
 
@@ -1698,7 +1702,8 @@ class Sync:
             if status["stale"] and not force:
                 raise PenError(_only_if_sure(status["text"]), "stale", status)
             since = self._now_there()
-            self.state["pen"] = {"since": since}
+            asked = float(self.state["pen"].get("asked_there") or 0)  # taking after asking: its place in line
+            self.state["pen"] = dict({"since": since}, **({"asked_there": asked} if asked else {}))
             place, me = self._place, self.state["computer_id"]
             name = f"pen-{me}.rpsync"
             claim, held = self._pen_note(holding=False), self._pen_note(holding=True)
@@ -1715,9 +1720,7 @@ class Sync:
                     rival = self._read_pen(place.read(other, PEN_BYTES), match.group(1))
                     if not rival or not rival["live"]:
                         continue  # not a real note, or an old one: it holds nothing
-                    # Someone who already holds it keeps it; between two who ask at the
-                    # same moment, the one whose note reached the place first has it.
-                    if rival["holding"] or mine is None or (entry.modified, match.group(1)) < (mine.modified, me):
+                    if rival["holding"] or mine is None or _ahead(rival, entry, asked, mine, me):
                         winner = rival
                         break
                 if winner is None:
@@ -1834,7 +1837,7 @@ class Sync:
             else:
                 take = False
                 holder, name = status["holder"], status["name"]
-                self.state["pen"] = {"asking": holder, "name": name, "asked": time.time()}
+                self.state["pen"] = {"asking": holder, "name": name, "asked": time.time(), "asked_there": self._now_there()}
                 place, note = self._place, self._pen_note(holding=False)
         if take:
             return self.take_pen()
@@ -1946,6 +1949,21 @@ class Sync:
 def _no_connection(what: str) -> str:
     return (f"There is no connection to the other computers right now, so this computer cannot {what}. "
             "You can look; to change things all the same, choose “Work offline anyway”.")
+
+
+def _ahead(rival: Json, entry: Any, asked: float, mine: Any, me: str) -> bool:
+    """Between two computers taking the pen that nobody holds: is ``rival`` (its
+    note, its entry at the place) before this one (``asked``: when it asked, or 0)?
+    The one that asked for it first; one that asked before one that did not;
+    otherwise the note that reached the place first. Never the order of the files
+    alone for a computer that asked: a place may keep their times to the second
+    only (WebDAV), and the asker writes its note again every few minutes. Both
+    computers decide the same way, from the same two notes."""
+    if rival["asked"] and asked:
+        return (rival["asked"], rival["id"]) < (asked, me)
+    if rival["asked"] or asked:
+        return bool(rival["asked"])
+    return (entry.modified, rival["id"]) < (mine.modified, me)
 
 
 def _only_if_sure(why: str) -> str:
