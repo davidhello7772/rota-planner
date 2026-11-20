@@ -13,9 +13,11 @@ import { toast } from './ui.js';
 
 const REFRESH_MS = 15_000;
 export const CLOUDS = { ok: 'cloudOk', sending: 'cloudUp', offline: 'cloudOff', alert: 'cloudAlert' };
+const ASKING_REFRESH_MS = 3_000;  // while asking for the pen: it arrives within a minute
 
 let status = null;
 let timer = 0;
+let soon = 0;
 let pill = null;
 let penChip = null;
 let banner = null;
@@ -43,6 +45,10 @@ function renderPen() {
     fill(penChip, icon('pen'), h('span', { class: 'topbar-label' }, 'You are editing'),
       h('button', { class: 'btn small', type: 'button', title: 'Send your changes and let another computer edit',
         onclick: () => penAction('release') }, 'I have finished'));
+  } else if (pen.asking) {
+    penChip.className = 'pen-chip other asking';
+    penChip.title = pen.text;
+    fill(penChip, icon('sync'), h('span', { class: 'topbar-label' }, `Asking ${pen.name}…`));
   } else if (pen.working_offline) {
     penChip.className = 'pen-chip offline';
     penChip.title = pen.text;
@@ -58,13 +64,22 @@ function renderPen() {
 function banners() {
   const pen = status.pen || {};
   const parts = [];
-  if (pen.holder && !pen.mine && !pen.working_offline) {
+  const button = (label, onclick, primary = false) =>
+    h('button', { class: ['btn', 'small', primary ? 'primary' : ''], type: 'button', onclick }, label);
+  if (pen.asking && !pen.mine) {
+    parts.push(h('div', { class: ['notice', 'look-bar', pen.stale ? '' : 'asking'] }, icon(pen.stale ? 'eye' : 'sync'),
+      h('span', {}, pen.text, pen.hint ? h('span', { class: 'muted' }, ` ${pen.hint}`) : null),
+      pen.stale ? button('Take over…', () => confirmTakeOver(pen), true) : null,
+      button('Cancel', () => penAction('cancel'))));
+  } else if (pen.holder && !pen.mine && !pen.working_offline) {
     parts.push(h('div', { class: 'notice look-bar' }, icon('eye'), h('span', {}, pen.text),
-      pen.stale ? h('button', { class: 'btn small', type: 'button', onclick: () => confirmTakeOver(pen) }, 'Take over…') : null));
+      pen.stale ? button('Take over…', () => confirmTakeOver(pen))
+        : button('Ask to edit', (event) => askToEdit(event.currentTarget), true)));
   }
-  if (pen.lost) {
-    parts.push(h('div', { class: 'notice warn sync-banner' }, icon('alert'), h('span', {}, pen.lost),
-      h('button', { class: 'btn small', type: 'button', onclick: () => penAction('release') }, 'OK')));
+  if (pen.notice) {
+    const warn = pen.notice.tone === 'warn';
+    parts.push(h('div', { class: ['notice', warn ? 'warn' : 'info', 'sync-banner'] }, icon(warn ? 'alert' : 'info'),
+      h('span', {}, pen.notice.text), button('OK', () => penAction('release'))));
   }
   const both = status.units.filter((u) => u.state === 'both');
   const newer = status.units.filter((u) => u.state === 'get');
@@ -110,6 +125,7 @@ function render() {
 
 /** What changed since the last look: taken from another computer, connection lost or back. */
 function announce(previous) {
+  if (previous?.pen?.asking && status.pen?.mine) toast(`You are editing now: ${previous.pen.name}’s changes were taken first.`);
   const seq = status.applied?.seq || 0;
   if (seenSeq !== null && seq > seenSeq) {
     toast(status.applied.text || 'Updated from another computer.');
@@ -137,7 +153,14 @@ export async function refreshSync() {
   }
   render();
   for (const watcher of watchers) watcher(status);
+  hurry();
   return status;
+}
+
+/** While asking for the pen, look again every few seconds (the program answers from memory). */
+function hurry() {
+  clearTimeout(soon);
+  if (status?.pen?.asking) soon = setTimeout(refreshSync, ASKING_REFRESH_MS);
 }
 
 /** Use a status the program just answered with (after an action), without asking again. */
@@ -146,6 +169,7 @@ export function useStatus(answer) {
   if (status?.configured) seenSeq = status.applied?.seq || 0;
   render();
   for (const watcher of watchers) watcher(status);
+  hurry();
 }
 
 async function penAction(action, more = {}) {
@@ -156,6 +180,20 @@ async function penAction(action, more = {}) {
     if (!(error instanceof ApiError && error.status === 423)) toast(errorText(error), { tone: 'bad' });
     return false;
   }
+}
+
+/** "Ask to edit": the computer editing sends its changes and hands over by itself. */
+async function askToEdit(button = null) {
+  if (button) {  // the first look at the other computers takes a moment: show it is under way
+    button.disabled = true;
+    button.textContent = 'Asking…';
+  }
+  const asked = await penAction('ask');
+  if (button) {
+    button.disabled = false;
+    button.textContent = 'Ask to edit';
+  }
+  if (asked && status.pen?.mine) toast('You are editing now.');
 }
 
 function confirmTakeOver(pen) {
@@ -199,6 +237,20 @@ function refusedChange(code, payload) {
   refreshSync();
   if (payload.kind === 'stale' && payload.pen) confirmTakeOver(payload.pen);
   else if (payload.kind === 'behind') openSync();
+  else if (payload.kind === 'handing') toast(payload.error, { tone: 'bad' });
+  else if (payload.kind === 'held' && payload.pen?.name && !status?.pen?.asking) {
+    const dialog = openDialog({
+      title: `${payload.pen.name} is editing`,
+      subtitle: 'Only one computer changes the rota at a time. You can look at everything here.',
+      body: [h('p', {}, `If you left Rota Planner open on ${payload.pen.name}, ask it to hand over: it sends `
+        + 'its changes first, then you can edit here, usually within a minute.')],
+      actions: [h('button', { class: 'btn', type: 'button', onclick: () => dialog.close() }, 'Only look'),
+        h('button', { class: 'btn primary', type: 'button', onclick: async () => {
+          dialog.close();
+          await askToEdit();
+        } }, 'Ask to edit')],
+    });
+  }
   else if (payload.kind === 'offline') {
     const dialog = openDialog({
       title: 'No connection to the other computers',

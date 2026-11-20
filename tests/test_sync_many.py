@@ -7,6 +7,7 @@ import shutil
 import tempfile
 import time
 import unittest
+import unittest.mock
 from datetime import date
 from pathlib import Path
 
@@ -474,6 +475,145 @@ class PenTest(Computers):
         self.assertFalse(lone.ensure_pen())
         self.assertFalse(lone.pen()["mine"])
         self.assertEqual(list(lone_server.files), [f"rota-{lone.state['computer_id']}.rpsync"])
+
+
+class HandOverTest(Computers):
+    """"Ask to edit": the computer editing sends its changes and hands over by itself."""
+    kind = "webdav"
+
+    def setUp(self):
+        super().setUp()
+        self.settle()
+        self.a.ensure_pen()
+        self.a._last_edit = time.time() - sy.GROUP_SECONDS - 1  # its last change is fully written
+        self.round(self.b)
+
+    def test_asking_the_one_editing_to_hand_over(self):
+        self.note(0, "made before the hand-over")  # not sent yet
+        status = self.b.ask_pen()
+        self.assertTrue(status["asking"])
+        self.assertIn("Asking Office", status["text"])
+        self.assertIn("take over in 5 min", status["hint"])
+        self.assertTrue(self.a.pen()["mine"])  # A holds it until its next round
+        self.a.exchange()  # which sends its change, then lets go
+        self.assertFalse(self.a.pen()["mine"])
+        self.assertIn("Front desk took over the editing", self.a.pen()["notice"]["text"])
+        self.assertNotIn(f"pen-{self.a.state['computer_id']}.rpsync", self.server.files)
+        with self.assertRaises(PenError) as caught:
+            self.a.take_pen()  # nobody on A can snatch it back before B has it
+        self.assertEqual(caught.exception.kind, "handing")
+        self.b.on_incoming = self.b.apply_automatic
+        self.b.exchange()
+        self.b.follow_up()
+        self.assertTrue(self.b.pen()["mine"])
+        self.assertFalse(self.b.pen()["asking"])
+        self.assertEqual(self.stores[1].load_people()[0].note, "made before the hand-over")
+        self.round(self.a)
+        self.assertEqual(self.a.pen()["name"], "Front desk")
+        with self.assertRaises(PenError):
+            self.a.ensure_pen()
+
+    def test_the_changes_are_taken_even_when_taking_by_itself_is_off(self):
+        self.b.set_auto(False)
+        self.note(0, "newer")
+        self.b.ask_pen()
+        self.a.exchange()
+        self.b.on_incoming = self.b.apply_automatic
+        self.b.exchange()
+        self.b.follow_up()
+        self.assertTrue(self.b.pen()["mine"])
+        self.assertEqual(self.stores[1].load_people()[0].note, "newer")
+
+    def test_a_change_let_through_a_moment_ago_waits_for_the_next_round(self):
+        self.b.ask_pen()
+        self.a._last_edit = time.time()  # a save is still being written
+        self.a.exchange()
+        self.assertTrue(self.a.pen()["mine"])
+        self.a._last_edit = time.time() - sy.GROUP_SECONDS - 1
+        self.a.exchange()
+        self.assertFalse(self.a.pen()["mine"])
+
+    def test_closing_either_computer(self):
+        self.b.ask_pen()
+        self.b.goodbye()  # the asker closes: its request goes with it
+        self.assertNotIn(f"pen-{self.b.state['computer_id']}.rpsync", self.server.files)
+        self.a.exchange()
+        self.assertTrue(self.a.pen()["mine"])
+        self.c.ask_pen()
+        self.a.goodbye()  # the holder closes: the asker simply takes the pen
+        self.c.exchange()
+        self.c.follow_up()
+        self.assertTrue(self.c.pen()["mine"])
+
+    def test_who_asked_first_is_first_in_line(self):
+        self.b.ask_pen()
+        self.a.release_pen()
+        self.round(self.c)
+        with self.assertRaises(PenError) as caught:
+            self.c.ensure_pen()
+        self.assertIn("Front desk asked for the editing first", str(caught.exception))
+        self.b.exchange()
+        self.b.follow_up()
+        self.assertTrue(self.b.pen()["mine"])
+
+    def test_asking_and_changing_ones_mind(self):
+        self.b.ask_pen()
+        name = f"pen-{self.b.state['computer_id']}.rpsync"
+        self.assertIn(name, self.server.files)
+        self.b.release_pen()  # "Cancel"
+        self.assertNotIn(name, self.server.files)
+        self.assertFalse(self.b.pen()["asking"])
+        self.a.exchange()
+        self.assertTrue(self.a.pen()["mine"])
+
+    def test_asking_when_nobody_edits(self):
+        self.a.release_pen()
+        self.round(self.b)
+        self.assertTrue(self.b.ask_pen()["mine"])  # simply taken
+
+    def test_asking_a_computer_gone_quiet(self):
+        self.server.skew = sy.PEN_STALE_SECONDS + 60
+        with self.assertRaises(PenError) as caught:
+            self.b.ask_pen()
+        self.assertEqual(caught.exception.kind, "stale")  # "Take over…", knowingly
+
+    def test_the_asked_computer_goes_quiet_while_asked(self):
+        self.b.ask_pen()
+        self.server.skew = sy.PEN_STALE_SECONDS + 60
+        self.b.exchange()
+        self.b.follow_up()
+        pen = self.b.pen()
+        self.assertTrue(pen["asking"] and pen["stale"])
+        self.assertIn("does not answer", pen["text"])
+        self.assertFalse(pen["mine"])  # never taken without the coordinator's word
+
+    def test_a_computer_that_never_answers(self):
+        self.b.ask_pen()
+        self.b.state["pen"]["asked"] = time.time() - sy.ASK_GIVE_UP_SECONDS - 1
+        with unittest.mock.patch.object(self.a, "_hand_over"):  # an older version: never hands over
+            self.a.exchange()
+        self.b.exchange()
+        self.b.follow_up()
+        pen = self.b.pen()
+        self.assertFalse(pen["asking"] or pen["mine"])
+        self.assertIn("did not hand over", pen["notice"]["text"])
+        self.b.release_pen()  # "OK"
+        self.assertIsNone(self.b.pen()["notice"])
+
+    def test_a_request_only_counts_from_a_real_recent_note(self):
+        me, them = self.a.state["computer_id"], self.b.state["computer_id"]
+        name = f"pen-{them}.rpsync"
+        forged = json.dumps({"kind": "pen", "computer_id": them, "name": "x", "holding": False,
+                             "since": 0, "beat": self.server.now(), "asking": me}).encode()
+        self.server.files[name] = (sy.seal(sy.derive_key(sy.new_code()), them, forged), self.server.now(), 999)
+        self.a.exchange()
+        self.assertTrue(self.a.pen()["mine"])  # sealed with another code: means nothing
+        self.b.state["pen"] = {"asking": me, "name": "Office"}
+        self.server.files[name] = (self.b._pen_note(False), self.server.now(), 998)
+        self.server.skew = sy.PEN_STALE_SECONDS + 60  # an old request, put back
+        self.a.state["pen"]["beat"] = 0
+        self.a.exchange()
+        self.assertTrue(self.a.pen()["mine"])
 
 
 class SomeoneWritesAtThePlaceTest(Computers):

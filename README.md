@@ -269,6 +269,10 @@ Then:
   are editing*); *I have finished*, closing Rota Planner, or 20 minutes
   without a change gives it back. The others can look; what the editor
   changes arrives on their screen.
+- **Left it open on another computer?** Press *Ask to edit*: that computer
+  sends its changes and hands over by itself, usually within a minute (both
+  need this version of Rota Planner). If it is switched off or asleep,
+  *Take over* is offered after a few minutes instead.
 - **Without connection** everything keeps working. With the pen, go on: it is
   sent when the connection is back. Without it you can look, or *Work offline
   anyway*, knowingly.

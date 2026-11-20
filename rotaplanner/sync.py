@@ -55,7 +55,8 @@ version is kept whole.
 The pen
 -------
 Only one computer edits at a time (``ensure_pen``, ``take_pen``,
-``release_pen``): see the comment above those.
+``release_pen``); another can ask for it (``ask_pen``): the one editing then
+sends its changes and hands over by itself. See the comment above those.
 
 Privacy: comments of a month that is over are never put in the file; the
 local state (``sync.json``: the pairing code, the place and its password, the
@@ -98,6 +99,8 @@ PEN_BEAT_SECONDS = 60             # the pen's holder says "still here" this ofte
 PEN_STALE_SECONDS = 5 * 60        # without it for this long, the holder is taken as away
 PEN_IDLE_SECONDS = 20 * 60        # the pen is given back after this long without a change
 PEN_FORGOTTEN_SECONDS = 24 * 3600
+ASKING_SECONDS = 5                # between two rounds while asking for the pen
+ASK_GIVE_UP_SECONDS = 10 * 60     # no hand-over by then from a computer still there: it does not understand the asking
 OFFLINE_TRUSTED_SECONDS = 30       # "no connection" is believed for this long before trying again for the pen
 ALONE_TRUSTED_SECONDS = 90         # "no other computer" is believed for this long after looking
 LOCAL_SECONDS, SERVER_SECONDS, IDLE_SECONDS = 20, 45, 30   # between two rounds of the courier
@@ -882,6 +885,8 @@ class Sync:
                 # What the others hold that this computer last saw is its history too,
                 # before a change made here counts as a new version.
                 self._absorb([o for o in self._others() if "units" in o])
+                if problem is None:
+                    self._hand_over()
                 documents, hashes = self._refresh()
                 self._seal(documents, hashes, force)
                 if problem is not None:
@@ -1326,7 +1331,10 @@ class Sync:
     def _apply_automatic(self) -> Json:
         with self.lock:
             nothing = {"taken": [], "kept": [], "replaced": [], "replaced_months": [], "warnings": [], "safety": "", "from": []}
-            if self.state is None or not self.state.get("auto", True) or self.state.get("hold"):
+            # While asking for the pen, what is newer is taken even if taking by itself is off:
+            # the coordinator asked to carry on from there.
+            wanted_anyway = bool(self.state is not None and self.state["pen"].get("asking"))
+            if self.state is None or not (self.state.get("auto", True) or wanted_anyway) or self.state.get("hold"):
                 return nothing
             try:
                 plan = self._plan()
@@ -1446,10 +1454,13 @@ class Sync:
                 try:
                     result = self.exchange()
                     self.deliver()
+                    self.follow_up()
                 except Exception:  # noqa: BLE001 — never stop the program for this
                     result = {"ok": False}
                 if not self.configured:
                     wait = IDLE_SECONDS
+                elif result["ok"] and self.asking() and not self.pen().get("stale"):
+                    wait = ASKING_SECONDS  # not while it has gone quiet: that may last all night
                 elif result["ok"]:
                     wait = LOCAL_SECONDS if self.local else SERVER_SECONDS
                 else:
@@ -1464,7 +1475,7 @@ class Sync:
         self._wake.set()
         try:
             if self.configured:
-                if self.pen().get("mine"):
+                if self.pen().get("mine") or self.asking():
                     self.release_pen()
                 else:
                     self.exchange()
@@ -1487,6 +1498,14 @@ class Sync:
     # only if it opens with the key, is a pen note, names its own computer, and
     # is recent. So someone who can write at the place but has no key cannot
     # hold, block or take the pen with copied, replayed or made-up files.
+    #
+    # Asking for the pen (``ask_pen``): the note says "I ask <the holder> to hand
+    # over". The holder, at its next round, sends its changes and lets go
+    # (``_hand_over``, before its file is sealed, so the file carries every change);
+    # the asking computer then takes what is newer and the pen (``follow_up``).
+    # Nobody confirms on the holder: it is usually the same person at another
+    # computer. A holder that does not answer (asleep, switched off) goes stale
+    # after a few minutes, and "Take over" is offered as before.
 
     def _now_there(self) -> float:
         """The place's clock, as last seen."""
@@ -1496,6 +1515,8 @@ class Sync:
         assert self.state is not None and self._key is not None
         note = {"kind": "pen", "computer_id": self.state["computer_id"], "name": self.state["name"],
                 "holding": holding, "since": float(self.state["pen"].get("since") or 0), "beat": self._now_there()}
+        if not holding and self.state["pen"].get("asking"):
+            note["asking"] = self.state["pen"]["asking"]
         return seal(self._key, self.state["computer_id"], json.dumps(note).encode("utf-8"))
 
     def _read_pen(self, data: bytes, computer: str) -> Optional[Json]:
@@ -1511,8 +1532,11 @@ class Sync:
             beat, since = float(note.get("beat") or 0), float(note.get("since") or 0)
         except (TypeError, ValueError):
             return None
+        asking = note.get("asking")
+        asking = asking if isinstance(asking, str) and FILE_NAME.match(f"rota-{asking}.rpsync") else ""
         return {"id": computer, "name": str(note.get("name") or "")[:40] or "Another computer",
                 "holding": bool(note.get("holding")), "since": since, "beat": beat,
+                "asking": "" if note.get("holding") else asking,
                 # Recent by its own (sealed) time: putting an old note back does not revive it.
                 "live": -PEN_STALE_SECONDS < self._now_there() - beat < PEN_STALE_SECONDS}
 
@@ -1541,9 +1565,28 @@ class Sync:
         live = [p for p in holders if p["live"]]
         stale = [p for p in holders if not p["live"] and now - p["modified"] < PEN_FORGOTTEN_SECONDS]
         clock = float(self.state.get("clock") or 0)
+        notice = pen.get("notice") or ({"text": pen["lost"], "tone": "warn"} if pen.get("lost") else None)
         result: Json = {"holder": None, "mine": False, "name": "", "stale": False, "needed": others,
-                        "working_offline": bool(pen.get("offline")), "lost": pen.get("lost", ""), "text": ""}
-        if pen.get("mine"):
+                        "working_offline": bool(pen.get("offline")), "lost": pen.get("lost", ""), "text": "",
+                        "asking": bool(pen.get("asking")), "notice": notice}
+        if pen.get("asking"):
+            asked = pen["asking"]
+            note = next((p for p in holders if p["id"] == asked), None)
+            name = note["name"] if note else pen.get("name") or "the other computer"
+            result.update(holder=asked, name=name)
+            if note is None and live:  # it let go, but a third computer took the pen meanwhile
+                result.update(holder=live[0]["id"], name=live[0]["name"],
+                              text=f"{live[0]['name']} is editing: you can look, not change.")
+            elif note is None:
+                result.update(handed=True, text=f"{name} has handed over: taking its changes, then you can edit…")
+            elif note["live"]:
+                left = max(1, -(-int(PEN_STALE_SECONDS - (now - note["modified"])) // 60))
+                result.update(text=f"Asking {name} to send its changes and hand over the editing…",
+                              hint=f"Usually within a minute. If {name} is switched off or asleep, you can "
+                                   f"take over in {left} min.")
+            else:
+                result.update(stale=True, text=f"{name} does not answer (not seen for {ago(note['modified'], now).replace(' ago', '')}).")
+        elif pen.get("mine"):
             result.update(holder="me", mine=True, name=self.state["name"], text="You are editing.")
         elif pen.get("offline"):
             result.update(text="Working offline: your changes are sent when the connection is back, and may then "
@@ -1573,7 +1616,18 @@ class Sync:
             idle = time.time() - self._last_edit > PEN_IDLE_SECONDS
             due = time.time() - float(pen.get("beat") or 0) >= PEN_BEAT_SECONDS
         if not holding:
-            if name in listing.files:  # left by a crash, or put back by someone else: it means nothing
+            with self.lock:
+                asking = bool(self.state is not None and self.state["pen"].get("asking"))
+            if asking:  # said again, like a held pen: a request nobody repeats lapses
+                if due or name not in listing.files:
+                    with self.lock:
+                        note = self._pen_note(holding=False)
+                    place.write(name, note)
+                    with self.lock:
+                        if self.state is not None and self.state["pen"].get("asking"):
+                            self.state["pen"]["beat"] = time.time()
+                    self._pen_wrote = True
+            elif name in listing.files:  # left by a crash, or put back by someone else: it means nothing
                 place.delete(name)
                 self._pen_wrote = True
             return
@@ -1628,20 +1682,21 @@ class Sync:
         result = {"ok": False} if known_offline else self.exchange()
         self.deliver()  # what is newer is taken first: nobody edits old data
         if not result["ok"]:
-            raise PenError("There is no connection to the other computers right now, so this computer cannot take "
-                           "the pen. You can look; to change things all the same, choose “Work offline anyway”.",
-                           "offline", self.pen())
+            raise PenError(_no_connection("take the pen"), "offline", self.pen())
         with self.lock:
             if self.state is None:
                 raise SyncError("Synchronisation is not set up.")
             if any(r["state"] == "get" for r in self._units()[3]):
                 raise PenError("Another computer has newer changes: synchronise first, then try again.", "behind", self._pen_status())
             status = self._pen_status()
-            if status["holder"] not in (None, "me") and not status["stale"]:
+            asker = self._asked_by()
+            if asker is not None:
+                raise PenError(f"{asker['name']} is taking over the editing: you can look, not change.", "handing",
+                               dict(status, holder=asker["id"], name=asker["name"], text=f"{asker['name']} is taking over the editing."))
+            if status["holder"] not in (None, "me") and not status["stale"] and not status.get("handed"):
                 raise PenError(status["text"], "held", status)
             if status["stale"] and not force:
-                raise PenError(f"{status['text']} Take over only if you are sure they have stopped: what they changed "
-                               "and have not sent yet may then have to be chosen against yours.", "stale", status)
+                raise PenError(_only_if_sure(status["text"]), "stale", status)
             since = self._now_there()
             self.state["pen"] = {"since": since}
             place, me = self._place, self.state["computer_id"]
@@ -1679,7 +1734,9 @@ class Sync:
                 raise SyncError("Synchronisation is not set up.")
             if winner is not None:
                 self.state["pen"] = {}
-                raise PenError(f"{winner['name']} is editing: you can look, not change.", "held",
+                # Holding it, asking for it at the same moment, or already asking another computer for it.
+                words = (f"{winner['name']} is editing" if winner["holding"] else f"{winner['name']} asked for the editing first")
+                raise PenError(f"{words}: you can look, not change.", "held",
                                dict(self._pen_status(), holder=winner["id"], name=winner["name"]))
             self.state["pen"] = {"mine": True, "since": since, "beat": time.time(), "there": self._now_there()}
             self._last_edit = time.time()
@@ -1693,13 +1750,28 @@ class Sync:
             if self.state is None:
                 raise SyncError("Synchronisation is not set up.")
             pen = self.state["pen"]
-            if not pen.get("mine"):
-                if pen.get("offline") or pen.get("lost"):
+            place, name = self._place, f"pen-{self.state['computer_id']}.rpsync"
+            if pen.get("asking"):  # "Cancel": the request goes
+                self.state["pen"] = {}
+                self._note("No longer asking for the pen.")
+                self._save()
+            elif not pen.get("mine"):
+                if pen.get("offline") or pen.get("lost") or pen.get("notice"):
                     self.state["pen"] = {}
                     self._save()
                 return self._pen_status()
-            place, name = self._place, f"pen-{self.state['computer_id']}.rpsync"
+        if pen.get("asking"):
+            with self._io:
+                try:
+                    place.delete(name)
+                except places.PlaceError:
+                    pass  # not reachable: the request lapses by itself after a few minutes
+            with self.lock:
+                return self._pen_status() if self.state is not None else {}
         self.exchange()
+        with self.lock:
+            if self.state is not None and not self.state["pen"].get("mine"):
+                return self._pen_status()  # handed over on the way (asked by another computer): already said
         with self._io:
             try:
                 place.delete(name)
@@ -1712,6 +1784,115 @@ class Sync:
                 self._save()
                 return self._pen_status()
         return {}
+
+    def _asked_by(self) -> Optional[Json]:
+        """Another computer asking this one, by a real and recent note, to hand over the pen."""
+        me = self.state["computer_id"]  # type: ignore[index]
+        return next((p for p in self._pens() if p["live"] and p["asking"] == me), None)
+
+    def _hand_over(self) -> None:
+        """Asked for the pen, while holding it: let go now, before this round seals
+        and sends this computer's file, so that file carries every change made here."""
+        assert self.state is not None
+        if not self.state["pen"].get("mine"):
+            return
+        if time.time() - self._last_edit < GROUP_SECONDS:
+            return  # a change was let through a moment ago and may still be writing: at the next round
+        asker = self._asked_by()
+        if asker is None:
+            return
+        at = time.strftime("%H:%M")
+        self.state["pen"] = {"notice": {"text": f"{asker['name']} took over the editing at {at}. "
+                                                "Your changes were sent to it first.", "tone": "info"}}
+        self._note(f"Handed the pen to {asker['name']}, after sending this computer's changes.")
+        self._save()
+
+    def asking(self) -> bool:
+        with self.lock:
+            return bool(self.state is not None and self.state["pen"].get("asking"))
+
+    def ask_pen(self) -> Json:
+        """"Ask to edit": ask the computer that holds the pen to send its changes
+        and hand it over. It does so at its next round; ``follow_up`` then takes the pen."""
+        with self.lock:
+            if self.state is None:
+                raise SyncError("Synchronisation is not set up.")
+            if self.state["pen"].get("mine") or self.state["pen"].get("asking"):
+                return self._pen_status()
+        result = self.exchange()
+        self.deliver()
+        if not result["ok"]:
+            raise PenError(_no_connection("ask for the pen"), "offline", self.pen())
+        with self.lock:
+            if self.state is None:
+                raise SyncError("Synchronisation is not set up.")
+            status = self._pen_status()
+            if status["holder"] in (None, "me"):
+                take = True  # nobody holds it (any more): simply take it
+            elif status["stale"]:
+                raise PenError(_only_if_sure(status["text"]), "stale", status)
+            else:
+                take = False
+                holder, name = status["holder"], status["name"]
+                self.state["pen"] = {"asking": holder, "name": name, "asked": time.time()}
+                place, note = self._place, self._pen_note(holding=False)
+        if take:
+            return self.take_pen()
+        try:
+            with self._io:
+                place.write(f"pen-{self.state['computer_id']}.rpsync", note)
+        except places.PlaceError as error:
+            with self.lock:
+                if self.state is not None:
+                    self.state["pen"] = {}
+            raise PenError(f"The other computer could not be asked: {error}", "offline", self.pen()) from None
+        with self.lock:
+            if self.state is None:
+                return {}
+            self.state["pen"]["beat"] = time.time()
+            self._note(f"Asked {name} to hand over the editing.")
+            self._save()
+            status = self._pen_status()
+        self._wake.set()
+        return status
+
+    def follow_up(self) -> None:
+        """After a round, while asking: once the holder has let go, take the pen
+        (and, first, everything newer; ``take_pen`` sees to that). Gives up after a
+        long while if the holder is still there but never answers."""
+        with self.lock:
+            if self.state is None or not self.state["pen"].get("asking"):
+                return
+            pen = self.state["pen"]
+            note = next((p for p in self._pens() if p["id"] == pen["asking"] and p["holding"]), None)
+            name = pen.get("name") or "The other computer"
+            if note is not None:
+                if note["live"] and time.time() - float(pen.get("asked") or 0) > ASK_GIVE_UP_SECONDS:
+                    self.state["pen"] = {"notice": {"tone": "warn", "text": (
+                        f"{name} did not hand over the editing. Is Rota Planner up to date on it? "
+                        "You can also press “I have finished” there.")}}
+                    self._note(f"{name} did not answer the request for the pen.", "warn")
+                    self._save()
+                return  # still there (wait), or gone quiet (the coordinator may take over)
+        self._incoming = True  # what is newer is taken first, even if nothing arrived in this round
+        self.deliver()
+        try:
+            self.take_pen()
+        except PenError as error:
+            if error.kind == "offline":
+                with self.lock:  # asked again at the next round
+                    if self.state is not None and not self.state["pen"]:
+                        self.state["pen"] = dict(pen, beat=0)  # its note is written again at the next round
+                return
+            with self.lock:
+                if self.state is not None:
+                    self.state["pen"] = {"notice": {"text": str(error), "tone": "warn"}}
+                    self._save()
+            return
+        with self.lock:
+            if self.state is not None:
+                self._note(f"{name} handed over: this computer edits now.", "ok")
+                self._save()
 
     def work_offline(self, on: bool) -> Json:
         """Change things without the pen, knowingly (no connection to ask for it)."""
@@ -1760,6 +1941,16 @@ class Sync:
         with self.lock:
             self._last_edit = time.time()
             return self.state is not None and int(self.state["applied"].get("seq", 0)) != before
+
+
+def _no_connection(what: str) -> str:
+    return (f"There is no connection to the other computers right now, so this computer cannot {what}. "
+            "You can look; to change things all the same, choose “Work offline anyway”.")
+
+
+def _only_if_sure(why: str) -> str:
+    return (f"{why} Take over only if you are sure they have stopped: what they changed "
+            "and have not sent yet may then have to be chosen against yours.")
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:

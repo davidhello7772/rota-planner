@@ -123,6 +123,26 @@ class TwoPrograms(unittest.TestCase):
         self.assertTrue(self.call("b", "POST", "/api/sync/pen", {"action": "offline"})[1]["pen"]["working_offline"])
         self.assertEqual(self.call("b", "POST", "/api/people/save", change)[0], 200)
 
+    def test_asking_to_edit_from_the_screen(self):
+        self.rounds()
+        change = {"person": {"id": "ana", "first_name": "Ana", "last_name": "Berg", "note": "Left open"}}
+        self.assertEqual(self.call("a", "POST", "/api/people/save", change)[0], 200)  # A edits, then is forgotten
+        self.rounds()
+        self.a.sync._last_edit = 0  # its last change is fully written
+        answer = self.call("b", "POST", "/api/sync/pen", {"action": "ask"})[1]
+        self.assertTrue(answer["pen"]["asking"])
+        self.a.sync.exchange()  # A's courier: sends, hands over
+        self.b.sync.exchange()
+        self.b.sync.deliver()
+        self.b.sync.follow_up()  # B's courier: takes the changes, then the pen
+        status = self.call("b", "GET", "/api/sync/status")[1]
+        self.assertTrue(status["pen"]["mine"])
+        self.assertEqual(next(p for p in self.b.people if p.id == "ana").note, "Left open")
+        self.assertEqual(self.call("b", "POST", "/api/people/save", change)[0], 200)
+        notice = self.call("a", "GET", "/api/sync/status")[1]["pen"]["notice"]
+        self.assertIn("Front desk took over", notice["text"])
+        self.assertIsNone(self.call("a", "POST", "/api/sync/pen", {"action": "release"})[1]["pen"]["notice"])
+
     def test_which_requests_need_the_pen_or_this_computer(self):
         for path in ("/api/sync/apply", "/api/sync/pen", "/api/mail/test", "/api/data/export", "/api/import/workbook/preview",
                      "/api/settings/message/preview", "/api/tasks/times",

@@ -207,7 +207,13 @@ each other.
   (`pen-<id>.rpsync`, sealed): "I ask" then "I hold", repeated every minute.
   Between two that ask together, the note that reached the place first wins
   (the place's clock, not the computers'). A holder whose note lapsed (5 min)
-  can be taken over explicitly, and learns it when it is back. Every POST
+  can be taken over explicitly, and learns it when it is back. A live holder
+  can be *asked* ("Ask to edit"): the asking note names it, and at its next
+  round the holder lets go before sealing its file (`Sync._hand_over`), so
+  that file carries every change; the asker then takes what is newer (even
+  with automatic taking off) and the pen (`Sync.follow_up`). While asked, the
+  holder cannot take the pen back. No answer within 10 minutes from a holder
+  still there (an older version): the asking stops, and says so. Every POST
   that changes shared data goes through `server._pen` (`PEN_FREE` lists the
   rest): it takes the pen if free, answers 423 in plain words if not, and
   409 when newer data was taken on the way. Without connection there is no

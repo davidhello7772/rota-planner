@@ -185,7 +185,7 @@ export function openSyncWizard({ join = false, placeOnly = false, onDone } = {})
       form.made ? codeBox(form.made) : null,
       h('ul', { class: 'summary-list' },
         h('li', {}, 'Changes travel by themselves. Without connection you keep working; they are sent when it is back.'),
-        h('li', {}, 'Only one computer changes the rota at a time: the first change takes the pen, “I have finished” gives it back. The others can look.'),
+        h('li', {}, 'Only one computer changes the rota at a time: the first change takes the pen, “I have finished” gives it back. The others can look, or “Ask to edit”.'),
         h('li', {}, 'If two computers did change the same month or list (while one was offline), you are asked which to keep. Nothing is mixed.')));
     back.hidden = true;
     next.textContent = 'Done';

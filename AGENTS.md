@@ -198,6 +198,7 @@ Recipes:
 | unit | what sync keeps whole: People, Tasks & areas, Settings, Saved task templates, each month |
 | in sync / to get / sent / both changed | the state of a unit among the computers |
 | the pen | the right to change the data: one computer at a time holds it; the others look |
+| ask to edit / hand over | another computer asks for the pen; the holder sends its changes, then lets go by itself |
 | courier | the background thread that sends this computer's file and fetches the others' |
 
 Never blur "rota to fill" and "printed main rota": that confusion already

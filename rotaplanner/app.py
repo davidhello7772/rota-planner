@@ -1235,16 +1235,22 @@ class App:
         return self.sync.status()
 
     def sync_pen(self, body: Json) -> Json:
-        """Take the pen (also from a computer that went away), give it back, or work offline by choice."""
+        """Take the pen (also from a computer that went away), ask the one editing to hand
+        it over, give it back (or stop asking), or work offline by choice."""
         action = body.get("action")
-        if action == "take":
-            self.sync.take_pen(force=bool(body.get("force")))
-        elif action == "release":
-            self.sync.release_pen()
-        elif action == "offline":
-            self.sync.work_offline(bool(body.get("on", True)))
-        else:
-            raise ApiError(HTTPStatus.BAD_REQUEST, "Unknown choice.")
+        try:
+            if action == "take":
+                self.sync.take_pen(force=bool(body.get("force")))
+            elif action == "ask":
+                self.sync.ask_pen()
+            elif action in ("release", "cancel"):
+                self.sync.release_pen()
+            elif action == "offline":
+                self.sync.work_offline(bool(body.get("on", True)))
+            else:
+                raise ApiError(HTTPStatus.BAD_REQUEST, "Unknown choice.")
+        except PenError as error:  # the screen offers what can be done instead (take over, work offline)
+            raise ApiError(HTTPStatus.LOCKED, str(error), kind=error.kind, pen=error.info) from None
         return self.sync.status()
 
     def sync_code(self, _body: Json) -> Json:
