@@ -192,6 +192,10 @@ class CatalogTest(unittest.TestCase):
     def test_settings(self):
         settings = editing.save_settings(Settings(), {"centre_name": " Centre ", "default_target_hours": "14"})
         self.assertEqual((settings.centre_name, settings.default_target_hours), ("Centre", 14.0))
+        # Saving only the words of the schedule message keeps the centre's name and the hours.
+        settings = editing.save_settings(settings, {"message_greeting": "Hi {name},"})
+        self.assertEqual((settings.centre_name, settings.default_target_hours, settings.message_greeting),
+                         ("Centre", 14.0, "Hi {name},"))
 
 
 class PeopleImportTest(unittest.TestCase):

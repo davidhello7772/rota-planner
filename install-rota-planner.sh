@@ -493,7 +493,7 @@ so it was not removed. Nothing was removed."
     fi
   elif [ "$DELETE_DATA" = 1 ] && [ -n "$sync_file" ]; then
     leave_place "$folder" || say "This computer's file could not be removed from the meeting place (no connection?):
-on another computer, Settings › Other computers › Forget this computer removes it."
+on another computer, Settings › Several computers › Details and options › Forget this computer removes it."
   fi
   remove_launchers "$folder"
   local had_key=0
@@ -510,7 +510,7 @@ on another computer, Settings › Other computers › Forget this computer remov
   [ -n "$keep" ] && say "Your data is in: $keep"
   if [ -n "$sync_file" ] && [ -n "$keep" ]; then
     say "This computer's sealed file stays at the meeting place. If it will not be used with"
-    say "Rota Planner again: on another computer, Settings › Other computers › Forget this computer."
+    say "Rota Planner again: on another computer, Settings › Several computers › Forget this computer."
   fi
   say ""
   if [ "$had_key" = 1 ]; then

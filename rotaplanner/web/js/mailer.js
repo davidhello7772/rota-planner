@@ -1,9 +1,9 @@
 // Optional: e-mailing each person their schedule (mail.py decides everything;
-// this shows it). The account card for Settings, and the send window for Publish.
+// this shows it). The line and set-up window for Settings, and the send window for Publish.
 // The list of addresses is only held while the window is open, and is sent to
 // the program on this computer only.
 import { api, monthPath } from './api.js';
-import { badge, field, formError, openDialog, readFileBase64, segmented, textInput } from './components.js';
+import { badge, explain, field, formError, openDialog, readFileBase64, segmented, statusLine, textInput } from './components.js';
 import { fill, h } from './dom.js';
 import { icon } from './icons.js';
 import { errorText } from './setup.js';
@@ -19,70 +19,107 @@ export async function loadMailInfo() {
   }
 }
 
-// ---- Settings › E-mail (optional) ---------------------------------------------
+// ---- Settings › Schedules by e-mail › Sending from Rota Planner ---------------
 
-export function mailCard() {
-  const card = h('section', { class: 'card' }, h('h2', {}, 'E-mail (optional)'), h('p', { class: 'muted' }, 'Loading…'));
-
-  const show = (info, problem = '') => {
-    setSession({ mailInfo: info });
-    const address = textInput(info.address, { type: 'email', placeholder: 'rota@example.org', autocomplete: 'off' });
-    const name = textInput(info.name, { placeholder: 'Rota – name of the centre', autocomplete: 'off' });
-    const password = h('input', { class: 'input', type: 'password', autocomplete: 'off',
-      placeholder: info.has_password ? 'Kept · paste a new one to replace it' : 'abcd efgh ijkl mnop' });
-    const host = textInput(info.host, { autocomplete: 'off', spellcheck: false });
-    const port = h('input', { class: 'input num', type: 'number', min: 1, max: 65535, value: info.port });
-    const result = h('div', { class: 'form-part' });
-    const account = () => ({ address: address.value, name: name.value, password: password.value, host: host.value, port: port.value });
-    const run = async (path, body, done) => {
+/** The set-up window: the account that sends, tested before it counts as set up. */
+function openMailSetup(info, onChange) {
+  const address = textInput(info.address, { type: 'email', placeholder: 'rota@example.org', autocomplete: 'off' });
+  const name = textInput(info.name, { placeholder: 'Rota – name of the centre', autocomplete: 'off' });
+  const password = h('input', { class: 'input', type: 'password', autocomplete: 'off', spellcheck: false,
+    placeholder: info.has_password ? 'Kept · paste a new one to replace it' : 'abcd efgh ijkl mnop' });
+  const host = textInput(info.host, { autocomplete: 'off', spellcheck: false });
+  const port = h('input', { class: 'input num', type: 'number', min: 1, max: 65535, value: info.port });
+  const result = h('div', { class: 'form-part', role: 'status' });
+  const body = h('div', { class: 'form-part setup-window' },
+    h('p', {}, 'Rota Planner sends from a Gmail or Google Workspace account. Nothing is sent before you press Send in Publish.'),
+    h('h3', { class: 'form-section' }, 'Before you start, at Google'),
+    h('ol', { class: 'steps-list' },
+      h('li', {}, 'The account needs 2-Step Verification (Google Account › Security).'),
+      h('li', {}, 'Signed in to that account, open myaccount.google.com/apppasswords, type a name such as “Rota Planner”, and copy the 16-letter code Google shows.')),
+    explain('What is an app password?',
+      'A 16-letter code that lets one program send e-mail from the account. It is not the account’s password, and it cannot open or change the account’s settings.',
+      'You can cancel it at any time on the same Google page. If Google does not offer that page, your organisation does not allow app passwords, and sending stays off: copy each schedule into your own e-mail as before.'),
+    h('h3', { class: 'form-section' }, 'The account'),
+    h('div', { class: 'form-grid' }, field('Address that sends', address), field('Name people see', name)),
+    field('App password', password, 'Kept on this computer only. Never shown again, never in a backup copy or sent to the other computers.'),
+    h('details', { class: 'explain' }, h('summary', {}, 'Another provider than Gmail'),
+      h('div', { class: 'form-grid' }, field('Mail server', host), field('Port', port, '587, or 465'))),
+    result,
+    h('p', { class: 'faint' }, 'When you send, names and shifts travel through this mail provider. People’s addresses are never kept: you give the list each time.'));
+  const test = h('button', { class: 'btn primary', type: 'button' }, 'Save and send a test');
+  const remove = h('button', { class: 'btn ghost danger', type: 'button', hidden: !info.has_password }, 'Remove');
+  const dialog = openDialog({
+    title: 'Sending from Rota Planner', wide: true,
+    body: [body],
+    actions: [remove, h('span', { class: 'spacer' }), h('button', { class: 'btn', type: 'button', onclick: () => dialog.close() }, 'Cancel'), test],
+  });
+  test.onclick = async () => {
+    test.disabled = true;
+    fill(result, h('p', { class: 'muted' }, 'Connecting to the mail server…'));
+    try {
+      await api.post('/api/mail/save', { account: { address: address.value, name: name.value, password: password.value, host: host.value, port: port.value } });
+      const answer = await api.post('/api/mail/test', {});
+      dialog.close();
+      toast(`It works: a test message was sent to ${answer.sent_to}`);
+      onChange(answer);
+    } catch (error) {
+      // The account may be saved even though the test failed: show why, and offer Remove.
+      fill(result);
+      formError(result, errorText(error));
       try {
-        const answer = await api.post(path, body);
-        done(answer);
-      } catch (error) {
-        formError(result, errorText(error));
-      }
-    };
-    const test = h('button', { class: 'btn primary', type: 'button', onclick: async () => {
-      test.disabled = true;
-      fill(result, h('p', { class: 'muted' }, 'Connecting to the mail server…'));
-      try {
-        await api.post('/api/mail/save', { account: account() });
-        const answer = await api.post('/api/mail/test', {});
-        toast(`It works: a test message was sent to ${answer.sent_to}`);
-        show(answer);
-      } catch (error) {
-        // The account may be saved even though the test failed: show it as it is (with Remove), and why.
-        let now = info;
-        try { now = await api.get('/api/mail'); } catch { /* keep what was shown */ }
-        show(now, errorText(error));
-      }
-    } }, info.configured ? 'Save and test again' : 'Save and send a test');
-    fill(card, h('h2', {}, 'E-mail (optional)'),
-      info.configured
-        ? h('p', { class: 'ok-text' }, `On: schedules can be sent from ${info.address} (Publish › For each person).`)
-        : h('p', { class: 'muted' }, 'Off. Rota Planner can send each person their schedule, with their calendar file, from a Gmail or Google Workspace account. '
-          + 'Without it, nothing changes: you copy each schedule into your own e-mail as before.'),
-      !info.configured ? h('ol', { class: 'steps-list' },
-        h('li', {}, 'The account needs 2-Step Verification.'),
-        h('li', {}, 'Signed in to it, open myaccount.google.com/apppasswords and create an app password (a 16-letter code). '
-          + 'If that page is not offered, the organisation does not allow app passwords: e-mail then stays off.'),
-        h('li', {}, 'Type the address and paste the code here, then “Save and send a test”.')) : null,
-      h('div', { class: 'form-grid' },
-        field('Address that sends', address), field('Name shown to people', name)),
-      field('App password', password, 'Kept on this computer only, never shown again, never in exports or the shared folder.'),
-      h('details', { class: 'version-history' }, h('summary', {}, 'Mail server (only for another provider than Gmail)'),
-        h('div', { class: 'form-grid' }, field('Server', host), field('Port', port, '587, or 465'))),
-      h('p', { class: 'faint' }, 'When you send, names and shifts travel through this mail provider. Addresses of people are never kept: you give the list each time.'),
-      result,
-      !info.configured && info.has_password ? h('p', { class: 'warn-text' }, 'An account is saved but has not worked yet: test it again, or remove it.') : null,
-      h('div', { class: 'card-actions' }, test,
-        info.has_password ? h('button', { class: 'btn ghost danger', type: 'button',
-          onclick: () => run('/api/mail/remove', {}, (answer) => { toast('E-mail turned off'); show(answer); }) }, 'Remove') : null));
-    if (problem) formError(result, problem);
+        const now = await api.get('/api/mail');
+        remove.hidden = !now.has_password;
+        onChange(now);
+      } catch { /* keep what is shown */ }
+    }
+    test.disabled = false;
   };
+  remove.onclick = async () => {
+    try {
+      const answer = await api.post('/api/mail/remove', {});
+      dialog.close();
+      toast('Sending from Rota Planner is off');
+      onChange(answer);
+    } catch (error) {
+      formError(result, errorText(error));
+    }
+  };
+}
 
-  api.get('/api/mail').then((info) => show(info)).catch((error) => formError(card, errorText(error)));
-  return card;
+/** The line in Settings: off, on, or set up but not working, with what to do. */
+export function mailLine() {
+  const box = h('div', { class: 'status-block' }, statusLine({ iconName: 'message', title: 'Sending from Rota Planner', text: 'Loading…' }));
+  const show = (info) => {
+    setSession({ mailInfo: info });
+    const change = (label) => h('button', { class: 'btn', type: 'button', onclick: () => openMailSetup(info, show) }, label);
+    if (info.configured) {
+      const sendTest = h('button', { class: 'btn', type: 'button', onclick: async () => {
+        sendTest.disabled = true;
+        try {
+          const answer = await api.post('/api/mail/test', {});
+          toast(`It works: a test message was sent to ${answer.sent_to}`);
+          show(answer);
+        } catch (error) {
+          toast(errorText(error), { tone: 'bad' });
+          api.get('/api/mail').then(show).catch(() => {});
+        }
+        sendTest.disabled = false;
+      } }, 'Send a test');
+      fill(box, statusLine({ iconName: 'message', title: 'Sending from Rota Planner', state: ['On', 'ok'],
+        text: `Sends from ${info.address}. In Publish › For each person, “Send by e-mail…” writes to everyone at once, each with their calendar file.`,
+        actions: [sendTest, change('Change…')] }));
+    } else if (info.has_password) {
+      fill(box, statusLine({ iconName: 'message', title: 'Sending from Rota Planner', state: ['Not working', 'warn'],
+        text: `An account is saved (${info.address}) but its test did not work. Open it to see why, try again, or remove it.`,
+        actions: [change('Fix…')] }));
+    } else {
+      fill(box, statusLine({ iconName: 'message', title: 'Sending from Rota Planner', state: ['Off'],
+        text: 'Optional. Today you copy each message into your own e-mail. With a Gmail account, Rota Planner can send them all at once, each with the person’s calendar file.',
+        actions: [change('Set up…')] }));
+    }
+  };
+  api.get('/api/mail').then(show).catch((error) => formError(box, errorText(error)));
+  return box;
 }
 
 // ---- Publish › E-mail everyone their schedule ------------------------------------

@@ -48,6 +48,7 @@ export const state = {
     directory: { query: '', filter: 'active', view: 'list' },  // People screen
     showArchived: false,  // Tasks & Areas screen
     tasksTab: 'tasks',    // Tasks & Areas: 'tasks' (usual tasks) | 'types' (event types)
+    settingsFocus: null,  // Settings: the part to bring into view ('message', 'mail', 'sync', 'backup')
     config: null,     // areas and tasks of the month (or typical month) being configured
     monthSetup: null, // Set up screen: days, events, closures, hours to cover
     newMonth: null,   // which month can be created next, and from what

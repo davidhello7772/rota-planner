@@ -131,7 +131,7 @@ guessed address; nobody can read one back.
 
 ## E-mailing schedules (`mail.py`, optional)
 
-Off until an account is saved in Settings › E-mail **and** a test message
+Off until an account is saved in Settings › Schedules by e-mail **and** a test message
 went through; until then no code path connects anywhere. The account (address,
 app password, server) is in `mail.json`: private to this computer, never
 exported or synchronised, the password never sent to the screen. The
@@ -229,7 +229,7 @@ request with a fixed "stopped" page before any token is looked at (giving the
 port up would let another account take it and receive the open tab's token);
 the port is given up only when the program ends. If the usual port was
 taken meanwhile when it starts again, the new one gets a new session token. `--window` shows the Tk control
-window (status light, address, Open, Start/Stop, the other computers, data
+window (status light, address, Open, Start/Stop, several computers, data
 folder); closing it stops the server. SIGTERM ends the program
 cleanly (the notes in `data/` are removed). The installer points the icons at
 the window when a Python with Tk 8.6 is found (python.org's on a Mac, whose

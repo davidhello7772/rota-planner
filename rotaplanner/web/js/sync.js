@@ -8,8 +8,7 @@ import { formError, openDialog, segmented } from './components.js';
 import { fill, h } from './dom.js';
 import { icon } from './icons.js';
 import { errorText } from './setup.js';
-import { state } from './state.js';
-import { toast } from './ui.js';
+import { settingsLink, toast } from './ui.js';
 
 const REFRESH_MS = 15_000;
 export const CLOUDS = { ok: 'cloudOk', sending: 'cloudUp', offline: 'cloudOff', alert: 'cloudAlert' };
@@ -28,7 +27,7 @@ const watchers = new Set();
 /** The last status the program gave (null before the first answer). */
 export const syncStatus = () => status;
 
-/** Called with the status every time it is refreshed (the Settings card listens). */
+/** Called with the status every time it is refreshed (the line in Settings listens). */
 export function onSyncChange(callback) {
   watchers.add(callback);
   return () => watchers.delete(callback);
@@ -97,7 +96,7 @@ function banners() {
       h('button', { class: 'btn small primary', type: 'button', onclick: openSync }, 'Synchronise')));
   } else if (status.to_fix) {
     parts.push(h('div', { class: 'notice warn sync-banner' }, icon('alert'), h('span', {}, status.problem),
-      h('a', { class: 'btn small', href: '#/settings' }, 'Open Settings')));
+      settingsLink('sync', 'Open Settings', 'btn small')));
   }
   banner.hidden = !parts.length;
   fill(banner, parts);
@@ -115,7 +114,7 @@ function render() {
   pill.hidden = false;
   pill.className = ['btn', 'ghost', 'sync-pill', tone, status.icon].filter(Boolean).join(' ');
   pill.title = `${title} Click for the details.`;
-  pill.setAttribute('aria-label', `Other computers: ${text}. ${title}`);
+  pill.setAttribute('aria-label', `Several computers: ${text}. ${title}`);
   fill(pill, icon(CLOUDS[status.icon] || 'cloud'), h('span', { class: 'topbar-label' }, text));
   renderPen();
   banners();
@@ -265,7 +264,8 @@ function refusedChange(code, payload) {
 
 /** Places the cloud, the pen and the banners (once, by the shell) and keeps them current. */
 export function mountSync(pillSlot, bannerSlot) {
-  pill = h('a', { class: 'btn ghost sync-pill', href: '#/settings', hidden: true });
+  pill = settingsLink('sync', '', 'btn ghost sync-pill');
+  pill.hidden = true;
   penChip = h('span', { class: 'pen-chip', hidden: true });
   banner = bannerSlot;
   pillSlot.replaceWith(pill, penChip);

@@ -1,5 +1,6 @@
 // Shared interface pieces: toasts, a confirmation dialog, small menus.
 import { h, placeNear } from './dom.js';
+import { setSession } from './state.js';
 
 let toastBox = null;
 
@@ -76,4 +77,12 @@ export function openMenu(anchor, items, onPick) {
   placeNear(menu, anchor.getBoundingClientRect());
   document.addEventListener('mousedown', outside, true);
   (menu.querySelector('[aria-checked="true"]') || menu.querySelector('button'))?.focus();
+}
+
+/**
+ * A link to one part of Settings ('message', 'mail', 'sync', 'backup'): the
+ * page opens, scrolled to that part, which is briefly marked.
+ */
+export function settingsLink(part, label, className = 'link') {
+  return h('a', { class: className, href: '#/settings', onclick: () => setSession({ settingsFocus: part }) }, label);
 }

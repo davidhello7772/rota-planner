@@ -117,6 +117,11 @@ def message_text(month_title: str, first_name: str, shifts: List[Shift], centre:
     return "\n".join(lines)
 
 
+def subject_text(subject: str, month_title: str) -> str:
+    """The subject of a schedule sent by e-mail: {month} becomes the month."""
+    return subject.replace("{month}", month_title)
+
+
 def sample_message(today: date, centre: str, greeting: str, closing: str) -> str:
     """What a message looks like with these words, for an invented person with two
     shifts this month (Settings shows it while the words are typed)."""

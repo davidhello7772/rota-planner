@@ -162,3 +162,26 @@ export function readFileBase64(file) {
     reader.readAsDataURL(file);
   });
 }
+
+// ---- Settings: a feature on one line, and plain-words explanations ----------
+
+/**
+ * One feature on a card: an icon, its name with its state, one sentence, its
+ * buttons, and optionally more below (`extra`). `state` is [text, tone].
+ */
+export function statusLine({ iconName, title, state, text, actions = [], extra = null }) {
+  return h('div', { class: 'status-line' },
+    icon(iconName),
+    h('div', { class: 'status-main' },
+      h('h3', { class: 'status-title' }, title, state ? badge(state[0], state[1] || '') : null),
+      text ? h('p', { class: 'status-text' }, text) : null,
+      actions.length ? h('div', { class: 'status-actions' }, actions) : null,
+      extra));
+}
+
+/** A question about a technical word, answered in plain words when opened. */
+export function explain(question, ...answer) {
+  return h('details', { class: 'explain' },
+    h('summary', {}, question),
+    answer.map((part) => (typeof part === 'string' ? h('p', {}, part) : part)));
+}

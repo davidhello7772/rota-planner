@@ -1,180 +1,163 @@
-// Settings: usual hours, the schedule message, e-mail, other computers, moving the data and the program.
-import { field, formError, numberInput, readFileBase64, textInput, toggle } from '../components.js';
-import { otherComputersCard } from '../syncsetup.js';
-import { updateCard } from '../updates.js';
-import { mailCard } from '../mailer.js';
+// Settings: one page, three cards. What is adjusted from time to time stays
+// on the page as a plain form (the hours, the words of the schedule message);
+// what is set up once (sending by e-mail, several computers, a backup copy) is
+// one line each, saying whether it is on, and its set-up opens in a window.
+// Four cards: Centre and hours, Schedules by e-mail, Your data, The program.
+import { formError, field, numberInput, textInput, toggle } from '../components.js';
 import { fill, h } from '../dom.js';
+import { mailLine } from '../mailer.js';
+import { syncLine } from '../syncsetup.js';
+import { backupLine } from '../backup.js';
+import { updateLine } from '../updates.js';
 import { api } from '../api.js';
 import { errorText, saveSetup } from '../setup.js';
 import { setSession, state } from '../state.js';
-import { icon } from '../icons.js';
-import { copyText, toast } from '../ui.js';
 
-function settingsCard(setup) {
-  const s = setup.settings;
-  const centre = textInput(s.centre_name);
-  const target = numberInput(s.default_target_hours, { min: 0, step: 0.5 });
-  const daily = numberInput(s.default_max_hours_per_day, { min: 0, step: 0.5 });
-  const prorate = toggle('Lower the target of people away part of the month', s.prorate_target);
-  const card = h('section', { class: 'card' },
-    h('h2', {}, 'Usual hours'),
-    field('Name of the centre', centre),
-    h('div', { class: 'form-grid' },
-      field('Target hours a month', target, 'For everyone without their own target'),
-      field('Usual hours a day, at most', daily, 'Going over it shows a warning')),
-    prorate,
-    h('div', { class: 'card-actions' }, h('button', { class: 'btn primary', type: 'button', onclick: async () => {
-      try {
-        await saveSetup('settings/save', { settings: { centre_name: centre.value, default_target_hours: target.value,
-          default_max_hours_per_day: daily.value, prorate_target: prorate.input.checked } }, { message: 'Settings saved' });
-        if (state.boot) { state.boot.centre = centre.value.trim(); setSession({}); }
-      } catch (error) {
-        formError(card, errorText(error));
-      }
-    } }, 'Save')));
-  return card;
+/**
+ * Save for one card: it turns into the main button only once something was
+ * changed, and says "Not saved yet" until it is.
+ */
+function saveBar(inputs, save) {
+  const value = (el) => (el.type === 'checkbox' ? String(el.checked) : el.value);
+  let saved = inputs.map(value);
+  const note = h('span', { class: 'save-note', role: 'status' });
+  const button = h('button', { class: 'btn', type: 'button' }, 'Save');
+  const bar = h('div', { class: 'save-bar' }, note, button);
+  const changed = () => inputs.some((el, i) => value(el) !== saved[i]);
+  const show = () => {
+    const dirty = changed();
+    button.classList.toggle('primary', dirty);
+    note.textContent = dirty ? 'Not saved yet' : '';
+  };
+  inputs.forEach((el) => { el.addEventListener('input', show); el.addEventListener('change', show); });
+  button.onclick = async () => {
+    bar.querySelector('.form-error')?.remove();
+    if (!changed()) { note.textContent = 'Nothing to save'; return; }
+    button.disabled = true;
+    try {
+      await save();
+      saved = inputs.map(value);
+      show();
+      note.textContent = 'Saved';
+    } catch (error) {
+      formError(bar, errorText(error));
+    } finally {
+      button.disabled = false;
+    }
+  };
+  return bar;
 }
 
-/** The words around each person's schedule when it is copied for an e-mail. */
-function messageCard(setup) {
-  const s = setup.settings;
-  const greeting = textInput(s.message_greeting, { placeholder: 'Hello {name},' });
-  const closing = textInput(s.message_closing, { placeholder: 'Thank you!' });
-  const subject = textInput(s.message_subject, { placeholder: 'Your shifts for {month}' });
+function card(id, title, lead, ...content) {
+  return h('section', { class: 'card settings-card', id: `settings-${id}`, 'aria-labelledby': `settings-${id}-title` },
+    h('header', { class: 'settings-card-head' },
+      h('h2', { id: `settings-${id}-title` }, title),
+      h('p', { class: 'muted' }, lead)),
+    content);
+}
+
+function hoursCard(s, centreChanged) {
+  const target = numberInput(s.default_target_hours, { min: 0, max: 300, step: 0.5 });
+  const daily = numberInput(s.default_max_hours_per_day, { min: 0, max: 24, step: 0.5 });
+  const prorate = toggle('Lower the target of someone away part of the month', s.prorate_target);
+  const centre = textInput(s.centre_name, { maxlength: 120 });
+  return card('hours', 'Centre and hours', 'What the program expects from each person. The suggestions and the checks use it.',
+    h('div', { class: 'form-grid' },
+      field('Target hours a month', target, 'For everyone without a target of their own (set in People).'),
+      field('Most hours in one day', daily, 'Going over it shows a warning. A personal limit set in People blocks, unless you assign anyway.')),
+    h('div', { class: 'field' }, prorate,
+      h('span', { class: 'field-hint toggle-hint' }, 'Someone away for a third of the month is then expected to give a third less.')),
+    field('Name of the centre', centre, 'Shown at the top left, in each schedule message and in calendar files.'),
+    saveBar([target, daily, prorate.input, centre], async () => {
+      await saveSetup('settings/save', { settings: { centre_name: centre.value, default_target_hours: target.value,
+        default_max_hours_per_day: daily.value, prorate_target: prorate.input.checked } });
+      if (state.boot) state.boot.centre = centre.value.trim();
+      centreChanged();
+      setSession({ schedules: null });  // the messages name the centre
+    }));
+}
+
+function messageCard(s) {
+  const greeting = textInput(s.message_greeting, { placeholder: 'Hello {name},', maxlength: 120 });
+  const closing = textInput(s.message_closing, { placeholder: 'Thank you!', maxlength: 200 });
+  const subject = textInput(s.message_subject, { placeholder: 'Your shifts for {month}', maxlength: 120 });
+  const previewSubject = h('div', { class: 'mail-preview-subject' });
+  const previewBody = h('div', { class: 'mail-preview-body' });
   // The example is written by the program, exactly as a real message would be.
-  const preview = h('pre', { class: 'finder-text', 'aria-live': 'polite' });
   let wait = 0;
   let asked = 0;
   const show = async () => {
     const mine = (asked += 1);
     try {
       const answer = await api.post('/api/settings/message/preview',
-        { message_greeting: greeting.value, message_closing: closing.value });
-      if (mine === asked) preview.textContent = answer.text;  // a later keystroke may have answered first
+        { message_greeting: greeting.value, message_closing: closing.value, message_subject: subject.value });
+      if (mine !== asked) return;  // a later keystroke was answered first
+      previewSubject.textContent = answer.subject;
+      previewBody.textContent = answer.text;
     } catch { /* the example simply stays as it was */ }
   };
   const later = () => { clearTimeout(wait); wait = setTimeout(show, 250); };
-  greeting.addEventListener('input', later);
-  closing.addEventListener('input', later);
+  [greeting, closing, subject].forEach((el) => el.addEventListener('input', later));
   show();
-  const card = h('section', { class: 'card' },
-    h('h2', {}, 'Message with each schedule'),
-    h('p', { class: 'muted' }, 'The text copied for an e-mail (Publish, or key S). {name} becomes the person’s first name.'),
-    h('div', { class: 'form-grid' }, field('First line', greeting), field('Last words', closing)),
-    field('Subject, when sent by e-mail from Rota Planner', subject, '{month} becomes the month’s name. Only used if E-mail is set up below.'),
-    preview,
-    h('div', { class: 'card-actions' }, h('button', { class: 'btn primary', type: 'button', onclick: async () => {
-      try {
-        await saveSetup('settings/save', { settings: { message_greeting: greeting.value, message_closing: closing.value, message_subject: subject.value } },
-          { message: 'Message saved' });
-        setSession({ schedules: null });  // the messages are made again with the new words
-      } catch (error) {
-        formError(card, errorText(error));
-      }
-    } }, 'Save')));
-  return card;
+  const element = card('message', 'Schedules by e-mail', 'The message each person gets with their shifts. You copy it into your own e-mail, or Rota Planner sends it.',
+    h('div', { class: 'message-layout' },
+      h('div', { class: 'form-part' },
+        field('First line', greeting, '{name} becomes the person’s first name.'),
+        field('Last words', closing),
+        field('Subject', subject, '{month} becomes the month. Used when Rota Planner sends the messages.')),
+      h('figure', { class: 'mail-preview', 'aria-label': 'Example of the message' },
+        h('figcaption', {}, 'What Ana will read'), previewSubject, previewBody)),
+    saveBar([greeting, closing, subject], async () => {
+      await saveSetup('settings/save', { settings: { message_greeting: greeting.value, message_closing: closing.value, message_subject: subject.value } });
+      setSession({ schedules: null });  // the messages are made again with the new words
+    }),
+    h('div', { class: 'settings-feature', id: 'settings-mail' }, mailLine()));
+  element.refresh = show;  // the centre's name is in the example
+  return element;
 }
 
-// ---- Moving to another computer ---------------------------------------------
-
-function saveFile(name, base64) {
-  const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
-  const url = URL.createObjectURL(new Blob([bytes], { type: 'application/zip' }));
-  const link = h('a', { href: url, download: name });
-  document.body.append(link);
-  link.click();
-  link.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 2000);
+function programCard() {
+  return card('program', 'The program', 'Which version of Rota Planner this computer has, and getting a newer one.',
+    h('div', { class: 'settings-feature', id: 'settings-update' }, updateLine()));
 }
 
-function moveCard() {
-  const comments = toggle('Include the availability comments (they can mention health)', false);
-  const file = h('input', { type: 'file', accept: '.zip', class: 'file' });
-  const result = h('div', { class: 'import-result' });
-  const exportButton = h('button', { class: 'btn primary', type: 'button', onclick: async () => {
-    exportButton.disabled = true;
-    try {
-      const data = await api.post('/api/data/export', { include_comments: comments.input.checked });
-      saveFile(data.name, data.file);
-      toast('File ready: keep it on a USB stick, not in an e-mail');
-    } catch (error) {
-      toast(errorText(error), { tone: 'bad' });
-    } finally {
-      exportButton.disabled = false;
-    }
-  } }, icon('download'), 'Save everything in one file');
+function dataCard() {
+  return card('data', 'Your data', 'The rota is kept on this computer. Here is how to have it on other computers too, or to keep a copy.',
+    h('div', { class: 'settings-feature', id: 'settings-sync' }, syncLine()),
+    h('div', { class: 'settings-feature', id: 'settings-backup' }, backupLine()));
+}
 
-  const check = async () => {
-    const chosen = file.files[0];
-    fill(result);
-    if (!chosen) return;
-    const body = { file: await readFileBase64(chosen) };
-    try {
-      const info = await api.post('/api/data/import/preview', body);
-      const here = info.here.months.length || info.here.people ? `It replaces what is on this computer (${info.here.people} people, ${info.here.months.length} month${info.here.months.length === 1 ? '' : 's'}), which is kept in a backup first.`
-        : 'There is nothing on this computer yet.';
-      const go = h('button', { class: 'btn primary danger', type: 'button', onclick: async () => {
-        go.disabled = true;
-        try {
-          const done = await api.post('/api/data/import/apply', body);
-          toast(`Data brought in · the previous data is kept in backups/${done.safety}`);
-          setTimeout(() => window.location.reload(), 900);
-        } catch (error) {
-          go.disabled = false;
-          formError(result, errorText(error));
-        }
-      } }, 'Replace my data with it');
-      fill(result,
-        h('div', { class: 'import-preview' },
-          h('strong', {}, `File of ${info.created}`),
-          h('span', {}, `${info.people} people · ${info.tasks} tasks · ${info.months.length ? info.months.join(', ') : 'no month'}`),
-          h('span', { class: 'muted' }, info.comments ? 'With the availability comments.' : 'Without the availability comments.'),
-          h('span', { class: 'warn-text' }, here)),
-        h('div', { class: 'card-actions' }, go));
-    } catch (error) {
-      formError(result, errorText(error));
-    }
-  };
-  file.addEventListener('change', check);
-
-  return h('section', { class: 'card' },
-    h('h2', {}, 'Move to another computer'),
-    h('p', { class: 'muted' }, 'Everything (people, tasks, months, settings) in one file, to open Rota Planner elsewhere with the same data. The file holds personal data: carry it on a USB stick rather than by e-mail.'),
-    comments,
-    h('div', { class: 'card-actions' }, exportButton),
-    h('h3', { class: 'form-section' }, 'Bring data from another computer'),
-    field('A file saved with the button above', file),
-    result);
+/** Bring a part into view when a link elsewhere asked for it (settingsLink: 'message', 'mail', 'sync', 'backup', 'update'). */
+function focusPart(root) {
+  const part = state.session.settingsFocus;
+  if (!part) return;
+  state.session.settingsFocus = null;  // once only; no redraw needed for this
+  const target = root.querySelector(`#settings-${part}`);
+  if (!target) return;
+  requestAnimationFrame(() => {
+    target.scrollIntoView({ block: 'center' });
+    target.classList.remove('flash');
+    void target.offsetWidth;  // start the mark again if it was just shown
+    target.classList.add('flash');
+  });
 }
 
 export function mountSettings(container) {
-  const root = h('div', { class: 'page setup-page' });
+  const root = h('div', { class: 'page setup-page settings-page' });
   container.replaceChildren(root);
   let shown = null;
 
   function render() {
     const setup = state.session.setup;
     // Forms keep what is being typed: only build them once per visit.
-    if (!setup || shown) return;
-    shown = setup;
-    // Five groups, in the order one meets them; the chips at the top jump to a group.
-    const groups = [
-      ['The rota', [settingsCard(setup), messageCard(setup)]],
-      ['Sending by e-mail', [mailCard()]],
-      ['Other computers', [otherComputersCard()]],
-      ['Your data', [moveCard()]],
-      ['The program', [updateCard()]],
-    ].map(([title, cards]) => h('section', { class: 'settings-group' },
-      h('h2', { class: 'group-title', tabindex: '-1' }, title), h('div', { class: 'cards flow' }, cards)));
-    root.replaceChildren(
-      h('header', { class: 'page-head' }, h('div', {}, h('h1', {}, 'Settings'))),
-      h('nav', { class: 'group-nav', 'aria-label': 'Parts of the settings' }, groups.map((group) => h('button', {
-        class: 'btn small', type: 'button', onclick: () => {
-          group.scrollIntoView({ behavior: 'smooth', block: 'start' });
-          group.querySelector('.group-title').focus({ preventScroll: true });
-        },
-      }, group.querySelector('.group-title').textContent))),
-      ...groups);
+    if (setup && !shown) {
+      shown = setup;
+      const message = messageCard(setup.settings);
+      fill(root,
+        h('header', { class: 'page-head' }, h('div', {}, h('h1', {}, 'Settings'))),
+        hoursCard(setup.settings, () => message.refresh()), message, dataCard(), programCard());
+    }
+    if (shown) focusPart(root);
   }
 
   return { render };

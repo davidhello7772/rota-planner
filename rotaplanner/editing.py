@@ -45,6 +45,7 @@ TaskConfig = Union[Catalog, Month, ConfigTemplate]
 AREA_COLOURS = ("slate", "red", "orange", "amber", "lime", "green", "teal", "sky", "indigo", "violet", "pink")
 MAX_TEXT = 200
 GREETING_LENGTH, CLOSING_LENGTH = 120, 200  # the words around a schedule sent by message
+SUBJECT_LENGTH, DEFAULT_SUBJECT = 120, "Your shifts for {month}"
 MAX_HEADCOUNT = 30
 
 
@@ -538,8 +539,14 @@ def message_words(text: Any, limit: int) -> str:
     return " ".join(str(text or "").split())[:limit]
 
 
+def message_subject(text: Any) -> str:
+    """The subject of a schedule sent by e-mail, as it is kept (never empty)."""
+    return message_words(text, SUBJECT_LENGTH) or DEFAULT_SUBJECT
+
+
 def save_settings(settings: Settings, data: Json) -> Settings:
-    settings.centre_name = _text(data, "centre_name")
+    if "centre_name" in data:  # each part of Settings saves only its own fields
+        settings.centre_name = _text(data, "centre_name")
     target = number(data, "default_target_hours", 0, 300, "Default target hours")
     daily = number(data, "default_max_hours_per_day", 0, 24, "Usual hours a day")
     if target is not None:
@@ -550,7 +557,7 @@ def save_settings(settings: Settings, data: Json) -> Settings:
     if "message_greeting" in data:
         settings.message_greeting = message_words(data["message_greeting"], GREETING_LENGTH)
     if "message_subject" in data:
-        settings.message_subject = " ".join(str(data["message_subject"] or "").split())[:120] or "Your shifts for {month}"
+        settings.message_subject = message_subject(data["message_subject"])
     if "message_closing" in data:
         settings.message_closing = message_words(data["message_closing"], CLOSING_LENGTH)
     return settings

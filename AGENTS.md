@@ -135,10 +135,11 @@ Front end (`rotaplanner/web/js`): `main.js` (shell, routes, shortcuts),
 rota goes through here: toast with Undo, "assign anyway"), `api.js`,
 `components.js` (inputs, dialog, drawer), `build/` (the rota grid and its
 side panel), `pages/` (one module per screen), `eventtask.js`,
-`schedules.js`, `mailer.js` (e-mailing the schedules), `sync.js` (other computers: the cloud in the top bar, the pen,
-the banners, choosing between versions), `syncsetup.js` (their card in
-Settings, the set-up assistant, the first screen of an empty computer),
-`updates.js` (a newer version), `ui.js` (toast, menu, copy), `help.js` +
+`schedules.js`, `mailer.js` / `syncsetup.js` / `backup.js` / `updates.js` (the
+e-mail, several computers, backup-copy and version lines of Settings, and
+their windows), `sync.js` (other computers: the cloud in the top bar, the
+pen, the banners, choosing between versions), `ui.js` (toast, menu, copy,
+`settingsLink`), `help.js` +
 `help-content.js`, `print-page.js` (runs on the print pages only).
 
 ## How a change usually goes
@@ -197,6 +198,7 @@ Recipes:
 | the pen | the right to change the data: one computer at a time holds it; the others look |
 | ask to edit / hand over | another computer asks for the pen; the holder sends its changes, then lets go by itself |
 | courier | the background thread that sends this computer's file and fetches the others' |
+| backup copy | everything in one file (`transfer.py`), saved and restored from Settings; not the same as several computers |
 
 Never blur "rota to fill" and "printed main rota": that confusion already
 cost a bug report.
@@ -270,6 +272,14 @@ cost a bug report.
 - **Direct PDF needs Edge, Chrome or Chromium.** Vivaldi and snap browsers
   hang in headless mode and are deliberately not used (`exporters/pdf.py`);
   the fallback is the browser's Print → Save as PDF.
+- **Settings stays one calm page of four cards** (Centre and hours,
+  Schedules by e-mail, Your data, The program). Values adjusted from time to time are
+  plain forms with their own Save (`saveBar`: it turns blue once something
+  changed). Anything set up once is **one status line** (`statusLine` in
+  `components.js`: name, On/Off badge, one sentence, buttons); its set-up
+  opens in a window, with numbered steps and an `explain(…)` fold for each
+  technical word. Add to a card rather than adding a card, and send other
+  screens to a part with `settingsLink(part, …)` (`ui.js`).
 - **Renders must not lose what the user is typing.** Screens re-render on
   every state change: keep inputs alive with `replaceKeepingFocus` and
   `data-focus-id`, or build the form once (see `pages/settings.js`).

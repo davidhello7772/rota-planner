@@ -97,7 +97,7 @@ bash install-rota-planner.sh
   installed. On GitHub, also remove the computer's key (Settings › Deploy
   keys).
 
-**From inside Rota Planner**: *Settings › Version and updates* says whether
+**From inside Rota Planner**: *Settings › The program › Version and updates* says whether
 a new version exists (it looks once a day, unless you turn that off, and when
 you press *Check now*), lists what is new, and installs it when you say so:
 a copy of the data is saved first, and Rota Planner starts again by itself.
@@ -216,20 +216,19 @@ person's calendar file, from a Gmail or Google Workspace account:
    `myaccount.google.com/apppasswords` and create an **app password** (a
    16-letter code). If Google does not offer that page, the organisation does
    not allow app passwords, and this stays off.
-2. *Settings › E-mail (optional)*: the address, the code, *Save and send a
-   test*. A test message arrives in the account's own inbox.
+2. *Settings › Schedules by e-mail › Sending from Rota Planner › Set up…*:
+   the address, the code, *Save and send a test*. A test message arrives in the account's own inbox.
 3. *Publish › For each person › Send by e-mail…*: paste a list of names and
    addresses (the availability form's reply sheet works as it is), check who
    was recognised, choose who to write to (everyone, only where shifts
    changed, only those not e-mailed yet), send.
 
 Addresses are still never kept: you give the list each time. The app password
-stays in a private file on this computer; *Remove* turns e-mail off again.
-This is done on the computer where Rota Planner runs, not from another one.
+stays in a private file on this computer; *Remove* turns sending off again.
 
 ## Several computers, here or elsewhere
 
-*Settings › Other computers* lets two or more computers use the same rota,
+*Settings › Several computers › Set up…* lets two or more computers use the same rota,
 each with its own copy, from anywhere:
 
 1. **On the first computer**: choose where they meet, *Test the connection*,
@@ -264,7 +263,7 @@ Then:
   asked which to keep; the choice then reaches every computer. A copy of the
   data is kept first in `data/backups/` (`before-sync-…`, `before-choice-…`).
 - A computer that no longer takes part can be *forgotten* from another one
-  (Settings › Other computers, *Forget this computer* next to its name);
+  (Settings › Several computers › Details and options, *Forget this computer* next to its name);
   *Stop synchronising* removes this computer's file from the meeting place.
 
 What sits on the server is sealed with the pairing code: the service cannot
@@ -276,7 +275,7 @@ e-mail).
 Everything stays in the `data` folder on this computer. Rota Planner uses
 the internet for three things only, each optional: looking once a day
 whether a newer version exists (nothing about your data is sent; it can be
-turned off in Settings › Version and updates); the e-mail if you set it up
+turned off in Settings › The program › Version and updates); the e-mail if you set it up
 (that mail server only, when you press Send); and other computers if you set
 them up (a sealed copy goes to the server or shared folder you chose, which
 cannot read it; Rota Planner talks to that server in the background, and to
@@ -285,8 +284,9 @@ addresses are never kept: only a fingerprint that recognises an address in
 the form's replies but cannot be read back. Notes on a person and on a shift
 are for practical matters only, never health. Comments left with availability replies can be private:
 they are deleted when the month is over, or earlier with *Delete all*.
-*Settings › Move to another computer* puts everything in one file (carry it
-on a USB stick rather than by e-mail) and brings it in on the other side.
+*Settings › Backup copy › Save a copy…* puts everything in one file (carry it
+on a USB stick rather than by e-mail); *Restore…*, or *Restore a backup copy*
+on the first screen of a new computer, brings it back.
 
 ## For developers
 

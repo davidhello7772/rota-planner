@@ -1,6 +1,6 @@
 """Optional: e-mailing each person their schedule, with their calendar file.
 
-Off until the coordinator sets up a sending account (Settings › E-mail) and a
+Off until the coordinator sets up a sending account (Settings › Schedules by e-mail) and a
 test connection has worked. Until then nothing here ever connects anywhere.
 
 - **The account** is kept in ``<data>/mail.json``: this computer only, never
@@ -380,7 +380,7 @@ class Mail:
         person reached, at once: closing the program half-way loses no record."""
         with self._lock:
             if not self.configured:
-                raise MailError("Sending by e-mail is not set up (Settings › E-mail).")
+                raise MailError("Sending by e-mail is not set up (Settings › Schedules by e-mail).")
             if self._job["running"]:
                 raise MailError("Messages are already being sent.")
             if not outgoing:

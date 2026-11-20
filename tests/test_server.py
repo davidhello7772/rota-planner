@@ -201,6 +201,9 @@ class ServerTest(unittest.TestCase):
         self.assertTrue(lines[2].startswith("Here are your shifts for "))
         self.assertEqual(len([line for line in lines if line.startswith("• ")]), 2)
         self.assertNotIn("Thank you", self.json("POST", "/api/settings/message/preview", {"message_closing": ""})[1]["text"])
+        subject = self.json("POST", "/api/settings/message/preview", {"message_subject": "Rota {month} – {month}"})[1]["subject"]
+        self.assertRegex(subject, r"^Rota \w+ \d{4} – \w+ \d{4}$")  # every {month}, as when sending
+        self.assertTrue(self.json("POST", "/api/settings/message/preview", {"message_subject": "  "})[1]["subject"].startswith("Your shifts for "))
         self.assertEqual(self.json("GET", "/api/setup")[1]["settings"], before)
 
     def test_the_task_form_asks_the_program_about_its_times(self):

@@ -696,7 +696,10 @@ class App:
         """What a schedule message looks like with these words (nothing is saved)."""
         greeting = editing.message_words(body.get("message_greeting"), editing.GREETING_LENGTH)
         closing = editing.message_words(body.get("message_closing"), editing.CLOSING_LENGTH)
-        return {"text": personal.sample_message(date.today(), self.settings.centre_name, greeting, closing)}
+        subject = editing.message_subject(body.get("message_subject", self.settings.message_subject))
+        today = date.today()
+        return {"text": personal.sample_message(today, self.settings.centre_name, greeting, closing),
+                "subject": personal.subject_text(subject, today.strftime("%B %Y"))}
 
     # -- task configurations: each month has its own; "typical" starts new ones
 
@@ -975,7 +978,7 @@ class App:
     def mail_preview(self, month_id: str, body: Json) -> Json:
         """Who each address of the list is, and who there is to write to. Nothing is sent."""
         if not self.mail.configured:
-            raise ApiError(HTTPStatus.BAD_REQUEST, "Sending by e-mail is not set up (Settings › E-mail).")
+            raise ApiError(HTTPStatus.BAD_REQUEST, "Sending by e-mail is not set up (Settings › Schedules by e-mail).")
         month = self.month(month_id)
         shifts = personal.shifts_of(month, self.people, self.settings)
         result = mail.preview(self._mail_list(body), self.people, shifts, self.store.email_salt(),
@@ -1004,7 +1007,7 @@ class App:
         """Start sending to the people confirmed on the screen. Addresses are read
         again from the list, used for the sending only, and never saved."""
         if not self.mail.configured:
-            raise ApiError(HTTPStatus.BAD_REQUEST, "Sending by e-mail is not set up (Settings › E-mail).")
+            raise ApiError(HTTPStatus.BAD_REQUEST, "Sending by e-mail is not set up (Settings › Schedules by e-mail).")
         who = body.get("who") if body.get("who") in mail.WHO else "all"
         month = self.month(month_id)
         version = self._mail_version(month)
@@ -1013,7 +1016,7 @@ class App:
         by_id = {p.id: p for p in self.people if not p.archived}
         rows = [row for row in self._mail_rows(body) if row["row"] in entries and row["person_id"] in by_id]
         send_to = set(mail.plan([row["person_id"] for row in rows], self.people, shifts, month.mailed, version, who)["send_to"])
-        subject = self.settings.message_subject.replace("{month}", month.title())
+        subject = personal.subject_text(self.settings.message_subject, month.title())
         outgoing = []
         for row in rows:
             person, entry = by_id[row["person_id"]], entries[row["row"]]

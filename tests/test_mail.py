@@ -106,7 +106,7 @@ class MailTest(unittest.TestCase):
         self.assertEqual(self.server.logins[0], (SENDER, "abcdefghijklmnop", "smtp.gmail.com", 587, "starttls"))
         path = self.root / mail.FILE_NAME
         self.assertEqual(path.stat().st_mode & 0o077, 0)
-        self.assertNotIn(b"abcdefgh", transfer.export_bytes(self.app.store))  # not in "Move to another computer"
+        self.assertNotIn(b"abcdefgh", transfer.export_bytes(self.app.store))  # not in a backup copy
         self.assertNotIn(mail.FILE_NAME, transfer.TOP_LEVEL)                  # so not in the sync file either
         # Changing the account needs a new test; keeping it does not.
         self.app.mail_save({"account": {"address": SENDER, "name": "Other name", "password": ""}})

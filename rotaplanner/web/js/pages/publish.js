@@ -10,7 +10,7 @@ import { errorText } from '../setup.js';
 import { setMonth, setSession, state } from '../state.js';
 import { schedulesFinder } from '../schedules.js';
 import { loadMailInfo, openMailer } from '../mailer.js';
-import { toast } from '../ui.js';
+import { settingsLink, toast } from '../ui.js';
 import { mainRotaCard } from './printtemplates.js';
 
 let checking = false;
@@ -269,11 +269,11 @@ export function mountPublish(container) {
           h('div', {}, h('h2', {}, 'E-mail everyone their schedule'),
             h('p', { class: 'muted' }, `From ${mailInfo.address}: one message per person, with their shifts and their calendar file. You give the list of addresses; none is kept.`)),
           h('button', { class: 'btn primary', type: 'button', onclick: openMailer }, icon('message'), 'Send by e-mail…')))
-        : h('p', { class: 'faint mail-off' }, ['Sending by e-mail from Rota Planner is not set up (optional). ', h('a', { class: 'link', href: '#/settings' }, 'Settings › E-mail')]),
+        : h('p', { class: 'faint mail-off' }, ['Sending by e-mail from Rota Planner is not set up (optional). ', settingsLink('mail', 'Settings › Schedules by e-mail')]),
       h('section', { class: 'card schedules-card' },
         h('div', { class: 'card-title' },
           h('div', {}, h('h2', {}, mailInfo?.configured ? 'Or one person at a time' : 'Send each person their schedule'),
-            h('p', { class: 'muted' }, 'Type a few letters, Enter copies the text, paste it in your e-mail; then the next name. Also from the top bar (key S).'))),
+            h('p', { class: 'muted' }, 'Type a few letters, Enter copies the text, paste it in your e-mail; then the next name. Also from the top bar (key S). ', settingsLink('message', 'Change the words')))),
         finder),
       h('div', { class: 'cards doc-cards' },
         docCard({ title: 'Personal rotas', doc: 'people',

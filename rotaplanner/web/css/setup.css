@@ -401,7 +401,7 @@ a.tile:hover { border-color: var(--line-strong); }
 .card-title .segmented .count { margin-left: 0.35em; color: var(--text-3); }
 .days-table thead th:last-child, .days-table td.notes { text-align: left; }
 
-/* ---- Settings › Who can use Rota Planner ---------------------------------- */
+/* ---- Form parts, the pairing code ------------------------------------------ */
 .form-part { display: flex; flex-direction: column; gap: var(--space-2); }
 .command { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-1) var(--space-2);
   border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-2); }
@@ -490,7 +490,7 @@ a.tile:hover { border-color: var(--line-strong); }
 .progress { height: 0.6rem; border-radius: 999px; background: var(--chip); overflow: hidden; }
 .progress span { display: block; height: 100%; background: var(--accent); transition: width 0.3s; }
 
-/* ---- Other computers: setting up in three steps ---- */
+/* ---- Several computers: setting up in three steps ---- */
 .wizard { display: flex; flex-direction: column; gap: var(--space-4); }
 .wizard p { margin: 0; }
 .choice-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: var(--space-3); }
@@ -502,22 +502,11 @@ a.tile:hover { border-color: var(--line-strong); }
 .choice-tile[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); background: var(--accent-weak); }
 .choice-tile:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .test-result { display: inline-flex; align-items: center; min-height: var(--control-h); font-size: var(--fs-sm); }
-.test-result svg, .done-line svg, .sync-card p > svg { width: 1rem; height: 1rem; vertical-align: -0.15em; }
+.test-result svg, .done-line svg, .sync-details p > svg { width: 1rem; height: 1rem; vertical-align: -0.15em; }
 .sync-code-input { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: 0.08em; }
 .wizard .card-actions { align-items: center; flex-wrap: wrap; }
 
-/* ---- Other computers: how things stand ---- */
-.sync-head { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-3); padding: var(--space-3) var(--space-4); border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface-2); }
-.sync-head > svg { flex: none; width: 1.75rem; height: 1.75rem; color: var(--text-2); }
-.sync-head.ok { background: var(--ok-weak); border-color: transparent; }
-.sync-head.ok > svg { color: var(--ok); }
-.sync-head.warn { background: var(--warn-weak); border-color: var(--warn-line); }
-.sync-head.warn > svg { color: var(--warn); }
-.sync-head.bad { background: var(--bad-weak); border-color: var(--bad-line); }
-.sync-head.bad > svg { color: var(--bad); }
-.sync-head-text { flex: 1; min-width: 12rem; display: flex; flex-direction: column; }
-.sync-head-text strong { font-size: var(--fs-lg); }
-.sync-head-text span { color: var(--text-2); font-size: var(--fs-sm); }
+/* ---- Several computers: the details under its line in Settings ---- */
 .sync-map { display: grid; grid-template-columns: minmax(9rem, 1fr) minmax(8rem, 1fr) minmax(9rem, 1fr); gap: var(--space-3); align-items: center; }
 .computers { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
 .computers-none { font-size: var(--fs-sm); }
@@ -542,12 +531,10 @@ a.tile:hover { border-color: var(--line-strong); }
 .sync-place svg { flex: none; width: 1rem; height: 1rem; color: var(--text-2); }
 .sync-place .path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sync-connection { color: var(--text-3); font-size: var(--fs-xs); text-align: center; }
-.sync-activity summary { cursor: pointer; font-size: var(--fs-sm); font-weight: 600; }
-.sync-activity ul { list-style: none; margin: var(--space-2) 0 0; padding: 0; display: flex; flex-direction: column; gap: 2px; max-height: 10rem; overflow: auto; font-size: var(--fs-sm); color: var(--text-2); }
+.sync-activity h4 { margin: 0 0 var(--space-1); font-size: var(--fs-sm); color: var(--text); }
+.sync-activity ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; max-height: 10rem; overflow: auto; font-size: var(--fs-sm); color: var(--text-2); }
 .sync-activity li.bad { color: var(--bad); }
 .sync-activity li.warn { color: var(--warn); }
-.sync-card .card-actions { flex-wrap: wrap; }
-.cards .sync-card { grid-column: 1 / -1; }
 @media (max-width: 760px) {
   .sync-map { grid-template-columns: 1fr; }
   .sync-line { display: none; }
@@ -561,23 +548,54 @@ a.tile:hover { border-color: var(--line-strong); }
 
 /* ---- Version and updates ---- */
 .update-list { margin: var(--space-1) 0 0; padding-left: 1.25rem; font-size: var(--fs-sm); font-weight: 400; }
-.update-notice { align-items: flex-start; background: var(--accent-weak); border: 1px solid var(--accent-line); }
-.update-notice > svg { flex: none; width: 1.25rem; height: 1.25rem; margin-top: 2px; color: var(--accent); }
-.update-notice > span { flex: 1; min-width: 0; }
+.update-new { padding: var(--space-2) var(--space-3); border: 1px solid var(--accent-line); border-radius: var(--radius); background: var(--accent-weak); font-size: var(--fs-sm); }
 .update-body { display: flex; flex-direction: column; gap: var(--space-2); }
 .update-body p { margin: 0; }
 .update-body svg { width: 1rem; height: 1rem; vertical-align: -0.15em; }
 
-/* ---- Settings: groups of cards that pack without gaps ---- */
-.group-nav { display: flex; flex-wrap: wrap; gap: var(--space-2); max-width: 64rem; margin-bottom: var(--space-4); }
-.settings-group { max-width: 64rem; margin-bottom: var(--space-6); scroll-margin-top: var(--space-4); }
-.group-title { margin: 0 0 var(--space-3); font-size: var(--fs-sm); font-weight: 650; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-2); }
-.group-title:focus { outline: none; }
-.cards.flow { display: block; columns: 2 22rem; column-gap: var(--space-4); }
-.cards.flow > .card { break-inside: avoid; margin-bottom: var(--space-4); }
-.settings-group:has(.cards.flow > .card:only-child) .cards.flow { columns: 1; max-width: 32rem; }
-/* A group with the wide "other computers" card: one column (a card spanning
-   the columns would swallow the gap above it). */
-.settings-group:has(.cards.flow > .sync-card) .cards.flow { display: flex; flex-direction: column; gap: var(--space-4); max-width: none; }
-.settings-group:has(.cards.flow > .sync-card) .cards.flow > .card { margin-bottom: 0; }
-.settings-group:has(.cards.flow > .sync-card) .cards.flow > .card:not(.sync-card) { max-width: 32rem; }
+/* ---- Settings: one column, three cards ---------------------------------------
+   Values to adjust are plain forms; each feature set up once is a status line. */
+.settings-page > * { width: 100%; max-width: 46rem; }
+.settings-card { gap: var(--space-4); }
+.settings-card-head p { margin-top: var(--space-1); font-size: var(--fs-sm); }
+.toggle-hint { padding-left: 2.625rem; }  /* under the label, past the switch */
+.save-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--space-3); }
+.save-bar .form-error { flex-basis: 100%; margin: 0; }
+.save-note { font-size: var(--fs-sm); color: var(--text-3); }
+.message-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-4); align-items: start; }
+.mail-preview { margin: 0; padding: var(--space-3) var(--space-4); border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface-2); font-size: var(--fs-sm); }
+.mail-preview figcaption { margin-bottom: var(--space-2); font-size: var(--fs-xs); color: var(--text-3); }
+.mail-preview-subject { padding-bottom: var(--space-2); margin-bottom: var(--space-2); border-bottom: 1px solid var(--line); font-weight: 600; overflow-wrap: anywhere; }
+.mail-preview-body { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; color: var(--text-2); }
+.settings-feature { margin: 0 calc(-1 * var(--space-6)); padding: var(--space-4) var(--space-6) 0; border-top: 1px solid var(--line); }
+/* The part a link elsewhere asked for (settingsLink) is briefly marked. */
+.settings-feature.flash { animation: settings-flash 1.8s ease-out; }
+.settings-card.flash { animation: settings-flash-card 1.8s ease-out; }
+@keyframes settings-flash { from { background: var(--accent-weak); } to { background: transparent; } }
+@keyframes settings-flash-card { from { background: var(--accent-weak); } to { background: var(--surface); } }
+@media (prefers-reduced-motion: reduce) { .settings-feature.flash, .settings-card.flash { animation: none; outline: 2px solid var(--accent-line); } }
+.status-line { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: var(--space-3); align-items: start; }
+.status-line > svg { width: 1.5rem; height: 1.5rem; margin-top: 1px; color: var(--text-2); }
+.status-main { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; padding-bottom: var(--space-4); }
+.status-line .status-title { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin: 0; font-size: var(--fs-md); }
+.status-text { margin: 0; font-size: var(--fs-sm); color: var(--text-2); max-width: 38rem; }
+.status-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.explain { font-size: var(--fs-sm); color: var(--text-2); }
+.explain > summary { width: fit-content; cursor: pointer; color: var(--accent); }
+.explain > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius-sm); }
+.explain[open] > summary { margin-bottom: var(--space-2); }
+.explain > p { margin: 0 0 var(--space-2); max-width: 38rem; }
+.sync-details > :not(summary) + :not(summary) { margin-top: var(--space-3); }
+/* Under its line the map has less room than the page: stacked when narrow. */
+.sync-details { container-type: inline-size; }
+@container (max-width: 36rem) {
+  .sync-map { grid-template-columns: 1fr; }
+  .sync-line { display: none; }
+  .sync-link { align-items: flex-start; }
+}
+.form-part > p, .form-part > .form-section { margin: 0; }
+.setup-window .form-section { margin-top: var(--space-2); }
+.steps-list .path { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow-wrap: anywhere; }
+.settings-feature:last-child .status-main { padding-bottom: 0; }
+@media (max-width: 760px) { .message-layout { grid-template-columns: 1fr; } }
+@media (max-width: 520px) { .settings-card .form-grid { grid-template-columns: 1fr; } }
