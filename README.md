@@ -110,14 +110,6 @@ your data is sent, and nothing is installed without your yes.
 the ZIP again and copy its files over the program's, keeping the `data`
 folder.
 
-## First start: bring in the current Google Sheet
-
-In Google Sheets choose *File › Download › Microsoft Excel*, then in Rota
-Planner open *Settings › Import the current workbook*. *Check the file* shows
-what will be imported (people, skills, tasks, regular week, monthly rotas,
-availability, preferences) before anything changes. "Replace names with
-invented ones" keeps the import anonymous.
-
 ## Setting things up
 
 - **People**: everyone with skills, hours and constraints. *Skills grid* ticks

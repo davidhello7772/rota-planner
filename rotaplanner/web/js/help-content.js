@@ -102,7 +102,6 @@ export const SCREENS = {
       'E-mail (optional): a Gmail or Workspace account with an app password, to send the schedules from Rota Planner.',
       'Other computers: each keeps its own copy and they meet on a server (or a shared folder). Changes travel by themselves; one computer edits at a time.',
       'Move to another computer saves everything in one file; keep it on a USB stick.',
-      'Import the current workbook reads the Google Sheet used so far.',
       'Version and updates: whether a newer version exists, what is new, and installing it when you say so.',
     ],
   },

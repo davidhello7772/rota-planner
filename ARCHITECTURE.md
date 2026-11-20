@@ -26,7 +26,6 @@ editing.py        set-up changes: people, skills, areas, tasks, regular week,
                   event types and their tasks, print templates
 transfer.py       all the data in one file, to move to another computer, and back
 people_import.py  adding many people from a pasted list, CSV or Excel
-importers/        legacy_workbook.py: the current Google Sheets rota (.xlsx)
 xlsx_read.py      reading .xlsx with the standard library
 solver.py         prefill (build, repair, improve), rebalance, shortages, ideas
 report.py         the Check step: to fix, open, overrides, balance

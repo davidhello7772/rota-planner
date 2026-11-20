@@ -33,10 +33,10 @@ a Google Sheet. The user is not a programmer.
    the coordinator's yes. Do not paste real names, phone numbers,
    e-mail addresses or comments into prompts, commits, tests, screenshots or
    issue text.
-2. **Never read the real data to develop or test.** `data/` (git-ignored) and
-   the user's workbook in their Downloads folder are real people. Use
-   `--demo` data (an invented centre and invented people) or the tiny set in
-   `tests/helpers.py`. If you must check an import of the real workbook,
+2. **Never read the real data to develop or test.** `data/` (git-ignored),
+   backup copies and any spreadsheet in the user's Downloads folder are real
+   people. Use `--demo` data (an invented centre and invented people) or the
+   tiny set in `tests/helpers.py`. If you must check an import of a real file,
    print totals only, never rows.
 3. **Python standard library only**, Python ≥ 3.9. There is no pip, no venv,
    no node on the user's machine. No build step, no framework, no bundler.
@@ -117,7 +117,6 @@ rotaplanner/
   report.py tips.py view.py   what the Check screen, the Assistant and the grid show
   transfer.py       all data in one file (move to another computer)
   exporters/        printed documents, versions, personal rotas, .ics, .xlsx, PDF
-  importers/        the legacy Google Sheets workbook
   people_import.py xlsx_read.py   a list of people from a spreadsheet; reading .xlsx safely
   app.py            every action of the program (state in memory, undo, saving)
   server.py         HTTP: static files, JSON API, print pages

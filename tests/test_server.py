@@ -1,4 +1,3 @@
-import base64
 import http.client
 import json
 import tempfile
@@ -259,16 +258,6 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.json("POST", "/api/config/use", {"scope": "2026-12", "source": "template:nope"})[0], 400)
         self.json("POST", "/api/templates/delete", {"id": template["id"]})
         self.assertEqual(self.json("GET", "/api/config?scope=typical")[1]["templates"], [])
-
-    def test_workbook_import_preview_is_anonymous_and_changes_nothing(self):
-        from .test_import import legacy_workbook
-        encoded = base64.b64encode(legacy_workbook()).decode()
-        status, body = self.json("POST", "/api/import/workbook", {"file": encoded, "anonymous": True})
-        self.assertEqual(status, 200)
-        self.assertEqual((body["summary"]["people"], body["applied"]), (4, False))
-        self.assertEqual(len(self.json("GET", "/api/setup")[1]["people"]) >= 4, True)
-        status, body = self.json("POST", "/api/import/workbook", {"file": "!!!not base64"})
-        self.assertEqual(status, 400)
 
     def test_create_and_prepare_a_month(self):
         info = self.json("GET", "/api/new-month")[1]

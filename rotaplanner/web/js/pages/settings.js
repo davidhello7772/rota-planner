@@ -1,4 +1,4 @@
-// Settings: usual hours, the schedule message, e-mail, other computers, moving the data, the program, and importing the current Google Sheets workbook.
+// Settings: usual hours, the schedule message, e-mail, other computers, moving the data and the program.
 import { field, formError, numberInput, readFileBase64, textInput, toggle } from '../components.js';
 import { otherComputersCard } from '../syncsetup.js';
 import { updateCard } from '../updates.js';
@@ -147,59 +147,6 @@ function moveCard() {
     result);
 }
 
-function summaryList(summary) {
-  return h('ul', { class: 'summary-list' },
-    h('li', {}, `${summary.people} people (${summary.active} on the rota), ${summary.skills} skills`),
-    h('li', {}, `${summary.areas} areas, ${summary.tasks} tasks, ${summary.regulars} regular commitments`),
-    summary.months.map((m) => h('li', {}, `${m.title}: ${m.filled} of ${m.required} shifts filled, ${m.events} event(s)`)),
-    summary.availability_month ? h('li', {}, `${summary.availability_replies} availability replies for ${summary.availability_month}`) : null,
-    h('li', {}, `${summary.preferences} people with preferences`),
-    summary.anonymous ? h('li', { class: 'ok-text' }, 'Names replaced by invented ones; phones, lay names and comments left out.') : null);
-}
-
-function importCard() {
-  const file = h('input', { type: 'file', accept: '.xlsx', class: 'file', 'aria-label': 'Workbook file' });
-  const anonymous = toggle('Replace names with invented ones (anonymous)', true);
-  const result = h('div', { class: 'import-result' });
-  let encoded = '';
-
-  const run = async (apply) => {
-    if (!file.files[0]) {
-      formError(result, 'Choose the workbook file first (File › Download › Microsoft Excel in Google Sheets).');
-      return;
-    }
-    encoded = encoded || await readFileBase64(file.files[0]);
-    result.replaceChildren(h('p', { class: 'muted' }, apply ? 'Importing…' : 'Reading the workbook…'));
-    try {
-      const answer = await api.post(apply ? '/api/import/workbook' : '/api/import/workbook/preview', { file: encoded, anonymous: anonymous.input.checked, apply });
-      if (answer.applied) {
-        result.replaceChildren(h('p', { class: 'ok-text' }, 'Imported. Opening the rota…'));
-        setTimeout(() => { window.location.hash = '#/build'; window.location.reload(); }, 600);
-        return;
-      }
-      fill(result, 
-        h('h3', {}, 'This is what will be imported'),
-        summaryList(answer.summary),
-        answer.warnings.length ? h('div', { class: 'warnings' }, h('h3', {}, 'To know'),
-          h('ul', {}, answer.warnings.map((w) => h('li', {}, w)))) : null,
-        h('p', { class: 'warn-text' }, 'Importing replaces the current people, tasks and regular week, and these months. A backup of the current files is kept.'),
-        h('button', { class: 'btn primary', type: 'button', onclick: () => run(true) }, 'Import'));
-    } catch (error) {
-      result.replaceChildren();
-      formError(result, errorText(error));
-    }
-  };
-  file.addEventListener('change', () => { encoded = ''; result.replaceChildren(); });
-  anonymous.input.addEventListener('change', () => result.replaceChildren());
-
-  return h('section', { class: 'card' },
-    h('h2', {}, 'Import the current workbook'),
-    h('p', { class: 'muted' }, 'Reads the Google Sheets rota downloaded as an Excel file: people and skills, tasks, how many people each day needs, the regular week, the monthly rotas, availability and preferences. The file never leaves this computer.'),
-    field('Workbook (.xlsx)', file), anonymous,
-    h('div', { class: 'card-actions' }, h('button', { class: 'btn', type: 'button', onclick: () => run(false) }, 'Check the file')),
-    result);
-}
-
 export function mountSettings(container) {
   const root = h('div', { class: 'page setup-page' });
   container.replaceChildren(root);
@@ -215,7 +162,7 @@ export function mountSettings(container) {
       ['The rota', [settingsCard(setup), messageCard(setup)]],
       ['Sending by e-mail', [mailCard()]],
       ['Other computers', [otherComputersCard()]],
-      ['Your data', [moveCard(), importCard()]],
+      ['Your data', [moveCard()]],
       ['The program', [updateCard()]],
     ].map(([title, cards]) => h('section', { class: 'settings-group' },
       h('h2', { class: 'group-title', tabindex: '-1' }, title), h('div', { class: 'cards flow' }, cards)));

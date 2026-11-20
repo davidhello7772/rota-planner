@@ -143,12 +143,12 @@ class TwoPrograms(unittest.TestCase):
         self.assertIsNone(self.call("a", "POST", "/api/sync/pen", {"action": "release"})[1]["pen"]["notice"])
 
     def test_which_requests_need_the_pen(self):
-        for path in ("/api/sync/apply", "/api/sync/pen", "/api/mail/test", "/api/data/export", "/api/import/workbook/preview",
+        for path in ("/api/sync/apply", "/api/sync/pen", "/api/mail/test", "/api/data/export",
                      "/api/settings/message/preview", "/api/tasks/times",
                      "/api/months/2026-12/availability/preview", "/api/months/2026-12/export"):
             self.assertIsNotNone(PEN_FREE.fullmatch(path), path)
         for path in ("/api/people/save", "/api/months/2026-12/assign", "/api/months/2026-12/undo",
-                     "/api/data/import/apply", "/api/months/create", "/api/months/2026-12/mail/send", "/api/import/workbook"):
+                     "/api/data/import/apply", "/api/months/create", "/api/months/2026-12/mail/send"):
             self.assertIsNone(PEN_FREE.fullmatch(path), path)
 
     def test_choosing_between_versions_needs_the_pen(self):

@@ -10,7 +10,6 @@ import base64
 import binascii
 import calendar
 import copy
-import io
 import re
 import threading
 from datetime import date
@@ -20,7 +19,6 @@ from typing import Any, Callable, Dict, List, Optional
 
 from . import availability, editing, emails, mail, month_setup, months, people_import, report, solver, transfer, view
 from .exporters import documents, pdf, personal, sheet, versions, xlsx_rota
-from .importers.legacy_workbook import WorkbookImportError, import_workbook
 from .model import (
     EVENT_TASK_DAYS, EVENT_TASKS_PRINTED, FREQUENCIES, PRINT_SIZES, WEEKDAY_KEYS, ConfigTemplate, Month, PrintTemplate,
     Task, new_id,
@@ -1280,41 +1278,6 @@ class App:
             return self.updates.install(expected=str(body.get("target") or ""), data_lock=self.lock)
         except UpdateError as error:
             raise ApiError(HTTPStatus.CONFLICT, str(error)) from None
-
-    # -- importing the current workbook --------------------------------------
-
-    def import_workbook_preview(self, body: Json) -> Json:
-        """"Check the file": what the workbook holds, nothing changed (so no pen is needed)."""
-        return self.import_workbook(dict(body, apply=False))
-
-    def import_workbook(self, body: Json) -> Json:
-        """Read the workbook; with ``apply``, replace the set-up and those months."""
-        data = _decode_file(body)
-        if not data:
-            raise ApiError(HTTPStatus.BAD_REQUEST, "Choose the workbook file first.")
-        try:
-            result = import_workbook(io.BytesIO(data), anonymous=bool(body.get("anonymous", True)))
-        except WorkbookImportError as error:
-            raise ApiError(HTTPStatus.BAD_REQUEST, str(error)) from error
-        if body.get("apply"):
-            # People get new ids from the workbook: months made in the program since the first
-            # import would then point at the wrong people.
-            made_here = sorted(set(self.store.list_months()) - {m.id for m in result.months})
-            if made_here and self.people:
-                titles = ", ".join(self.month(m).title() for m in made_here[:3])
-                raise ApiError(HTTPStatus.CONFLICT,
-                               f"Months prepared in Rota Planner exist ({titles}). Importing the workbook again would "
-                               "mix up the people in them. Import into a new data folder instead.")
-            self.catalog, self.people = result.catalog, result.people
-            self.store.save_catalog(self.catalog)
-            self.store.save_people(self.people)
-            for month in result.months:
-                self.store.save_month(month)
-                self._months.pop(month.id, None)
-                self._undo.pop(month.id, None)
-                self._redo.pop(month.id, None)
-            self.forget_old_comments(date.today())  # same rule as when the program starts
-        return {"summary": result.summary, "warnings": result.warnings, "applied": bool(body.get("apply"))}
 
 
 def _decode_file(body: Json) -> bytes:

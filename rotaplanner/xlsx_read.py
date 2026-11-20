@@ -1,6 +1,6 @@
 """Read .xlsx workbooks with the standard library only.
 
-Only what the importers need: cell values (text, numbers, cached results of
+Only what the imports (people, availability) need: cell values (text, numbers, cached results of
 formulas), whether a cell holds a formula, cell fill colours and merged
 ranges. Workbooks come from people, so the reader is defensive: it never
 evaluates anything and refuses archives that are suspiciously large.

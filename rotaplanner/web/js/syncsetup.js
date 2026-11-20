@@ -328,7 +328,7 @@ export function otherComputersCard() {
 
 // ---- A computer with no data yet -----------------------------------------------
 
-/** The first screen: start empty, bring the current workbook, or join computers already set up. */
+/** The first screen: start empty, or join computers already set up. */
 export function welcomeScreen({ onStartEmpty }) {
   return h('div', { class: 'welcome' },
     h('h1', {}, 'Welcome to Rota Planner'),
@@ -336,8 +336,6 @@ export function welcomeScreen({ onStartEmpty }) {
     h('div', { class: 'choice-tiles welcome-tiles' },
       tile('cloud', 'Connect to existing data', 'Rota Planner is already used on another computer: join it with the pairing code, and everything arrives here.',
         false, () => openSyncWizard({ join: true, onDone: () => window.location.reload() })),
-      tile('download', 'Bring in the current workbook', 'Import the Google Sheets workbook used so far (people, tasks, rotas).',
-        false, () => { onStartEmpty(); window.location.hash = '#/settings'; }),
       tile('plus', 'Start empty', 'Add people and tasks by hand, then create the first month.',
         false, () => { onStartEmpty(); window.location.hash = '#/people'; })));
 }
