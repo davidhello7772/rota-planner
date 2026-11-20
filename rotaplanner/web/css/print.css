@@ -1,0 +1,223 @@
+/* Printed documents: the monthly rota, an event's rota, weekly sheets by
+   area and the sign-up sheet. On screen they show as sheets of paper; the
+   same file is put inside the HTML that is turned into PDF. */
+
+@page { size: A4 portrait; margin: 10mm; }
+@page a3l { size: A3 landscape; margin: 8mm; }
+@page a4l { size: A4 landscape; margin: 8mm; }
+@page a4p { size: A4 portrait; margin: 10mm; }
+@page a2l { size: A2 landscape; margin: 8mm; }
+@page a1l { size: A1 landscape; margin: 8mm; }
+@page a3pt { size: A3 portrait; margin: 5mm; }   /* A3 sheets of an A2 poster */
+@page a3lt { size: A3 landscape; margin: 5mm; }  /* A3 sheets of an A1 poster */
+
+:root {
+  --ink: #16181d;
+  --ink-2: #4b5160;
+  --ink-3: #7a8191;
+  --rule: #c9ced8;
+  --rule-soft: #e3e6ec;
+  --off: #e9ebef;          /* not needed: a quiet grey */
+  --day-line: #e6e8ed;     /* between days: light */
+  --weekend: #e9edf6;
+  --signup: #ffe98a;
+  --accent: #3949c4;
+}
+.area-slate  { --area: #64748b; } .area-red    { --area: #e03131; } .area-orange { --area: #e8590c; }
+.area-amber  { --area: #d48806; } .area-lime   { --area: #5c940d; } .area-green  { --area: #2f9e44; }
+.area-teal   { --area: #0c8599; } .area-sky    { --area: #1c7ed6; } .area-indigo { --area: #4263eb; }
+.area-violet { --area: #7048e8; } .area-pink   { --area: #d6336c; }
+
+* { box-sizing: border-box; }
+html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+body.doc {
+  margin: 0; color: var(--ink); background: #fff;
+  font: 8pt/1.25 -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "DejaVu Sans", sans-serif;
+}
+
+/* ---- On screen: sheets of paper, and a bar with the Print button ---------- */
+@media screen {
+  body.doc { background: #e4e7ee; padding: 0 0 12mm; }
+  .screen-bar { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 12px; padding: 10px 20px;
+    background: #fff; border-bottom: 1px solid var(--rule); font-size: 10pt; }
+  .screen-bar .hint { color: var(--ink-3); }
+  .screen-bar button { margin-left: auto; padding: 6px 16px; border: 0; border-radius: 6px; background: var(--accent); color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
+  .sheet { margin: 8mm auto 0; background: #fff; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15); padding: 8mm; }
+  .paper-a3l { width: 420mm; min-height: 297mm; }
+  .paper-a4l { width: 297mm; min-height: 210mm; }
+  .paper-a4p { width: 210mm; min-height: 297mm; padding: 10mm; }
+}
+@media print {
+  .screen-bar { display: none; }
+  .sheet + .sheet { break-before: page; }
+  .paper-a3l { page: a3l; }
+  .paper-a4l { page: a4l; }
+  .paper-a4p { page: a4p; }
+  .page-a3l { page: a3l; } .page-a4l { page: a4l; } .page-a2l { page: a2l; } .page-a1l { page: a1l; }
+  .page-a3pt { page: a3pt; } .page-a3lt { page: a3lt; }
+  .poster.single + .poster.single { break-before: page; }
+  .tile + .tile, .poster + .tiles .tile:first-child { break-before: page; }
+}
+
+/* ---- The main rota as a poster, fitted to its paper ---------------------------- */
+.poster { position: relative; overflow: hidden; background: #fff; }
+.poster.tiled { display: none; }
+.poster-content { transform-origin: 0 0; }
+.tiles { display: grid; grid-template-columns: repeat(var(--cols), max-content); gap: 0; width: max-content; }
+.tile { position: relative; overflow: hidden; background: #fff; }
+.tile-view { position: relative; overflow: hidden; }
+.tile-shift { position: absolute; }
+.join { position: absolute; top: 0; bottom: 0; background: rgba(57, 73, 196, 0.07); }
+.join-right { border-left: 0.6pt dashed #3949c4; }
+.join-bottom { left: 0; right: 0; bottom: auto; border-top: 0.6pt dashed #3949c4; }
+.tile-label { display: flex; align-items: flex-end; height: 5.4mm; color: var(--ink-3); font-size: 6.5pt; }
+@media screen {
+  .poster.single, .tiles { margin: 8mm auto 0; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15); }
+  .poster.single { padding: 0; outline: 8mm solid #fff; margin-top: 16mm; }
+  .tiles { gap: 6mm; box-shadow: none; padding: 0 0 8mm; }
+  .tile { padding: 5mm; box-sizing: content-box; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15); }
+}
+
+/* ---- Header and footer ------------------------------------------------------ */
+.doc-head { display: flex; align-items: baseline; gap: 4mm; margin-bottom: 3mm; padding-bottom: 2mm; border-bottom: 1.5pt solid var(--ink); }
+.doc-head h1 { margin: 0; font-size: 15pt; letter-spacing: -0.01em; }
+.doc-head .sub { color: var(--ink-2); font-size: 10pt; }
+.doc-head .stamp { margin-left: auto; color: var(--ink-3); font-size: 8pt; white-space: nowrap; }
+.legend { display: flex; flex-wrap: wrap; gap: 2mm 6mm; margin-top: 2mm; color: var(--ink-2); font-size: 7pt; }
+.legend span { display: inline-flex; align-items: center; gap: 1.5mm; }
+.key { display: inline-block; width: 5mm; height: 3mm; border: 0.5pt solid var(--rule); }
+.key.off { background: var(--off); }
+.key.closed, td.closed { background: repeating-linear-gradient(135deg, #eceef2 0 2px, #cfd3da 2px 3px); }
+.key.blank { background: #fff; }
+.key.signup { background: var(--signup); }
+.empty { color: var(--ink-3); font-size: 10pt; }
+.notice { padding: 2mm 3mm; border-left: 2pt solid #d48806; background: #fff8e6; font-size: 9pt; }
+
+/* Events, closures and notes */
+.span { display: inline-block; max-width: 100%; padding: 0.3mm 1.5mm; border-radius: 1mm; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; font-size: 6.5pt; font-weight: 600; vertical-align: middle; }
+.span-event { background: #e6e9fc; color: #2c3aa8; }
+.span-big { background: #3949c4; color: #fff; }
+.span-closed { background: repeating-linear-gradient(135deg, #eceef2 0 2px, #d5d9df 2px 3px); color: var(--ink); }
+.span-offrota { background: #f1e8fd; color: #5b2bb5; }
+.span-note { background: #fff3c4; color: #6b5300; }
+
+/* Names in a cell */
+.p { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.p.guest { font-style: italic; }
+.p .note { display: block; font-size: 0.82em; font-style: italic; color: var(--ink-2); white-space: normal; line-height: 1.1; }
+.p.blank { height: 1.25em; }  /* an open place: left empty, to write a name */
+.p.changed::before, .legend .dot { content: "● "; color: #d9480f; font-weight: 700; }
+.legend .dot { font-style: normal; }
+.retimed { color: var(--accent); font-size: 0.85em; font-weight: 600; white-space: nowrap; }
+
+/* ---- Monthly rota: tasks down, days across ------------------------------------ */
+table.rota { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.rota col.c-task { width: 36mm; }
+.paper-a4l .rota col.c-task { width: 40mm; }
+.rota th, .rota td { border: 0.5pt solid var(--rule-soft); padding: 0.4mm 0.6mm; vertical-align: top; }
+.rota td { border-left-color: var(--day-line); border-right-color: var(--day-line); }
+.rota thead { display: table-header-group; }
+.rota tr.band th, .rota tr.band td { border: 0; padding: 0.3mm 0.2mm; vertical-align: middle; }
+.rota tr.band th.lane { text-align: left; font-size: 6pt; color: var(--ink-3); font-weight: 500; }
+.rota tr.days th { background: #f4f5f8; text-align: center; font-weight: 500; line-height: 1.05; }
+.rota tr.days th span { display: block; font-size: 6pt; color: var(--ink-3); }
+.rota tr.days th b { font-size: 8.5pt; }
+.rota tr.days th.weekend { background: var(--weekend); }
+.rota tr.days th.corner { text-align: left; vertical-align: bottom; font-size: 7pt; color: var(--ink-3); }
+.rota tbody.area { break-inside: avoid; }
+.rota tr { break-inside: avoid; }
+.rota tr.area-row th { text-align: left; padding: 0.8mm 1.5mm; background: color-mix(in srgb, var(--area) 14%, #fff); font-size: 8.5pt; }
+/* The area's colour marks only the start of its line (and its end, when the tasks are repeated there);
+   the day numbers repeated on that line keep the light lines between days. */
+.rota tr.area-row th:first-child { border-left: 2.5pt solid var(--area); }
+.rota tr.area-row.with-days th:not(:first-child) { border-left-color: var(--day-line); border-right-color: var(--day-line); }
+.rota tr.area-row.with-days th.end { border-right: 2.5pt solid var(--area); }
+.rota tr.area-row .manager { margin-left: 3mm; font-weight: 400; color: var(--ink-2); font-size: 7pt; }
+.rota th.task { text-align: left; font-weight: 600; border-left: 2.5pt solid var(--area); font-size: 7pt; line-height: 1.15; }
+.rota th.task span { display: block; }
+.rota th.task small { display: block; font-weight: 400; color: var(--ink-3); font-size: 5.8pt; }
+.rota td.off { background: var(--off); }
+.rota td.cell { font-size: 6.6pt; line-height: 1.2; text-align: center; vertical-align: middle; }
+.rota td.cell .p, .week td.cell .p { text-overflow: clip; }
+td.signup { background: var(--signup); }  /* a place to sign up for: the whole cell coloured */
+.rota td.closed, .week td.closed { vertical-align: middle; text-align: center; }
+/* The task again after the last day, and the day numbers on each area's line and at the bottom */
+.rota th.task.end { border-left: 0.5pt solid var(--rule); border-right: 2.5pt solid var(--area); }
+.rota tr.days th.corner.end { text-align: right; }
+.rota tr.area-row.with-days th { padding: 0.4mm 0.6mm; }
+.rota tr.area-row.with-days th:first-child { padding: 0.8mm 1.5mm; }
+.rota tr.area-row.with-days th:not(:first-child) { text-align: center; font-weight: 500; line-height: 1.05; }
+.rota tr.area-row.with-days th:not(:first-child) span { display: block; font-size: 6pt; color: var(--ink-2); }
+.rota tr.area-row.with-days th:not(:first-child) b { font-size: 8pt; }
+.rota tr.area-row.with-days th.end { text-align: right; font-size: 7pt; }
+.paper-a4l .rota td.cell { font-size: 7.2pt; }
+.rota.days-16 col.c-day, .rota.days-15 col.c-day { width: auto; }
+
+/* ---- Event rota: one day after another, areas side by side --------------------- */
+.doc-event .day { margin-top: 5mm; }
+.doc-event .page-per-day .day + .day { break-before: page; }
+.doc-event .day h2 { display: flex; align-items: center; flex-wrap: wrap; gap: 2mm; margin: 0 0 2.5mm; font-size: 13pt; }
+.doc-event .day h2 .span { font-size: 7.5pt; }
+.area-boxes { columns: 2; column-gap: 5mm; }
+.area-box { break-inside: avoid; margin: 0 0 4mm; border-top: 2.5pt solid var(--area); }
+.area-box h3 { margin: 0; padding: 1mm 0; font-size: 10pt; color: color-mix(in srgb, var(--area) 75%, #000); }
+.area-box table { width: 100%; border-collapse: collapse; }
+.area-box th, .area-box td { padding: 1mm 0.5mm; border-bottom: 0.5pt solid var(--rule-soft); vertical-align: top; text-align: left; font-size: 8.5pt; }
+.area-box th { width: 45%; font-weight: 600; }
+.area-box th small { display: block; font-weight: 400; color: var(--ink-3); font-size: 7pt; }
+.area-box th small.p.changed::before, .legend .dot { content: "● "; color: #d9480f; font-weight: 700; }
+.legend .dot { font-style: normal; }
+.retimed { color: var(--accent); }
+.area-box td .p { display: inline-block; max-width: 100%; margin: 0 3mm 0.5mm 0; }
+.area-box td .p.blank { width: 22mm; height: 1.1em; border: 0.5pt solid var(--rule); border-radius: 0.6mm; }  /* in a list, an empty box shows the open place */
+.area-box td .p.blank.wanted { background: var(--signup); border-radius: 0.6mm; }
+
+/* ---- Weekly sheets: one area, one week, large print ------------------------------ */
+.doc-weekly .doc-head h1 { font-size: 17pt; }
+.doc-weekly .spans { display: flex; flex-wrap: wrap; gap: 2mm; margin: 0 0 3mm; }
+.doc-weekly .spans .span { font-size: 8pt; }
+table.week { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 10.5pt; }
+.week th, .week td { border: 0.6pt solid var(--rule-soft); padding: 1.5mm; vertical-align: top; }
+.week td { border-left-color: var(--day-line); border-right-color: var(--day-line); }
+.week thead th { background: #f4f5f8; font-weight: 500; text-align: center; }
+.week thead th:first-child { width: 52mm; text-align: left; font-size: 12pt; font-weight: 700; color: color-mix(in srgb, var(--area) 75%, #000); }
+.week thead th span { display: block; font-size: 8pt; color: var(--ink-3); }
+.week thead th b { font-size: 13pt; }
+.week thead th.weekend { background: var(--weekend); }
+.week th.task { text-align: left; font-weight: 600; border-left: 3pt solid var(--area); }
+.week th.task small { display: block; font-weight: 400; color: var(--ink-3); font-size: 8pt; }
+.week td.off { background: var(--off); }
+.week td.closed small { color: var(--ink-2); font-size: 7.5pt; }
+.week .p { line-height: 1.35; }
+.week .p.blank { height: 1.4em; }
+.week td.cell { text-align: center; vertical-align: middle; }
+
+/* ---- Shifts to sign up for -------------------------------------------------------- */
+.doc-open .intro { margin: 0 0 3mm; color: var(--ink-2); font-size: 9.5pt; }
+.open-day { break-inside: avoid; margin-bottom: 4mm; }
+.open-day h2 { margin: 0 0 1mm; font-size: 11pt; }
+table.open { width: 100%; border-collapse: collapse; font-size: 9pt; }
+.open td { padding: 1.2mm 1.5mm; border-bottom: 0.5pt solid var(--rule-soft); vertical-align: top; }
+.open td.area-tag { width: 30mm; border-left: 2.5pt solid var(--area); color: var(--ink-2); font-size: 8pt; }
+.open td small { display: block; color: var(--ink-3); font-size: 7.5pt; }
+.open td.lines { width: 62mm; }
+.open .line { height: 6mm; border-bottom: 0.6pt solid var(--ink-3); }
+.open tr.wanted td { background: #fff8d6; }
+
+/* ---- Personal rotas: several to a page, or one per page ---------------------------- */
+.doc-people .sheet { columns: 2; column-gap: 8mm; }
+.doc-people .doc-head { column-span: all; }
+.doc-people .page-per-person { columns: 1; }
+.doc-people .page-per-person .person-rota + .person-rota { break-before: page; }
+.person-rota { break-inside: avoid; margin: 0 0 6mm; }
+.person-rota h2 { display: flex; align-items: baseline; justify-content: space-between; gap: 3mm; margin: 0 0 1.5mm;
+  padding-bottom: 1mm; border-bottom: 1pt solid var(--ink); font-size: 12pt; }
+.person-rota h2 span { font-size: 8.5pt; font-weight: 400; color: var(--ink-2); }
+.person-rota table { width: 100%; border-collapse: collapse; font-size: 8.5pt; }
+.person-rota td { padding: 0.8mm 1mm 0.8mm 0; border-bottom: 0.5pt solid var(--rule-soft); vertical-align: top; }
+.person-rota td small { display: block; color: var(--ink-3); font-size: 7pt; }
+.person-rota td.when { width: 19mm; white-space: nowrap; font-weight: 600; }
+.person-rota td.time { width: 21mm; color: var(--ink-2); }
+.person-rota td.hours { width: 11mm; text-align: right; color: var(--ink-3); white-space: nowrap; }
+.person-rota tr.changed td.when::before { content: "● "; color: #d9480f; }

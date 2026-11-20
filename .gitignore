@@ -1,0 +1,9 @@
+# Personal data never goes into the repository.
+/data/
+/data-demo/
+/exports/
+
+__pycache__/
+*.pyc
+.DS_Store
+/data-pdftest/

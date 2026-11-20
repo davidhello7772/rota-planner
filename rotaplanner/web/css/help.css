@@ -1,0 +1,78 @@
+/* Help: the panel, the small ⓘ hints, and the first-visit tip. Quiet by
+   design: muted colours, no animation, nothing that moves the page. */
+
+/* ---- First-visit tip, under the top bar -------------------------------------- */
+.coach-slot[hidden] { display: none; }
+.coach { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-6);
+  background: var(--accent-weak); border-bottom: 1px solid var(--line); font-size: var(--fs-sm); color: var(--text); }
+.coach > svg { flex: none; width: 1rem; height: 1rem; color: var(--accent); }
+.coach-text { flex: 1; min-width: 0; }
+.coach .link { white-space: nowrap; }
+.coach .btn { flex: none; }
+
+/* ---- ⓘ hint -------------------------------------------------------------------- */
+.hint { display: inline-grid; place-items: center; width: 1.25rem; height: 1.25rem; padding: 0; margin-left: 0.25rem; border: 0; border-radius: 50%;
+  background: none; color: var(--text-3); vertical-align: -0.2em; cursor: help; }
+.hint svg { width: 0.95rem; height: 0.95rem; }
+.hint:hover, .hint[aria-expanded="true"] { color: var(--accent); background: var(--accent-weak); }
+.hint:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.hint-pop { max-width: 19rem; padding: var(--space-3) var(--space-4); font-size: var(--fs-sm); line-height: 1.45; color: var(--text); z-index: 85; }
+
+/* ---- The Help panel -------------------------------------------------------------- */
+.help-panel .drawer-body { display: flex; flex-direction: column; gap: var(--space-4); }
+.help-search { width: 100%; }
+.help-results { display: flex; flex-direction: column; gap: var(--space-6); }
+.help-results h3 { margin: 0 0 var(--space-2); font-size: var(--fs-xs); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-3); }
+.help-next { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-2); padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-lg); background: var(--accent-weak); }
+.help-next p { margin: 0; font-size: var(--fs-sm); }
+.help-kicker { font-size: var(--fs-xs); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--accent); }
+.help-points { margin: 0; padding-left: 1.1em; display: grid; gap: var(--space-2); font-size: var(--fs-sm); color: var(--text-2); }
+.help-list { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+.help-q + .help-q { border-top: 1px solid var(--line); }
+.help-q summary { padding: var(--space-2) var(--space-3); font-size: var(--fs-sm); font-weight: 500; cursor: pointer; list-style-position: inside; }
+.help-q summary:hover { background: var(--surface-2); }
+.help-q[open] summary { background: var(--surface-2); font-weight: 600; }
+.help-q p { margin: 0; padding: var(--space-2) var(--space-3) var(--space-2) var(--space-6); font-size: var(--fs-sm); line-height: 1.5; color: var(--text-2); }
+.help-q .link { display: inline-flex; align-items: center; gap: 2px; margin: 0 0 var(--space-3) var(--space-6); font-size: var(--fs-sm); }
+.help-q .link svg { width: 0.9rem; height: 0.9rem; }
+.help-keys { display: grid; grid-template-columns: max-content 1fr; gap: var(--space-1) var(--space-4); margin: 0; font-size: var(--fs-sm); }
+.help-keys dt, .help-keys dd { margin: 0; }
+.help-keys dd { color: var(--text-2); }
+kbd { display: inline-block; padding: 0 0.4em; border: 1px solid var(--line-strong, var(--line)); border-bottom-width: 2px; border-radius: 4px;
+  background: var(--surface); font: inherit; font-size: var(--fs-xs); white-space: nowrap; }
+.help-foot { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-1); padding-top: var(--space-3); border-top: 1px solid var(--line); }
+.help-foot p { margin: 0; font-size: var(--fs-xs); }
+.help-foot .link { font-size: var(--fs-xs); }
+
+/* ---- Guided tour: a spotlight that glides, and its card -------------------------- */
+.tour-layer { position: fixed; inset: 0; z-index: 95; }
+.tour-spot { position: fixed; border-radius: 10px; pointer-events: none;
+  box-shadow: 0 0 0 9999px rgba(15, 20, 30, 0.42), 0 0 0 2px var(--accent);
+  transition: top 0.35s cubic-bezier(0.2, 0.7, 0.2, 1), left 0.35s cubic-bezier(0.2, 0.7, 0.2, 1),
+    width 0.35s cubic-bezier(0.2, 0.7, 0.2, 1), height 0.35s cubic-bezier(0.2, 0.7, 0.2, 1); }
+.tour-spot::after { content: ""; position: absolute; inset: -5px; border-radius: 14px; border: 2px solid var(--accent); opacity: 0;
+  animation: tour-pulse 1.8s ease-out infinite; }
+@keyframes tour-pulse { 0% { opacity: 0.55; transform: scale(1); } 100% { opacity: 0; transform: scale(1.04); } }
+.tour-card { position: fixed; width: min(21rem, calc(100vw - 24px)); padding: var(--space-4); border-radius: var(--radius-lg);
+  background: var(--surface); color: var(--text); box-shadow: var(--shadow-pop); border: 1px solid var(--line);
+  display: flex; flex-direction: column; gap: var(--space-2);
+  transition: top 0.35s cubic-bezier(0.2, 0.7, 0.2, 1), left 0.35s cubic-bezier(0.2, 0.7, 0.2, 1); }
+.tour-title { font-size: var(--fs-md); padding-right: 1.75rem; }
+.tour-text { margin: 0; font-size: var(--fs-sm); line-height: 1.5; color: var(--text-2); }
+.tour-close { position: absolute; top: var(--space-2); right: var(--space-2); }
+.tour-foot { display: flex; align-items: center; gap: var(--space-2); margin-top: var(--space-1); }
+.tour-dots { display: inline-flex; gap: 5px; }
+.tour-dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--line-strong, var(--line)); }
+.tour-dots i.on { background: var(--accent); }
+
+/* "Show me": offered once, with a soft pulse to catch the eye without insisting */
+.show-me { position: relative; }
+.show-me::before { content: ""; position: absolute; inset: -3px; border-radius: inherit; border: 2px solid var(--accent); opacity: 0;
+  animation: tour-pulse 2.2s ease-out 3; pointer-events: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .tour-spot, .tour-card { transition: none; }
+  .tour-spot::after, .show-me::before { animation: none; }
+}
+.help-tour { margin-top: var(--space-3); }
