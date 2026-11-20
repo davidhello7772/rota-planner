@@ -206,6 +206,29 @@ class EventTasksTest(unittest.TestCase):
         self.assertEqual(editing.periods_for_times("12:00", "14:00"), ["morning"])
         self.assertEqual(editing.periods_for_times("16:00", "19:00"), ["afternoon", "evening"])
         self.assertEqual(editing.periods_for_times("", ""), ["anytime"])
+        self.assertEqual(editing.periods_for_times("09:00", ""), ["anytime"])
+        self.assertEqual(editing.periods_for_times("soon", "later"), ["anytime"])
+
+    def test_a_part_of_the_day_counts_from_half_an_hour(self):
+        parts = editing.periods_for_times
+        self.assertEqual(parts("14:00", "17:15"), ["afternoon"])               # a quarter of an hour is not an evening
+        self.assertEqual(parts("14:00", "17:30"), ["afternoon", "evening"])    # half an hour is
+        self.assertEqual(parts("13:31", "16:00"), ["afternoon"])
+        self.assertEqual(parts("13:30", "16:00"), ["morning", "afternoon"])
+        self.assertEqual(parts("09:00", "18:00"), ["morning", "afternoon", "evening"])
+        # Too short to count anywhere: the part that holds most of it (the earlier one when equal).
+        self.assertEqual(parts("09:00", "09:15"), ["morning"])
+        self.assertEqual(parts("13:45", "14:20"), ["afternoon"])
+        self.assertEqual(parts("13:50", "14:10"), ["morning"])
+        # Past midnight is evening, not the next morning.
+        self.assertEqual(parts("22:00", "08:00"), ["evening"])
+        self.assertEqual(parts("16:00", "01:00"), ["afternoon", "evening"])
+
+    def test_an_event_task_gets_its_parts_by_the_same_rule(self):
+        catalog = h.catalog()
+        task = editing.save_event_task(catalog, catalog, {"name": "Tea table", "area_id": "kitchen", "people": 1,
+                                                          "start": "14:00", "end": "17:15"})
+        self.assertEqual(task.periods, ["afternoon"])
 
 
 class OlderFilesTest(unittest.TestCase):

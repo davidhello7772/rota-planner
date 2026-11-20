@@ -213,8 +213,10 @@ cost a bug report.
   of another month: actions must target `monthOf(date)` (`actions.js`), and
   the other month's view lives in `state.session.otherMonths`.
 - **Parts of the day**: morning before 14:00, afternoon 14:00–17:00, evening
-  after 17:00 (`editing.periods_for_times`). A task can cover several, or be
-  "any time".
+  after 17:00 (`editing.periods_for_times`). A part counts when the task
+  spends at least half an hour in it (14:00–17:15 is not an evening task).
+  The task form asks the program (`/api/tasks/times`); it does not work this
+  out itself. A task can cover several, or be "any time".
 - **Undo snapshots are whole months** (`App._undo`). Anything that must
   really disappear (comments) has to be scrubbed from them and from
   `backups/` too.

@@ -177,6 +177,14 @@ class ServerTest(unittest.TestCase):
         self.assertNotIn("Thank you", self.json("POST", "/api/settings/message/preview", {"message_closing": ""})[1]["text"])
         self.assertEqual(self.json("GET", "/api/setup")[1]["settings"], before)
 
+    def test_the_task_form_asks_the_program_about_its_times(self):
+        ask = lambda start, end: self.json("POST", "/api/tasks/times", {"start": start, "end": end})[1]  # noqa: E731
+        self.assertEqual(ask("14:00", "17:15"), {"hours": 3.25, "periods": ["afternoon"]})
+        self.assertEqual(ask("22:00", "08:00"), {"hours": 10.0, "periods": ["evening"]})
+        self.assertEqual(ask("09:00", ""), {"hours": None, "periods": None})  # nothing to say yet
+        self.assertEqual(ask("", ""), {"hours": None, "periods": None})
+        self.assertEqual(self.json("POST", "/api/tasks/times", {})[0], 200)
+
     def test_a_skill_is_renamed_and_deleted(self):
         skills = self.json("POST", "/api/skills/save", {"skill": {"name": "First aid"}, "people": ["ana"]})[1]
         skill = next(s for s in skills["catalog"]["skills"] if s["name"] == "First aid")

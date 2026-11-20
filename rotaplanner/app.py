@@ -746,6 +746,13 @@ class App:
     def save_task(self, body: Json) -> Json:
         return self._edit_config(body, lambda c: editing.save_task(c, self.catalog, body.get("task") or {}))
 
+    def task_times(self, body: Json) -> Json:
+        """For the task form, as the times are typed: how long that is, and which
+        parts of the day it covers (nothing is saved). Without both times: nothing to say."""
+        start, end = str(body.get("start") or ""), str(body.get("end") or "")
+        hours = editing.duration_hours(start, end)
+        return {"hours": hours, "periods": editing.periods_for_times(start, end) if hours is not None else None}
+
     def duplicate_task(self, body: Json) -> Json:
         return self._edit_config(body, lambda c: editing.duplicate_task(c, str(body.get("id"))))
 

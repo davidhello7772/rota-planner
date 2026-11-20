@@ -270,18 +270,26 @@ def parse_periods(values: Any) -> List[str]:
 
 AFTERNOON_FROM, EVENING_FROM = 14 * 60, 17 * 60
 """The centre's parts of the day: morning before 14:00, evening from 17:00."""
+PART_COUNTS_FROM = 30  # minutes inside a part of the day before it counts (14:00–17:15 is not an evening task)
 
 
 def periods_for_times(start: str, end: str) -> List[str]:
-    """Parts of the day a shift from ``start`` to ``end`` covers; no times: any time."""
-    if not (start and end):
+    """Parts of the day a shift from ``start`` to ``end`` covers; no times: any time.
+
+    A part counts when the shift spends at least half an hour in it; a shift
+    that does so nowhere (a quarter of an hour, or a few minutes on each side
+    of 14:00) belongs to the part that holds most of it. What runs past
+    midnight is evening.
+    """
+    a, b = to_minutes(start or ""), to_minutes(end or "")
+    if a is None or b is None:
         return [ANYTIME]
-    a = int(start[:2]) * 60 + int(start[3:])
-    b = int(end[:2]) * 60 + int(end[3:])
     if b <= a:
         b += 24 * 60
-    covered = [a < AFTERNOON_FROM, a < EVENING_FROM and b > AFTERNOON_FROM, b > EVENING_FROM]
-    return [p for p, on in zip(PERIODS, covered) if on]
+    bounds = ((0, AFTERNOON_FROM), (AFTERNOON_FROM, EVENING_FROM), (EVENING_FROM, 48 * 60))
+    inside = [min(b, upto) - max(a, since) for since, upto in bounds]
+    covered = [p for p, minutes in zip(PERIODS, inside) if minutes >= PART_COUNTS_FROM]
+    return covered or [PERIODS[inside.index(max(inside))]]
 
 
 def save_task(config: TaskConfig, catalog: Catalog, data: Json) -> Task:

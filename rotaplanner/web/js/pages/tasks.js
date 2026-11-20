@@ -30,38 +30,6 @@ async function saveConfig(path, body, message) {
 
 const configOf = () => state.session.config;
 
-function minutes(clock) {
-  const match = /^(\d{1,2}):(\d{2})$/.exec(clock || '');
-  return match ? Number(match[1]) * 60 + Number(match[2]) : null;
-}
-
-// The centre's parts of the day, as in the availability form.
-const AFTERNOON_STARTS = 14 * 60;
-const EVENING_STARTS = 17 * 60;
-const OVERLAP_COUNTS = 30; // minutes inside a part before it counts (14:00–17:15 is not an evening task)
-
-/** Parts of the day a time range covers: morning until 14:00, afternoon 14:00–17:00, evening after. */
-function partsFor(start, end) {
-  const a = minutes(start);
-  let b = minutes(end);
-  if (a === null || b === null) return null;
-  if (b <= a) b += 24 * 60;
-  const inside = (from, to) => Math.min(b, to) - Math.max(a, from) >= OVERLAP_COUNTS;
-  const covered = [];
-  if (inside(0, AFTERNOON_STARTS)) covered.push('morning');
-  if (inside(AFTERNOON_STARTS, EVENING_STARTS)) covered.push('afternoon');
-  if (inside(EVENING_STARTS, 48 * 60)) covered.push('evening');
-  return covered.length ? covered : null;
-}
-
-function duration(start, end) {
-  const a = minutes(start);
-  let b = minutes(end);
-  if (a === null || b === null) return null;
-  if (b <= a) b += 24 * 60;
-  return Math.round(((b - a) / 60) * 100) / 100;
-}
-
 // ---- A new skill, with "who can do this?" ---------------------------------
 
 function newSkill(onCreated) {
@@ -138,12 +106,18 @@ export function editTask(task, areaId) {
       h('td', { class: 'event-col' }, countInput('event', t.headcount.event)),
       h('td', {}, everyDay))));
 
-  const syncHours = () => {
-    const d = duration(start.value, end.value);
-    if (d !== null) hours.value = d;
+  // The program says how long the times make, and which parts of the day they cover.
+  let asked = 0;
+  const syncHours = async () => {
+    const mine = (asked += 1);
+    let answer;
+    try {
+      answer = await api.post('/api/tasks/times', { start: start.value, end: end.value });
+    } catch { return; }  // the hours and parts stay as they are; saving says what is wrong, if anything
+    if (mine !== asked) return;  // the times changed again meanwhile
+    if (answer.hours !== null) hours.value = answer.hours;
     // A new task: tick the parts of the day its times cover, until ticked by hand.
-    const suggested = partsFor(start.value, end.value);
-    if (!task && !partsTouched && suggested) parts.setValue(suggested);
+    if (!task && !partsTouched && answer.periods) parts.setValue(answer.periods);
   };
   start.addEventListener('change', syncHours);
   end.addEventListener('change', syncHours);
