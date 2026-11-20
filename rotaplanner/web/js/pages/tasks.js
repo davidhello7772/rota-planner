@@ -233,6 +233,21 @@ function editArea(area) {
   });
 }
 
+/** Move an area one place among those shown (`step` -1: earlier, 1: later). */
+async function moveArea(area, step, shown) {
+  const other = shown[shown.findIndex((a) => a.id === area.id) + step];
+  if (!other) return;
+  const ids = configOf().areas.map((a) => a.id);  // every area, the archived ones too
+  const to = ids.indexOf(other.id);
+  ids.splice(ids.indexOf(area.id), 1);
+  ids.splice(to, 0, area.id);
+  try {
+    await saveConfig('areas/order', { ids });
+  } catch (error) {
+    toast(errorText(error), { tone: 'bad' });
+  }
+}
+
 // ---- Drag and drop: reorder tasks, or move them to another area -----------
 
 let dragged = null;
@@ -376,7 +391,7 @@ export function mountTasks(container) {
     const areas = config.areas.filter((a) => showArchived || !a.archived);
     const scopePicker = select(config.scopes.map((s) => ({ value: s.id, label: s.title })), config.scope,
       { 'aria-label': 'Configuration', class: 'select scope-select', onchange: (e) => loadConfig(e.target.value) });
-    const columns = areas.map((area) => {
+    const columns = areas.map((area, index) => {
       const tasks = config.tasks.filter((t) => t.area_id === area.id && (showArchived || !t.archived));
       return h('section', { class: ['area-column', `area-${area.color}`, area.archived && 'archived'],
         ondragover: (e) => { if (dragged) e.preventDefault(); },
@@ -385,14 +400,19 @@ export function mountTasks(container) {
         h('span', { class: 'swatch', 'aria-hidden': 'true' }),
         h('span', { class: 'area-name' }, area.name),
         h('span', { class: 'faint' }, area.manager),
-        h('button', { class: 'btn ghost icon-only small', type: 'button', 'aria-label': `Edit ${area.name}`, onclick: () => editArea(area) }, icon('sliders'))),
+        h('span', { class: 'area-tools' },
+          h('button', { class: 'btn ghost icon-only small', type: 'button', disabled: index === 0, dataset: { focusId: `area-earlier-${area.id}` },
+            'aria-label': `Move ${area.name} earlier`, title: 'Move earlier (the order on the rota and the printouts)', onclick: () => moveArea(area, -1, areas) }, icon('left')),
+          h('button', { class: 'btn ghost icon-only small', type: 'button', disabled: index === areas.length - 1, dataset: { focusId: `area-later-${area.id}` },
+            'aria-label': `Move ${area.name} later`, title: 'Move later', onclick: () => moveArea(area, 1, areas) }, icon('right')),
+          h('button', { class: 'btn ghost icon-only small', type: 'button', 'aria-label': `Edit ${area.name}`, onclick: () => editArea(area) }, icon('sliders')))),
       h('div', { class: 'task-cards' }, tasks.map((task) => taskCard(task, setup))),
       h('button', { class: 'btn ghost add-task', type: 'button', onclick: () => editTask(null, area.id) }, icon('plus'), 'Add a task'));
     });
     replaceKeepingFocus(root,
       h('header', { class: 'page-head' },
         h('div', {}, h('h1', {}, 'Tasks & Areas'),
-          h('p', { class: 'muted' }, 'What needs doing, when, by whom and how many. Each month has its own configuration. Drag cards to reorder them or move them to another area.')),
+          h('p', { class: 'muted' }, 'What needs doing, when, by whom and how many. Each month has its own configuration. Drag cards to reorder them or move them to another area; the arrows move an area.')),
         h('div', { class: 'page-actions' },
           tabs,
           h('button', { class: 'btn', type: 'button', onclick: () => newSkill(() => {}) }, icon('plus'), 'New skill'),

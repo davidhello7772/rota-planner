@@ -70,6 +70,7 @@ export const SCREENS = {
     points: [
       'A person’s card holds their skills, target hours and limits (no evenings, never on Monday morning…).',
       'Import people adds a pasted list of names or a file; nothing is created before you confirm.',
+      'In the skills grid, click a skill’s name to rename or delete it.',
       'Someone who leaves: switch off “On the rota” on their card. Their past shifts stay.',
       'Notes on a card are for practical matters only, never health: everyone who uses Rota Planner reads them.',
     ],
@@ -80,8 +81,8 @@ export const SCREENS = {
     points: [
       'Pick the month at the top: changes apply to that month only. “Typical month” is the starting point.',
       'A task says how many people it needs each weekday, and on event days.',
-      'Drag a card to reorder it or move it to another area.',
-      'Event types (second tab): the tasks every retreat, festival… needs. Enter them once.',
+      'Drag a card to reorder it or move it to another area. The arrows at the top of an area move the whole area: that is its place on the rota and the printouts.',
+      'Event types (second tab): the tasks every retreat, festival… needs. Enter them once; the arrows on each line put them in order.',
     ],
   },
   regular: {
@@ -170,6 +171,8 @@ export const QUESTIONS = [
     a: 'In Regular week, click the cell of the task and weekday and choose the person. They are placed first each time a month is created.' },
   { q: 'Add a person, or a new skill', go: 'people', find: 'new resident create skill trained',
     a: '“Add a person” in People. Skills are ticked on the person’s card or, for many people at once, in the skills grid. A new skill is created from Tasks & Areas › New skill.' },
+  { q: 'Rename or delete a skill', go: 'people', find: 'skill rename remove delete change name wrong',
+    a: 'People › Skills grid: click the skill’s name at the top of its column. Rename it, or “Delete…” (asked twice): it comes off everyone who has it. A skill that a task still needs cannot be deleted: change those tasks first.' },
   { q: 'Undo a mistake', go: 'build', find: 'cancel revert go back wrong',
     a: 'Ctrl+Z, or the arrows at the top. After each change, the message at the bottom also has an Undo button. Every month has its own history.' },
   { q: 'See more, or see bigger', go: 'build', find: 'zoom size small text screen fit week day view focus',

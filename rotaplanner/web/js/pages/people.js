@@ -256,6 +256,38 @@ function listView(setup, people) {
     h('td', { class: 'muted note-cell' }, person.note || '')))));
 }
 
+/** One skill: its name, or deleting it (the program refuses while a task still needs it). */
+function editSkill(skill, holders) {
+  const name = textInput(skill.name, { autofocus: true });
+  const fail = (error) => formError(dialog.panel.querySelector('.modal-body'), errorText(error));
+  const save = async () => {
+    try {
+      await saveSetup('skills/save', { skill: { id: skill.id, name: name.value } }, { message: 'Skill saved' });
+      dialog.close();
+    } catch (error) { fail(error); }
+  };
+  let sure = false;
+  const remove = h('button', { class: 'btn ghost danger', type: 'button', onclick: async () => {
+    if (!sure) {  // asked twice: it comes off everyone who has it
+      sure = true;
+      remove.textContent = 'Yes, delete this skill';
+      return;
+    }
+    try {
+      await saveSetup('skills/delete', { id: skill.id }, { message: `${skill.name} deleted` });
+      dialog.close();
+    } catch (error) { fail(error); }
+  } }, 'Delete…');
+  const dialog = openDialog({
+    title: skill.name, subtitle: `Held by ${holders} of the people on the rota`,
+    body: [field('Name', name),
+      h('p', { class: 'field-hint' }, 'Deleting a skill takes it off everyone who has it. A skill that a task still needs cannot be deleted: change those tasks first.')],
+    actions: [remove, h('span', { class: 'spacer' }),
+      h('button', { class: 'btn', type: 'button', onclick: () => dialog.close() }, 'Cancel'),
+      h('button', { class: 'btn primary', type: 'button', onclick: save }, 'Save')],
+  });
+}
+
 function gridView(setup, people) {
   const skills = setup.catalog.skills;
   const counts = new Map(skills.map((s) => [s.id, setup.people.filter((p) => p.active && !p.archived && p.skills.includes(s.id)).length]));
@@ -271,7 +303,10 @@ function gridView(setup, people) {
   };
   return h('div', { class: 'skills-scroll', dataset: { scrollId: 'skills' } }, h('table', { class: 'table skills-grid' },
     h('thead', {}, h('tr', {}, h('th', { class: 'sticky' }, 'Person'),
-      skills.map((s) => h('th', { class: 'skill-head', title: s.name }, h('span', {}, s.name), h('small', {}, String(counts.get(s.id))))))),
+      skills.map((s) => h('th', { class: 'skill-head' },
+        h('button', { class: 'skill-name', type: 'button', title: `${s.name}: rename or delete`, 'aria-label': `${s.name}: rename or delete`,
+          onclick: () => editSkill(s, counts.get(s.id)) }, h('span', {}, s.name)),
+        h('small', {}, String(counts.get(s.id))))))),
     h('tbody', {}, people.map((person) => h('tr', { class: !person.active && 'inactive' },
       h('th', { class: 'sticky', scope: 'row' }, h('button', { class: 'link', type: 'button', onclick: () => editPerson(person) }, person.name)),
       skills.map((skill) => h('td', {}, h('button', {

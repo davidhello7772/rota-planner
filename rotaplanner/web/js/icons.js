@@ -9,6 +9,7 @@ const SHAPES = {
   left: [['path', { d: 'm15 18-6-6 6-6' }]],
   right: [['path', { d: 'm9 18 6-6-6-6' }]],
   down: [['path', { d: 'm6 9 6 6 6-6' }]],
+  up: [['path', { d: 'm18 15-6-6-6 6' }]],
   undo: [['path', { d: 'M3 7v6h6M21 17a9 9 0 0 0-15-6.7L3 13' }]],
   redo: [['path', { d: 'M21 7v6h-6M3 17a9 9 0 0 1 15-6.7l3 2.7' }]],
   plus: [['path', { d: 'M12 5v14M5 12h14' }]],

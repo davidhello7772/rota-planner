@@ -61,6 +61,11 @@ function typeCard(type, setup) {
   const open = (task) => editEventTask({ ...common, task, subtitle: `For every ${type.name}`,
     save: (fields) => saveTask(fields, task ? 'Task changed' : 'Task added'),
     remove: task ? () => send('event-types/tasks/delete', { type_id: type.id, id: task.id }, 'Task removed') : null });
+  const moveTask = (index, step) => {
+    const ids = type.tasks.map((t) => t.id);
+    ids.splice(index + step, 0, ...ids.splice(index, 1));
+    return send('event-types/tasks/order', { type_id: type.id, ids });
+  };
   return h('section', { class: 'card type-card' },
     h('div', { class: 'card-title' },
       h('h2', {}, type.name),
@@ -69,8 +74,9 @@ function typeCard(type, setup) {
       h('button', { class: 'btn ghost icon-only small', type: 'button', 'aria-label': `Change ${type.name}`, title: 'Name and options',
         onclick: () => editType(type) }, icon('sliders'))),
     type.tasks.length
-      ? h('ul', { class: 'event-task-list' }, type.tasks.map((task) => eventTaskRow(task, {
+      ? h('ul', { class: 'event-task-list' }, type.tasks.map((task, index) => eventTaskRow(task, {
         ...common,
+        move: { up: index > 0 ? () => moveTask(index, -1) : null, down: index < type.tasks.length - 1 ? () => moveTask(index, 1) : null },
         save: (fields) => saveTask(fields).catch((error) => toast(errorText(error), { tone: 'bad' })),
         open: () => open(task),
         remove: () => send('event-types/tasks/delete', { type_id: type.id, id: task.id }, 'Task removed'),

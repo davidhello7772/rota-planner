@@ -39,7 +39,7 @@ export function taskFields(task, patch = {}) {
  * One task on one line. `save(fields)` stores it (and redraws); `open()` shows the drawer.
  * `followsYes`: what "as the event" currently means; `oneDay`: the event lasts a single day.
  */
-export function eventTaskRow(task, { eventDays, followsYes, oneDay = false, save, open, remove }) {
+export function eventTaskRow(task, { eventDays, followsYes, oneDay = false, save, open, remove, move = null }) {
   const change = (patch) => save(taskFields(task, patch));
   const people = h('span', { class: 'count-stepper', role: 'group', 'aria-label': `People for ${task.name}` },
     h('button', { class: 'btn ghost icon-only small', type: 'button', 'aria-label': 'One fewer', disabled: task.people <= 1,
@@ -58,6 +58,13 @@ export function eventTaskRow(task, { eventDays, followsYes, oneDay = false, save
     h('button', { class: 'event-task-name', type: 'button', title: 'Change its details', onclick: open },
       h('strong', {}, task.name),
       h('span', { class: 'muted' }, [task.area, task.time || 'any time', task.skill !== 'Anyone' ? task.skill : null].filter(Boolean).join(' · '))),
+    // The order of the tasks (where the list can be ordered): `move.up` / `move.down`, absent at the ends.
+    // Next to the name, so the line of controls below stays as wide as it was.
+    move ? h('span', { class: 'move-pair' },
+      h('button', { class: 'btn ghost icon-only small', type: 'button', disabled: !move.up, dataset: { focusId: `task-up-${task.id}` },
+        'aria-label': `Move ${task.name} up`, title: 'Move up', onclick: move.up }, icon('up')),
+      h('button', { class: 'btn ghost icon-only small', type: 'button', disabled: !move.down, dataset: { focusId: `task-down-${task.id}` },
+        'aria-label': `Move ${task.name} down`, title: 'Move down', onclick: move.down }, icon('down'))) : null,
     h('span', { class: 'event-task-controls' },
       captioned('People each day', people), days ? captioned('Days', days) : null, captioned('On printed main rota', printed),
       h('button', { class: 'btn ghost icon-only small', type: 'button', 'aria-label': `Remove ${task.name}`, title: 'Remove', onclick: remove }, icon('close'))));
