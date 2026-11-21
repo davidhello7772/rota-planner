@@ -57,6 +57,15 @@ export function badge(text, tone = '') {
 }
 
 /**
+ * A person's load bar: their hours against their target. Both figures come from
+ * the program (`ratio`, and `bar`: "over", "under" or ""); nothing is worked out here.
+ */
+export function loadBar({ ratio, bar }) {
+  return h('span', { class: ['load', bar] },
+    h('span', { style: { width: `${Math.min(100, Math.round((ratio || 0) * 100))}%` } }));
+}
+
+/**
  * Checkbox chips for picking several items. `getValue()` returns the chosen
  * ids, `setValue(ids)` changes them; `onchange(ids, clicked)` follows clicks.
  */

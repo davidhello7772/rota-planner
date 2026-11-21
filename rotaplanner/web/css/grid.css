@@ -266,6 +266,7 @@ button.tile:hover { border-color: var(--line-strong); }
 .person-actions { display: flex; gap: var(--space-2); }
 .list-tools { display: flex; gap: var(--space-2); }
 .list-tools .search { flex: 1; }
+.list-note { margin: calc(-1 * var(--space-3)) 0 0; font-size: var(--fs-xs); }
 
 /* ---- Candidate picker --------------------------------------------------- */
 
@@ -287,7 +288,7 @@ button.tile:hover { border-color: var(--line-strong); }
 .cand.active { box-shadow: inset 0 0 0 1.5px var(--accent-line); }
 .cand-name { font-weight: 600; font-size: var(--fs-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cand-name .star { color: var(--warn); font-weight: 400; margin-left: 4px; }
-.cand-load { display: flex; align-items: center; gap: var(--space-2); font-size: var(--fs-xs); color: var(--text-2); }
+.cand-load { display: flex; align-items: center; gap: var(--space-2); font-size: var(--fs-xs); color: var(--text-2); white-space: nowrap; }
 .cand-load .load { width: 3.5rem; }
 .cand-why { grid-column: 1 / -1; font-size: var(--fs-xs); color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cand-why .block { color: var(--bad); }

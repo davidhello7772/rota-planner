@@ -144,9 +144,10 @@ class PrefillTest(unittest.TestCase):
 
     def test_a_suggestion_says_what_to_know(self):
         month = one_task(hours=5)
-        proposals, _, _ = solver.prefill(month, [Person("ana", "Ana B.")], Settings(default_target_hours_per_week=h.a_week(12)),
+        proposals, _, _ = solver.prefill(month, [Person("ana", "Ana B.")], Settings(default_target_hours_per_week=2.75),
                                          dates={"2026-12-01"}, seconds=FAST)
-        self.assertEqual(proposals[0].why, "5 h of 12 h this month · Would reach 5 h that day (usual max 4 h)"
+        # 5 h in December's 31 days: 1.1 h a week on average.
+        self.assertEqual(proposals[0].why, "1.1 of 2.75 h a week · 5 h in December · Would reach 5 h that day (usual max 4 h)"
                                            " · has not replied to the availability form")
 
     def test_scope_by_days_and_areas(self):
@@ -397,6 +398,15 @@ class RebalanceTest(unittest.TestCase):
         self.assertEqual({m.person_id for m in moves}, {"ben"})
         self.assertNotIn(busy[0].date, [m.date for m in moves])
         self.assertLessEqual(len(moves), 1)  # each person moves once at most per suggestion
+
+    def test_a_move_says_the_hours_a_week_before_and_after(self):
+        month = h.month()
+        # Ana: four lunches (16 h in December, 3.6 h a week); Ben: one breakfast (2 h, 0.5 h a week).
+        month.assignments = [Assignment("lunch", f"2026-12-0{d}", 0, person_id="ana") for d in (1, 2, 3, 4)]
+        month.assignments.append(Assignment("breakfast", "2026-12-10", 0, person_id="ben"))
+        moves = solver.rebalance(month, h.people(), Settings(default_target_hours_per_week=2.75))
+        self.assertEqual([(m.replaces, m.person_id) for m in moves], [("ana", "ben")])
+        self.assertEqual(moves[0].why, "Ana B.: 3.6 → 2.7 of 2.75 h a week · Ben C.: 0.5 → 1.4 of 2.75 h a week")
 
 
 class ShortageTest(unittest.TestCase):

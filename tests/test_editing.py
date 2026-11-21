@@ -155,17 +155,17 @@ class CatalogTest(unittest.TestCase):
             with self.assertRaises(ValueError, msg=str(bad)):
                 editing.save_task(self.catalog, self.catalog, bad)
 
-    def test_hours_a_month_from_the_regular_week(self):
+    def test_hours_a_week_from_the_regular_week(self):
         self.assertEqual(editing.regular_load(self.catalog), [])
         for task, weekday, person, frequency in (("lunch", "tue", "ana", "weekly"), ("lunch", "wed", "ana", "odd"),
                                                  ("supper", "mon", "ben", "1st"), ("breakfast", "mon", "ben", "weekly"),
                                                  ("night", "fri", "cleo", "weekly")):
             editing.set_regular(self.catalog, self.people, {"task_id": task, "weekday": weekday, "person_id": person,
                                                             "frequency": frequency})
-        # Ana: 4 h every week (52 a year) + 4 h on odd weeks (26 a year); Ben: 3 h once a month + 2 h weekly.
+        # Ana: 4 h every week + 4 h every other week; Ben: 3 h once a month (12 a year) + 2 h every week.
         self.assertEqual(editing.regular_load(self.catalog), [
-            {"person_id": "ana", "shifts": 2, "hours": round(4 * 52 / 12 + 4 * 26 / 12)},
-            {"person_id": "ben", "shifts": 2, "hours": round(3 + 2 * 52 / 12)},
+            {"person_id": "ana", "shifts": 2, "hours": 6.0},
+            {"person_id": "ben", "shifts": 2, "hours": 2.7},  # (3 × 12 + 2 × 52) ÷ 52 weeks
             {"person_id": "cleo", "shifts": 1, "hours": 0},  # the night guard counts no hours
         ])
         self.catalog.tasks = [t for t in self.catalog.tasks if t.id != "lunch"]  # a regular left on a task that is gone

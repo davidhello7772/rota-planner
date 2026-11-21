@@ -253,6 +253,15 @@ class Schedule:
         """
         return self.week_target(person_id) * len(self.dates) / 7 * self._share_counted(person_id)
 
+    def week_average(self, person_id: str, hours: Optional[float] = None) -> float:
+        """Hours a week on average this month: ``hours`` (default: the person's
+        hours this month) over the weeks that count for them (``weeks_counted``);
+        0 when none does (away all month, when the setting says so)."""
+        if hours is None:
+            hours = self.hours(person_id)
+        weeks = self.weeks_counted(person_id)
+        return hours / weeks if weeks > 0 else 0.0
+
     def usual_target(self) -> float:
         """The month's figure of the usual target (``Settings``), for someone never away."""
         return self.settings.default_target_hours_per_week * len(self.dates) / 7

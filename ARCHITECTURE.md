@@ -29,6 +29,7 @@ transfer.py       all the data in one file, to move to another computer, and bac
 people_import.py  adding many people from a pasted list, CSV or Excel
 xlsx_read.py      reading .xlsx with the standard library
 solver.py         prefill (build, repair, improve, fill again; what stays open and why), rebalance, shortages, ideas
+workload.py       a person's hours against their target: every figure and sentence about them
 report.py         the Check step: to fix, open, overrides, balance
 tips.py           hints shown in the Assistant panel
 view.py           the month as the screen needs it (all numbers computed here)
@@ -102,6 +103,22 @@ an existing shift is re-checked (`Placement.rechecking`: `ignore` is that
 person's own shift), the shifts assigned anyway do not count against it
 (`Placement.counted`): one deliberate override is flagged on that shift
 alone, instead of turning the person's whole week red.
+
+## Hours and targets
+
+A person's target is hours a week, on average (their own, else the usual one
+in Settings); it is the only number stored. What is judged is the month's
+average: the month's hours over the weeks that count
+(`Schedule.week_average`: the month's days ÷ 7, less the time the person is
+away when Settings says so). `Schedule.target` works out the month's figure
+from the weekly target (3.5 h a week makes 15.5 h in 31 days); hours against
+that figure are the average a week against the weekly target, so the
+ranking, the suggestions' ceiling, Rebalance and the hints compare through
+it. `workload.py` makes every figure and sentence about someone's hours
+against their target (`3.3 / 3.5 h a week`, `14 h in December`, the load
+bar's `ratio` and `bar`); the screens show them and never divide hours by a
+target. Nothing there may raise: `transfer.checked` runs `view.month_view`
+on every month imported or taken from another computer.
 
 ## Data format
 

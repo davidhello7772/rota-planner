@@ -92,7 +92,7 @@ export function mountRegular(container) {
       }
     }
 
-    const load = setup.regular_load;  // hours a month from the regular week, counted by the program
+    const load = setup.regular_load;  // hours a week from the regular week, counted by the program
     root.replaceChildren(
       h('header', { class: 'page-head' },
         h('div', {}, h('h1', {}, 'Regular week'),
@@ -103,13 +103,13 @@ export function mountRegular(container) {
           body)),
         h('aside', { class: 'regular-side' },
           h('h3', {}, 'From the regular week'),
-          h('p', { class: 'field-hint' }, 'About how many hours a month each person gets before anything else is added.'),
+          h('p', { class: 'field-hint' }, 'About how many hours a week each person gets from the regular week, before anything else is added.'),
           load.length ? h('ul', { class: 'bars' }, load.map((entry) => {
             const person = people.get(entry.person_id);
             return h('li', { class: 'bar-row static' },
               h('span', { class: 'name' }, person ? person.name : '?'),
               h('span', { class: 'faint' }, `${entry.shifts}×`),
-              h('span', { class: 'num' }, `≈${entry.hours} h`));
+              h('span', { class: 'num' }, `≈${entry.hours} h a week`));
           })) : h('p', { class: 'faint' }, 'Nobody yet. Click a day to choose someone.'),
           h('p', { class: 'field-hint' }, icon('info'), ' Grey days: the task is not usually needed that weekday.'))));
   }

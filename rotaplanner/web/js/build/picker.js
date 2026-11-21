@@ -2,9 +2,9 @@
 import {
   acceptProposals, assign, clearSlot, discardProposals, monthOf, parseSlotKey, reportError, setHeadcount, setNote, setTime, setWanted, swap,
 } from '../actions.js';
-import { changes, field, formError, numberInput, openDialog, segmented, textInput } from '../components.js';
+import { changes, field, formError, loadBar, numberInput, openDialog, segmented, textInput } from '../components.js';
 import { api, monthPath } from '../api.js';
-import { formatDate, formatHours, h, placeNear } from '../dom.js';
+import { formatDate, h, placeNear } from '../dom.js';
 import { icon } from '../icons.js';
 import { monthViewFor, readOnly, state } from '../state.js';
 
@@ -24,12 +24,6 @@ export function closePicker() {
   const anchor = current.anchor;
   current = null;
   if (anchor?.isConnected) anchor.focus({ preventScroll: true });
-}
-
-function loadBar(hours, target) {
-  const ratio = target > 0 ? hours / target : 0;
-  return h('span', { class: ['load', ratio > 1 && 'over', ratio < 0.5 && 'under'] },
-    h('span', { style: { width: `${Math.min(100, Math.round(ratio * 100))}%` } }));
 }
 
 function reasons(candidate) {
@@ -52,7 +46,7 @@ function candidateRow(candidate, onChoose) {
     onclick: () => onChoose(candidate, row),
   },
   h('span', { class: 'cand-name' }, candidate.name, star),
-  h('span', { class: 'cand-load' }, loadBar(candidate.hours, candidate.target), `${formatHours(candidate.hours)} / ${formatHours(candidate.target)}`),
+  h('span', { class: 'cand-load' }, loadBar(candidate), candidate.week_text),  // hours a week against target, from the program
   h('span', { class: 'cand-why' }, reasons(candidate)));
   row.classList.add('quiet');  // still read while another computer edits: only choosing is off
   return changes(row);

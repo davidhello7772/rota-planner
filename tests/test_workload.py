@@ -1,11 +1,16 @@
-"""Hours a week: the target, and how older files with monthly targets are read."""
+"""Hours a week: the target, how older files with monthly targets are read,
+and the figures and words every screen shows about them."""
 
 import copy
+import tempfile
 import unittest
+from pathlib import Path
 
-from rotaplanner.model import WEEKS_A_MONTH, Person, Settings, weekly_from_monthly
+from rotaplanner import transfer, view, workload
+from rotaplanner.model import WEEKS_A_MONTH, Assignment, Person, Settings, weekly_from_monthly
 from rotaplanner.months import create_month
 from rotaplanner.schedule import Schedule
+from rotaplanner.store import Store
 
 from . import helpers as h
 
@@ -84,6 +89,100 @@ class TargetTest(unittest.TestCase):
         self.assertEqual(given, {"default_target_hours_per_week": None, "default_target_hours": 15})
         self.assertEqual(Settings.from_dict({"default_target_hours_per_week": None}).default_target_hours_per_week, 2.75)
         self.assertEqual(Settings().default_target_hours_per_week, 2.75)   # the former 12 h a month
+
+
+def all_month(month, person_id):
+    """Every part of every day of the month marked away in this person's reply."""
+    h.away(month, person_id, *[f"{iso}/{part}" for iso in month.dates() for part in ("morning", "afternoon", "evening")])
+
+
+class FiguresTest(unittest.TestCase):
+    """What the screens show about someone's hours against their target, all made here."""
+
+    def setUp(self):
+        self.month = h.month()
+        # Ana: two lunches (4 h) and two suppers (3 h): 14 h in December.
+        self.month.assignments = [Assignment("lunch", "2026-12-01", 0, person_id="ana"),
+                                  Assignment("lunch", "2026-12-02", 0, person_id="ana"),
+                                  Assignment("supper", "2026-12-03", 0, person_id="ana"),
+                                  Assignment("supper", "2026-12-04", 0, person_id="ana"),
+                                  Assignment("breakfast", "2026-12-05", 0, person_id="ben")]
+        self.settings = Settings(default_target_hours_per_week=3.5)
+
+    def test_figures_and_words(self):
+        s = Schedule(self.month, h.people(), self.settings)
+        self.assertEqual(workload.summary(s, "ana"), {
+            "hours": 14.0, "target": 15.5, "week_hours": 3.2, "week_target": 3.5, "ratio": 0.9032, "bar": "",
+            "week_text": "3.2 / 3.5 h a week", "month_text": "14 h in December", "month_detail": "14 of 15.5 h in December",
+        })
+        self.assertEqual(workload.reason(s, "ana", "2026-12-04"), "3.2 of 3.5 h a week · 14 h in December")
+        ben = workload.summary(s, "ben")   # 2 h: below half of the target
+        self.assertEqual((ben["week_text"], ben["bar"], ben["month_detail"]),
+                         ("0.5 / 3.5 h a week", "under", "2 of 15.5 h in December"))
+        self.assertEqual(workload.summary(s, "cleo")["week_text"], "0 / 3.5 h a week")
+        self.assertAlmostEqual(s.week_average("ana"), 14 * 7 / 31)
+        self.assertAlmostEqual(s.week_average("ana", hours=7), 7 * 7 / 31)
+        # Past the target: amber; exactly on it, not.
+        self.month.assignments.append(Assignment("lunch", "2026-12-08", 0, person_id="ana"))
+        self.assertEqual(workload.summary(Schedule(self.month, h.people(), self.settings), "ana")["bar"], "over")
+        february = create_month(h.catalog(), 2027, 2)   # 3.5 h a week makes exactly 14 h in 28 days
+        february.assignments = [Assignment("lunch", f"2027-02-0{d}", 0, person_id="ana") for d in (1, 2, 3)] \
+            + [Assignment("breakfast", "2027-02-04", 0, person_id="ana")]
+        on_target = workload.summary(Schedule(february, h.people(), self.settings), "ana")
+        self.assertEqual((on_target["ratio"], on_target["bar"], on_target["week_text"], on_target["month_text"]),
+                         (1.0, "", "3.5 / 3.5 h a week", "14 h in February"))
+
+    def test_numbers_as_people_write_them(self):
+        self.assertEqual([workload.number(v) for v in (3.25, 14.0, 2.75, 15.5, 0, 14.254)],
+                         ["3.25", "14", "2.75", "15.5", "0", "14.25"])
+        self.assertEqual([workload.number(v, 1) for v in (3.16, -0.001, -0.0, 4.04)], ["3.2", "0", "0", "4"])
+
+    def test_a_target_of_zero(self):
+        people = h.people()
+        people[0].target_hours_per_week = 0
+        s = Schedule(self.month, people, self.settings)
+        ana = workload.summary(s, "ana")
+        self.assertEqual((ana["ratio"], ana["bar"], ana["target"], ana["week_text"], ana["month_detail"]),
+                         (0.0, "under", 0.0, "3.2 / 0 h a week", "14 h in December"))
+        self.assertEqual(workload.over_target_text(s, "ana", 18), "Over target: would reach 4.1 h a week")
+
+    def test_away_all_month(self):
+        all_month(self.month, "ana")   # her shifts were placed before her reply: she keeps her 14 h
+        for around in ((), [create_month(h.catalog(), 2026, 11)]):
+            s = Schedule(self.month, h.people(), self.settings, around)
+            self.assertEqual((s.weeks_counted("ana"), s.target("ana"), s.week_average("ana")), (0.0, 0.0, 0.0))
+            ana = workload.summary(s, "ana")
+            self.assertEqual((ana["week_text"], ana["week_hours"], ana["ratio"], ana["bar"], ana["month_detail"]),
+                             ("Away all month", 0.0, 0.0, "under", "14 h in December"))   # no figure to be "of"
+            self.assertEqual(workload.reason(s, "ana", "2026-12-01"), "Away all month · 14 h in December")
+            self.assertEqual(workload.over_target_text(s, "ana", 18), "Over target: away all month")
+            self.assertEqual(workload.week_change(s, "ana", 14, 10), "away all month")
+        # Without the setting, the time away counts: an average like anyone's.
+        counted = Schedule(self.month, h.people(), Settings(default_target_hours_per_week=3.5, prorate_target=False))
+        self.assertEqual(workload.summary(counted, "ana")["week_text"], "3.2 / 3.5 h a week")
+        # Nobody's hours at all, away all month: nothing to say, nothing raises.
+        empty = h.month()
+        all_month(empty, "ben")
+        self.assertEqual(workload.summary(h.schedule(empty), "ben")["week_text"], "Away all month")
+
+    def test_the_month_view_and_an_import_of_such_a_month(self):
+        all_month(self.month, "ana")
+        people = h.people()
+        people[1].target_hours_per_week = 0
+        shown = view.month_view(self.month, h.catalog(), people, self.settings)
+        ana = next(p for p in shown["people"] if p["id"] == "ana")
+        self.assertEqual((ana["week_text"], ana["hours"], ana["presence"]), ("Away all month", 14.0, 0.0))
+        self.assertEqual(next(p for p in shown["people"] if p["id"] == "ben")["bar"], "under")
+        candidates = view.candidates_view(self.month, people, self.settings, "lunch", "2026-12-09", 0)["candidates"]
+        self.assertEqual(next(c for c in candidates if c["id"] == "ana")["week_text"], "Away all month")
+        with tempfile.TemporaryDirectory() as folder:
+            store = Store(Path(folder))
+            store.save_catalog(h.catalog())
+            store.save_people(people)
+            store.save_settings(self.settings)
+            store.save_month(self.month)
+            documents = transfer.checked(transfer._documents(store))
+        self.assertIn("months/2026-12.json", documents)
 
 
 if __name__ == "__main__":

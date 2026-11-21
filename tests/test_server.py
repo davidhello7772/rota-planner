@@ -206,6 +206,13 @@ class ServerTest(unittest.TestCase):
         report = self.json("GET", "/api/months/2026-12/check")[1]
         self.assertEqual(sorted(report["averages"]), ["evenings", "hours", "target", "weekends"])
         self.assertTrue(all({"ratio", "load", "uneven"} <= set(p) for p in report["balance"]))
+        # Hours a week against the target, in words and for the bar: on the rota and in the list for a shift.
+        words = {"week_text", "month_text", "month_detail", "week_hours", "ratio", "bar", "hours", "target"}
+        people = self.json("GET", "/api/months/2026-12")[1]["people"]
+        self.assertTrue(people and all(words | {"presence", "limits"} <= set(p) for p in people))
+        self.assertTrue(all(p["week_text"].endswith(" h a week") and p["bar"] in ("", "over", "under") for p in people))
+        candidates = self.json("GET", "/api/months/2026-12/candidates?task=lunch&date=2026-12-11&position=0")[1]["candidates"]
+        self.assertTrue(candidates and all(words <= set(c) for c in candidates))
 
     def test_the_example_message_is_written_by_the_program_and_saves_nothing(self):
         before = self.json("GET", "/api/setup")[1]["settings"]

@@ -33,6 +33,7 @@ export const SCREENS = {
     tip: 'Click an empty shift to see who can take it, best first. Prefill suggests people for all the open shifts at once.',
     points: [
       'Click a shift: people are listed best first, with the reason. Type to search, Enter to choose.',
+      'The list for a shift shows each person’s hours a week against their target.',
       'Prefill the rota suggests people (shown dashed). Look, then accept all or one by one.',
       'A red name breaks a rule: hover it to see why. “Assign anyway” keeps it on purpose.',
       'Click a person in the People tab to see their shifts and where else they could go.',
@@ -255,7 +256,7 @@ export const TOURS = {
     { target: '.panel .actions', title: 'Let the program suggest',
       text: 'Prefill proposes someone for every open shift. Suggestions are dashed: nothing is placed until you accept.' },
     { target: '.panel-tabs', title: 'People, and their hours',
-      text: 'The People tab lists everyone with their hours against their target. Click someone to see their shifts and where else they could go.' },
+      text: 'The People tab lists everyone with their hours a week against their target. Click someone to see their shifts and where else they could go.' },
     { target: '.strip', title: 'The month at a glance',
       text: 'One bar per day: green is filled, orange and red still have open shifts. Click a day to go there.' },
     { target: '.stepper', title: 'Then check and publish',

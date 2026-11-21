@@ -19,6 +19,7 @@ from typing import Callable, Iterable, List, Optional, Tuple
 from .model import (MINUTES_PER_DAY, PERIODS, Assignment, Person, Task, parse_date, shift_date, week_dates,
                     weekday_key)
 from .schedule import Schedule
+from .workload import over_target_text
 
 BLOCK, WARN, NOTE = "block", "warn", "note"
 
@@ -248,7 +249,8 @@ def _monthly_hours(p: Placement) -> Optional[Finding]:
     with fewer hours, and a warning on every busy person would drown the
     warnings that matter. The target is hours a week; it is compared here
     through the month's figure worked out from it (``Schedule.target``), with
-    a hair of tolerance, since that figure comes out of a division.
+    a hair of tolerance, since that figure comes out of a division. The note
+    says the average a week the person would reach (``workload``).
     """
     total = p.hours_this_month() + p.task.hours
     ceiling = p.person.max_hours
@@ -256,9 +258,7 @@ def _monthly_hours(p: Placement) -> Optional[Finding]:
         return Finding("monthly_hours", BLOCK, f"Would reach {_hours(total)} (limit {_hours(ceiling)})")
     target = p.schedule.target(p.person.id)
     if p.task.hours > 0 and total > target + 1e-9:
-        return Finding(
-            "over_target", NOTE, f"Would reach {_hours(total)} (target {_hours(round(target, 1))})"
-        )
+        return Finding("over_target", NOTE, over_target_text(p.schedule, p.person.id, total))
     return None
 
 

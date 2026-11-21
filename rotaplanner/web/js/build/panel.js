@@ -2,31 +2,22 @@
 // (everyone's hours, highlight someone, paint their shifts).
 import { acceptProposals, discardProposals, goTo, loadEligible, prefill, prefillBeyond, rebalance } from '../actions.js';
 import { api, monthPath } from '../api.js';
-import { formatDate, formatHours, h } from '../dom.js';
+import { formatDate, h } from '../dom.js';
 import { icon } from '../icons.js';
 import { setSession, setUi, state } from '../state.js';
 import { hint } from '../help.js';
 import { copySchedule } from '../schedules.js';
 import { openMenu } from '../ui.js';
 import { datesBetween, monthTitle, shownEvent, visibleDays } from './range.js';
-import { changes } from '../components.js';
+import { changes, loadBar } from '../components.js';
 
 const TIP_ICONS = { bad: 'alert', warn: 'alert', info: 'info' };
 const SORTS = {
-  load: { label: 'Least busy first', compare: (a, b) => ratio(a) - ratio(b) || a.name.localeCompare(b.name) },
+  // `ratio`: hours against the target, worked out by the program.
+  load: { label: 'Least busy first', compare: (a, b) => a.ratio - b.ratio || a.name.localeCompare(b.name) },
   name: { label: 'A – Z', compare: (a, b) => a.name.localeCompare(b.name) },
-  busy: { label: 'Busiest first', compare: (a, b) => ratio(b) - ratio(a) || a.name.localeCompare(b.name) },
+  busy: { label: 'Busiest first', compare: (a, b) => b.ratio - a.ratio || a.name.localeCompare(b.name) },
 };
-
-function ratio(person) {
-  return person.target > 0 ? person.hours / person.target : 0;
-}
-
-function loadBar(person) {
-  const r = ratio(person);
-  return h('span', { class: ['load', r > 1 && 'over', r < 0.5 && 'under'] },
-    h('span', { style: { width: `${Math.min(100, Math.round(r * 100))}%` } }));
-}
 
 function tile(value, label, tone, onclick) {
   return h(onclick ? 'button' : 'div', { class: ['tile', tone], onclick },
@@ -227,8 +218,9 @@ async function selectPerson(personId) {
 function personCard(person) {
   const away = Math.round((1 - person.presence) * 100);
   return h('section', { class: 'person-card' },
-    h('div', { class: 'who' }, h('strong', {}, person.full), h('span', { class: 'muted' }, `${formatHours(person.hours)} / ${formatHours(person.target)}`)),
+    h('div', { class: 'who' }, h('strong', {}, person.full), h('span', { class: 'muted' }, person.week_text)),
     loadBar(person),
+    h('span', { class: 'muted' }, person.month_detail),
     h('span', { class: 'muted' }, [
       person.replied ? (away ? `Away ${away}% of the month` : 'Available all month') : 'No availability reply',
       person.resident ? 'Resident' : 'Non-resident',
@@ -256,8 +248,8 @@ function peopleTab(month) {
 
   const row = (person) => h('li', {}, h('button', {
     class: ['bar-row', !person.active && 'inactive'], 'aria-pressed': person.id === session.person ? 'true' : 'false',
-    onclick: () => selectPerson(person.id), title: person.full,
-  }, h('span', { class: 'name' }, person.name), loadBar(person), h('span', { class: 'num' }, formatHours(person.hours).replace(' h', ''))));
+    onclick: () => selectPerson(person.id), title: [person.full, person.week_text, person.month_text].join(' · '),
+  }, h('span', { class: 'name' }, person.name), loadBar(person), h('span', { class: 'num' }, String(person.week_hours))));
 
   const search = h('input', { class: 'input', type: 'search', placeholder: 'Find someone', value: session.peopleQuery, 'aria-label': 'Find someone',
     dataset: { focusId: 'people-search' },
@@ -269,6 +261,7 @@ function peopleTab(month) {
       h('label', { class: 'search' }, icon('search'), search),
       h('select', { class: 'select', 'aria-label': 'Sort', onchange: (e) => setSession({ peopleSort: e.target.value }) },
         Object.entries(SORTS).map(([id, s]) => h('option', { value: id, selected: id === session.peopleSort }, s.label)))),
+    h('p', { class: 'faint list-note' }, 'Hours a week against target.'),
     h('section', {}, h('h3', {}, `Active · ${active.length}`), h('ul', { class: 'bars' }, active.map(row))),
     inactive.length ? h('section', {}, h('h3', {}, `Not on the rota · ${inactive.length}`), h('ul', { class: 'bars' }, inactive.map(row))) : null,
   ];

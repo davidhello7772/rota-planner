@@ -1,9 +1,8 @@
 // Hover details for chips and task names: whatever the zoom level, the
 // full information is one hover away.
 import { parseSlotKey, taskById } from '../actions.js';
-import { formatDate, formatHours, h, placeNear } from '../dom.js';
-import { monthViewFor, peopleById, state } from '../state.js';
-import { monthTitle } from './range.js';
+import { formatDate, h, placeNear } from '../dom.js';
+import { monthViewFor, peopleById } from '../state.js';
 
 const DELAY_MS = 350;
 const SOURCE_WORDS = { regular: 'Regular', manual: '', auto: 'Suggested' };
@@ -54,8 +53,8 @@ function chipLines(chip) {
   }
   const person = people.get(slot.person);
   const lines = [h('strong', {}, person ? person.full : slot.unnamed ? `${slot.guest} — name to come` : `${slot.guest} (${slot.guest_kind})`), where];
-  const inMonth = date.startsWith(state.month.id) ? 'this month' : `in ${monthTitle(date.slice(0, 7))}`;
-  if (person) lines.push(h('span', { class: 'tt-line' }, `${formatHours(person.hours)} ${inMonth} · target ${formatHours(person.target)}`));
+  // The person as the month of this day has them (an event can show two months): words from the program.
+  if (person) lines.push(h('span', { class: 'tt-line' }, person.week_text), h('span', { class: 'tt-line' }, person.month_text));
   if (slot.note) lines.push(h('span', { class: 'tt-line' }, `✎ ${slot.note}`));
   const source = SOURCE_WORDS[slot.source];
   if (source) lines.push(h('span', { class: 'tt-line' }, `↻ ${source}`));

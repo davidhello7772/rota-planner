@@ -160,6 +160,16 @@ class RuleTest(unittest.TestCase):
         s = h.schedule(self.month, ppl)
         self.assertEqual(findings_for(s, "ana", "lunch", "2026-12-04")["monthly_hours"], rules.BLOCK)
 
+    def test_the_over_target_note_says_the_average_a_week(self):
+        february = create_month(h.catalog(), 2027, 2)    # 3.5 h a week makes exactly 14 h in 28 days
+        february.assignments = [Assignment("lunch", f"2027-02-0{d}", 0, person_id="ana") for d in (1, 2, 3)]
+        s = h.schedule(february, settings=Settings(default_target_hours_per_week=3.5))
+        lunch = rules.Placement(s, s.people["ana"], s.task_on("lunch", "2027-02-04"), "2027-02-04")
+        over = next(f for f in rules.evaluate(lunch) if f.rule == "over_target")   # 16 h: 4 h a week
+        self.assertEqual((over.severity, over.message), (rules.NOTE, "Over target: would reach 4 h a week"))
+        # Exactly on the target (12 + 2 = 14 h): no note.
+        self.assertNotIn("over_target", findings_for(s, "ana", "breakfast", "2027-02-04"))
+
     def test_presence_scales_the_target(self):
         keys = [f"2026-12-{d:02d}/{p}" for d in range(1, 16) for p in ("morning", "afternoon", "evening")]
         h.away(self.month, "ana", *keys)

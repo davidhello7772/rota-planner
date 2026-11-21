@@ -115,6 +115,7 @@ rotaplanner/
   desktop.py        the program on this computer: uninstalling from the window, the old Update icon
   editing.py        set-up changes: people, tasks, event types, print templates…
   solver.py         prefill, rebalance, shortages, ideas
+  workload.py       a person's hours against their target: every figure and sentence (3.3 / 3.5 h a week)
   report.py tips.py view.py   what the Check screen, the Assistant and the grid show
   transfer.py       all data in one file (move to another computer)
   exporters/        printed documents, versions, personal rotas, .ics, .xlsx, PDF
@@ -277,6 +278,17 @@ cost a bug report.
   with `"beyond": true`: no ceiling, the waiting suggestions `held` (their
   shifts stay filled; the repair may give one to someone else, the
   improvement leaves them alone) and returned again with the new ones.
+- **Hours a week come from one place.** A target is hours a week, on
+  average; what is judged is the month's average: its hours over the weeks
+  that count (`Schedule.week_average`: the month's days ÷ 7, less the time
+  someone is away when Settings says so). The rules and the solver compare
+  through the month's figure (`Schedule.target`), which comes to the same.
+  Every figure and sentence about someone's hours against their target is
+  made by `workload.py` (`summary`, `reason`, `over_target_text`…) and sent
+  to the screen: a screen never divides hours by a target, and `3.3 / 3.5 h
+  a week` is written the same way everywhere. Nothing there may raise or
+  divide by zero (a target of 0, someone away all month): imports and sync
+  run `view.month_view` through `transfer.checked`.
 - **One computer edits at a time (the pen).** Every POST that changes shared
   data passes `server._pen` first (`PEN_FREE` lists the exceptions): a new
   route that changes data needs nothing; one that only looks, or only

@@ -22,6 +22,7 @@ from .model import (
     PRIORITIES,
     TIMES_A_MONTH,
     WEEKDAY_KEYS,
+    WEEKS_A_MONTH,
     Area,
     Catalog,
     ConfigTemplate,
@@ -541,8 +542,10 @@ def duplicate_print_template(settings: Settings, template_id: str) -> PrintTempl
 
 
 def regular_load(catalog: Catalog) -> List[Json]:
-    """About how many hours a month the regular week gives each person, before
-    anything else is added: [{"person_id", "shifts", "hours"}], the most hours first."""
+    """About how many hours a week the regular week gives each person, before
+    anything else is added: [{"person_id", "shifts", "hours"}], the most hours
+    first. A shift every other week or once a month counts for its share: the
+    hours of an average month, divided by its weeks (``WEEKS_A_MONTH``)."""
     tasks = {t.id: t for t in catalog.tasks}
     load: Dict[str, Json] = {}
     for regular in catalog.regulars:
@@ -553,7 +556,7 @@ def regular_load(catalog: Catalog) -> List[Json]:
         entry["shifts"] += 1
         entry["hours"] += task.hours * TIMES_A_MONTH.get(regular.frequency, TIMES_A_MONTH["weekly"])
     ordered = sorted(load.values(), key=lambda entry: -entry["hours"])
-    return [dict(entry, hours=round(entry["hours"])) for entry in ordered]
+    return [dict(entry, hours=round(entry["hours"] / WEEKS_A_MONTH, 1)) for entry in ordered]
 
 
 def message_words(text: Any, limit: int) -> str:

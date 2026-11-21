@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from typing import Any, Dict, Iterable, List, Optional
 
-from . import checks, demand, solver, tips
+from . import checks, demand, solver, tips, workload
 from . import eligibility as rules
 from .model import (
     Assignment,
@@ -211,8 +211,7 @@ def _person_json(
         "initials": label["initials"],
         "active": person.active,
         "resident": person.resident,
-        "hours": round(schedule.hours(person.id), 2),
-        "target": round(schedule.target(person.id), 1),
+        **workload.summary(schedule, person.id),   # hours, target, the average a week and their words
         "presence": round(schedule.presence(person.id), 2),
         "replied": schedule.has_replied(person.id),
         "skills": [skill_names[s] for s in person.skills if s in skill_names],
@@ -255,8 +254,7 @@ def candidates_view(
                 "name": labels[person.id]["short"],
                 "full": labels[person.id]["full"],
                 "group": candidate.group,
-                "hours": round(schedule.hours(person.id), 2),
-                "target": round(schedule.target(person.id), 1),
+                **workload.summary(schedule, person.id),
                 "preference": person.preferences.get(task.area_id),
                 "same_day": busy,
                 "findings": _findings_json(candidate.findings),

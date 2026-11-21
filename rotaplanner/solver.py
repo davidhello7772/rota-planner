@@ -39,6 +39,11 @@ person's limits (those are rules). Suggestions also stop at
 only, not a rule (the list for a shift, the checks, Rebalance and Ideas do
 not use it). What stays open is explained (``_report``), and "Suggest for
 these too" asks again without the ceiling.
+
+A target is hours a week, on average. Here it is compared through the
+month's figure worked out from it (``Schedule.target``), which comes to the
+same: a quarter over the month's figure is a quarter over the weekly target
+on average. The sentences about it come from ``workload``.
 """
 
 from __future__ import annotations
@@ -51,6 +56,7 @@ from dataclasses import asdict, dataclass
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 from . import eligibility as rules
+from . import workload
 from .model import Assignment, Month, Person, Settings, Task, parse_date, slot_key, week_dates, weekday_key
 from .schedule import Schedule, Slot
 
@@ -101,10 +107,6 @@ class Proposal:
 
     def to_dict(self) -> Dict[str, object]:
         return {**asdict(self), "key": self.key}
-
-
-def _hours(value: float) -> str:
-    return f"{round(value, 1):g} h"
 
 
 def _day(iso: str) -> str:
@@ -167,9 +169,10 @@ def _options(schedule: Schedule, slot: Slot, ignore: Optional[Assignment] = None
 
 
 def _why(schedule: Schedule, assignment: Assignment) -> str:
-    """Why this person was suggested: their hours against their target, and what to know."""
+    """Why this person was suggested: their hours a week against their target, their
+    hours in the month (``workload.reason``), and what to know."""
     person_id = assignment.person_id
-    text = f"{_hours(schedule.hours(person_id))} of {_hours(schedule.target(person_id))} this month"
+    text = workload.reason(schedule, person_id, assignment.date)
     placement = rules.Placement(schedule, schedule.people[person_id],
                                 schedule.task_on(assignment.task_id, assignment.date), assignment.date, assignment)
     for finding in rules.evaluate(placement):
@@ -574,14 +577,17 @@ def rebalance(month: Month, people: Iterable[Person], settings: Settings,
 
 
 def _move_why(schedule: Schedule, assignment: Assignment, taker: str) -> str:
+    """What a move changes: for a shift with hours, each one's hours a week against
+    their target, before and after; else their weekends or evenings."""
     giver, hours = assignment.person_id, schedule.hours_of(assignment)
     def name(person: str) -> str:
         return schedule.people[person].name
 
     if hours > 0:
-        return (f"{name(giver)}: {_hours(schedule.hours(giver))} → {_hours(schedule.hours(giver) - hours)}"
-                f" of {_hours(schedule.target(giver))} · {name(taker)}: {_hours(schedule.hours(taker))} →"
-                f" {_hours(schedule.hours(taker) + hours)} of {_hours(schedule.target(taker))}")
+        given = schedule.hours(giver)
+        taken = schedule.hours(taker)
+        return (f"{name(giver)}: {workload.week_change(schedule, giver, given, given - hours)}"
+                f" · {name(taker)}: {workload.week_change(schedule, taker, taken, taken + hours)}")
     if parse_date(assignment.date).weekday() >= 5:
         return f"Weekends: {name(giver)} {schedule.weekends(giver)}, {name(taker)} {schedule.weekends(taker)}"
     return f"Evenings: {name(giver)} {schedule.evenings(giver)}, {name(taker)} {schedule.evenings(taker)}"

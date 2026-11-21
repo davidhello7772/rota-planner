@@ -2,7 +2,7 @@
 // slot. The grid and the day view build chips the same way; CSS decides
 // which text to show at each zoom level.
 import { slotKey } from '../actions.js';
-import { formatHours, h } from '../dom.js';
+import { h } from '../dom.js';
 
 const FLAGS = { warn: '!', conflict: '!', forced: '⚑' };
 const STATE_WORDS = {
@@ -89,5 +89,5 @@ export function chipFor(slot, ctx) {
   h('span', { class: 't-full' }, full),
   slot.source === 'regular' ? h('span', { class: 'reg', title: 'Regular', 'aria-hidden': 'true' }, '↻') : null,
   FLAGS[slot.state] ? h('span', { class: 'flag', 'aria-hidden': 'true' }, FLAGS[slot.state]) : null,
-  person ? h('span', { class: 't-sub' }, `${formatHours(person.hours)} of ${formatHours(person.target)}`) : null);
+  person ? h('span', { class: 't-sub' }, person.week_text) : null);
 }
