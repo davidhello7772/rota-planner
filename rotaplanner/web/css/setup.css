@@ -302,7 +302,8 @@ a.tile:hover { border-color: var(--line-strong); }
 .block-actions { display: flex; justify-content: flex-end; }
 .event-task-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
 .event-task-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0 var(--space-2); padding: 2px var(--space-2) 2px 0; background: var(--surface); box-shadow: inset 3px 0 0 var(--area); }
-.event-task-controls { display: flex; align-items: flex-end; gap: var(--space-3); margin-left: auto; padding: 2px 0 4px var(--space-3); }
+/* The controls wrap in a narrow window, rather than running past the edge. */
+.event-task-controls { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-1) var(--space-3); min-width: 0; max-width: 100%; margin-left: auto; padding: 2px 0 4px var(--space-3); }
 .mini-field { display: flex; flex-direction: column; gap: 1px; }
 .mini-label { font-size: 0.6875rem; color: var(--text-3); line-height: 1.2; white-space: nowrap; }
 .event-task-row + .event-task-row { border-top: 1px solid var(--line); }
