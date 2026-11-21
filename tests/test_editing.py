@@ -1,7 +1,7 @@
 import unittest
 
 from rotaplanner import editing, people_import
-from rotaplanner.model import Assignment, Regular, Settings
+from rotaplanner.model import Assignment, Person, Regular, Settings
 
 from . import helpers as h
 from .xlsx_fixture import build_xlsx
@@ -54,6 +54,15 @@ class PersonTest(unittest.TestCase):
         self.assertEqual(ana.avoid_task_ids, ["night"])
         with self.assertRaises(ValueError):
             editing.save_person(self.people, self.catalog, {"id": "ana", "first_name": "Ana", "never": [{"weekday": "xyz"}]})
+
+    def test_only_the_tasks_of_their_skills(self):
+        ana = editing.save_person(self.people, self.catalog, {"id": "ana", "first_name": "Ana", "skilled_tasks_only": True})
+        self.assertIs(ana.skilled_tasks_only, True)
+        self.assertIs(Person.from_dict(ana.to_dict()).skilled_tasks_only, True)
+        self.assertIs(editing.save_person(self.people, self.catalog, {"id": "ana", "first_name": "Ana"}).skilled_tasks_only, False)
+        old = ana.to_dict()
+        del old["skilled_tasks_only"]   # saved before the box existed
+        self.assertIs(Person.from_dict(old).skilled_tasks_only, False)
 
     def test_counts_are_whole_numbers(self):
         def save(**limits):

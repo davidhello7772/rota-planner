@@ -67,6 +67,29 @@ class RuleTest(unittest.TestCase):
         self.assertEqual(findings_for(s, "ana", "supper", "2026-12-01")["excluded"], rules.BLOCK)
         self.assertNotIn("not_trained", findings_for(s, "cleo", "helper", "2026-12-05"))  # anyone
 
+    def test_only_the_tasks_of_their_skills(self):
+        ppl = h.people()
+        ppl[0].skilled_tasks_only = True   # Ana: cook
+        self.month.events.append(Event("e", "Retreat", "2026-12-08", "2026-12-08"))
+        self.month.tasks.append(Task("cocoa", "kitchen", "Hot chocolate", periods=["evening"], start="20:30",
+                                     end="21:15", hours=0.75, headcount={"default": 1}, event_id="e"))
+        s = h.schedule(self.month, ppl)
+        # A task anyone can do is kept from her, an event's own task too.
+        self.assertEqual(findings_for(s, "ana", "helper", "2026-12-05")["skilled_only"], rules.BLOCK)
+        self.assertEqual(findings_for(s, "ana", "cocoa", "2026-12-08")["skilled_only"], rules.BLOCK)
+        # A task of her skill is open to her.
+        found = findings_for(s, "ana", "lunch", "2026-12-01")
+        self.assertNotIn("skilled_only", found)
+        self.assertNotIn("not_trained", found)
+        # A skill she lacks: only "not trained", once.
+        found = findings_for(s, "ana", "night", "2026-12-01")
+        self.assertEqual(found["not_trained"], rules.BLOCK)
+        self.assertNotIn("skilled_only", found)
+        # The box off: the same as before.
+        ppl[0].skilled_tasks_only = False
+        self.assertNotIn("skilled_only", findings_for(s, "ana", "helper", "2026-12-05"))
+        self.assertNotIn("skilled_only", findings_for(s, "ana", "cocoa", "2026-12-08"))
+
     def test_unavailable_only_for_that_period(self):
         h.away(self.month, "ana", "2026-12-01/morning")
         s = h.schedule(self.month)
@@ -405,6 +428,8 @@ class WeeklyLimitTest(unittest.TestCase):
         ])
         self.ana.max_shifts_per_week = 1
         self.assertEqual(rules.limits_text(self.ana)[0], "At most 1 shift a week")
+        self.ana.skilled_tasks_only = True
+        self.assertEqual(rules.limits_text(self.ana)[-1], "Only the tasks of their skills")
 
 
 class FairRankingTest(unittest.TestCase):

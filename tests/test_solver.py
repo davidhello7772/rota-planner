@@ -70,6 +70,20 @@ class PrefillTest(unittest.TestCase):
             for slot in left:   # nobody free within a quarter over their target could take it
                 self.assertEqual(solver._options(schedule, slot, ceiling=solver.SUGGEST_UP_TO), [], slot)
 
+    def test_never_suggests_a_task_anyone_can_do_to_someone_who_does_only_their_skills(self):
+        def anas(on, month):
+            people = h.people()
+            people[0].skilled_tasks_only = on   # Ana: cook
+            proposals, _, _ = solver.prefill(month, people, Settings(), seconds=FAST)
+            return {p.task_id for p in proposals if p.person_id == "ana"}, proposals
+
+        self.assertEqual(anas(False, one_task())[0], {"desk"})   # the box off: she takes her share
+        mine, proposals = anas(True, one_task())
+        self.assertEqual(mine, set())                            # on: never a task anyone can do
+        self.assertTrue(proposals)                               # the others still take it
+        # With the usual tasks, only those that need her skill.
+        self.assertLessEqual(anas(True, h.month())[0], {"lunch", "supper"})
+
     def test_work_is_shared_in_proportion_to_each_target(self):
         month = one_task(hours=2)
         people = [Person("full", "Full A.", target_hours_per_week=h.a_week(12)),
@@ -378,7 +392,7 @@ class ReportTest(unittest.TestCase):
             "1: the people who could take them are at a limit on their card (shifts a week or a day, or hours)",
             "1: the people who could take them are on another shift then",
             "1: everyone trained for them is away",
-            "1: nobody on the rota is trained for them",
+            "1: nobody on the rota is trained for them or does them",
         ])
         self.assertEqual((report["proposed"], report["left"], report["beyond"]), (0, 5, 1))
         self.assertEqual(solver._left_text(schedule, left[:1]), "1 shift stays open: 1 essential.")

@@ -39,6 +39,15 @@ class AssignTest(unittest.TestCase):
         status = checks.assignment_status(h.schedule(self.month), made)
         self.assertEqual(status.state, checks.FORCED)
 
+    def test_assign_anyway_someone_who_does_only_their_skills(self):
+        self.people[0].skilled_tasks_only = True   # Ana: cook; the helper needs no skill
+        with self.assertRaises(months.RuleViolation) as raised:
+            self.assign("helper", "2026-12-05", 0, person_id="ana")
+        self.assertEqual([f.rule for f in raised.exception.findings], ["skilled_only"])
+        made = self.assign("helper", "2026-12-05", 0, person_id="ana", force=True)
+        self.assertEqual(checks.assignment_status(h.schedule(self.month, self.people), made).state, checks.FORCED)
+        self.assertEqual(self.assign("lunch", "2026-12-01", 0, person_id="ana").person_id, "ana")
+
     def test_failed_replacement_keeps_the_previous_person(self):
         self.assign("lunch", "2026-12-01", 0, person_id="ana")
         with self.assertRaises(months.RuleViolation):

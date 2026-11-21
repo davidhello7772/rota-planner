@@ -364,6 +364,9 @@ class Person(Record):
     active: bool = True
     archived: bool = False
     skills: List[str] = field(default_factory=list)
+    skilled_tasks_only: bool = False
+    """Only the tasks that need one of their skills: a task anyone can do is
+    kept from them (``eligibility._skilled_only``); "Assign anyway" still can."""
     preferences: Dict[str, int] = field(default_factory=dict)
     target_hours_per_week: Optional[float] = None
     """Hours a week this person is expected to give, on average over the month;

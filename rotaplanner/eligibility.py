@@ -117,6 +117,13 @@ def _not_trained(p: Placement) -> Optional[Finding]:
     return None
 
 
+def _skilled_only(p: Placement) -> Optional[Finding]:
+    # A task needing a skill they lack is already ``not_trained``: one finding is enough.
+    if p.person.skilled_tasks_only and not p.task.skill_id:
+        return Finding("skilled_only", BLOCK, "Does only the tasks of their skills")
+    return None
+
+
 def _excluded(p: Placement) -> Optional[Finding]:
     if p.task.id in p.person.avoid_task_ids:
         return Finding("excluded", BLOCK, "Does not do this task")
@@ -271,6 +278,7 @@ def _no_reply(p: Placement) -> Optional[Finding]:
 RULES: Tuple[Rule, ...] = (
     _inactive,
     _not_trained,
+    _skilled_only,
     _excluded,
     _unavailable,
     _never,
@@ -299,6 +307,8 @@ def limits_text(person: Person) -> List[str]:
         texts.append(f"At most {_hours(person.max_hours)} a month")
     if person.max_hours_per_day is not None:
         texts.append(f"At most {_hours(person.max_hours_per_day)} a day")
+    if person.skilled_tasks_only:
+        texts.append("Only the tasks of their skills")
     return texts
 
 

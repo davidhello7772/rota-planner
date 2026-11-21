@@ -40,6 +40,7 @@ function constraintsText(person) {
   if (person.max_hours_per_day != null) parts.push(`Max ${person.max_hours_per_day} h/day`);
   if (person.max_tasks_per_day != null) parts.push(`Max ${person.max_tasks_per_day} task${person.max_tasks_per_day > 1 ? 's' : ''}/day`);
   if (person.max_shifts_per_week != null) parts.push(`Max ${person.max_shifts_per_week} shift${person.max_shifts_per_week > 1 ? 's' : ''}/week`);
+  if (person.skilled_tasks_only) parts.push("only their skills' tasks");
   if (person.never.length) parts.push(`${person.never.length} standing absence${person.never.length > 1 ? 's' : ''}`);
   if (person.avoid_task_ids.length) parts.push(`avoids ${person.avoid_task_ids.length} task${person.avoid_task_ids.length > 1 ? 's' : ''}`);
   return parts.join(' · ');
@@ -80,7 +81,7 @@ function preferenceEditor(areas, preferences) {
 export function editPerson(person) {
   const setup = state.session.setup;
   const p = person || { first_name: '', last_name: '', name: '', lay_name: '', phone: '', resident: true, active: true,
-    skills: [], preferences: {}, never: [], avoid_task_ids: [], note: '' };
+    skills: [], skilled_tasks_only: false, preferences: {}, never: [], avoid_task_ids: [], note: '' };
   const first = textInput(p.first_name, { autofocus: true, autocomplete: 'off' });
   const last = textInput(p.last_name, { autocomplete: 'off' });
   const rota = textInput(p.name, { placeholder: 'First name and initial, e.g. Quinn J.', autocomplete: 'off' });
@@ -101,7 +102,19 @@ export function editPerson(person) {
   forgetButton.hidden = !p.has_email;
   const resident = toggle('Resident (lives at the centre)', p.resident);
   const active = toggle('On the rota', p.active);
-  const skills = chipChoice(setup.catalog.skills.map((s) => ({ value: s.id, label: s.name })), p.skills, { label: 'Skills' });
+  // Says what they do, never why (the card is read by everyone who uses the program).
+  const skilledHint = h('p', { class: 'field-hint', id: 'skilled-only-hint' });
+  const showSkilledHint = () => {
+    const none = skilledOnly.input.checked && !skills.getValue().length;
+    skilledHint.textContent = 'For someone who can do only a few things: tasks anyone can do are not proposed to them'
+      + ' ("Assign anyway" still can). Write what they do, never why.'
+      + (none ? ' No skill is chosen yet: nothing will be proposed to them.' : '');
+  };
+  const skills = chipChoice(setup.catalog.skills.map((s) => ({ value: s.id, label: s.name })), p.skills,
+    { label: 'Skills', onchange: showSkilledHint });
+  const skilledOnly = toggle('Only the tasks of their skills', p.skilled_tasks_only, showSkilledHint);
+  skilledOnly.input.setAttribute('aria-describedby', 'skilled-only-hint');
+  showSkilledHint();
   const target = numberInput(p.target_hours_per_week, { min: 0, max: 80, step: 0.25, placeholder: String(setup.settings.default_target_hours_per_week) });
   const maxMonth = numberInput(p.max_hours, { min: 0, step: 0.5, placeholder: 'No limit' });
   const maxDay = numberInput(p.max_hours_per_day, { min: 0, step: 0.5, placeholder: String(setup.settings.default_max_hours_per_day) });
@@ -117,7 +130,7 @@ export function editPerson(person) {
     const data = {
       id: p.id, first_name: first.value, last_name: last.value, name: rota.value, lay_name: lay.value, phone: phone.value,
       resident: resident.input.checked, active: active.input.checked, archived: archived.input.checked,
-      skills: skills.getValue(), target_hours_per_week: target.value, max_hours: maxMonth.value,
+      skills: skills.getValue(), skilled_tasks_only: skilledOnly.input.checked, target_hours_per_week: target.value, max_hours: maxMonth.value,
       max_hours_per_day: maxDay.value, max_tasks_per_day: tasksDay.value, max_shifts_per_week: shiftsWeek.value,
       never: never.getValue(),
       avoid_task_ids: avoid.getValue(), preferences: prefs.getValue(), note: note.value,
@@ -141,6 +154,7 @@ export function editPerson(person) {
       h('div', { class: 'email-field' }, field('E-mail address', email), h('div', { class: 'email-state' }, emailState, forgetButton)),
       h('div', { class: 'form-row' }, resident, active),
       h('h3', { class: 'form-section' }, 'Skills'), skills,
+      h('div', { class: 'field' }, skilledOnly, skilledHint),
       h('h3', { class: 'form-section' }, 'Hours'),
       h('div', { class: 'form-grid' },
         field('Target a week', target, 'On average. Empty: the usual target'), field('At most a month', maxMonth),

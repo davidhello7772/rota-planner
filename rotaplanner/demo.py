@@ -327,6 +327,11 @@ def build_people(catalog: Catalog, rng: random.Random) -> List[Person]:
     # Drawn last, so that everything drawn before stays as it was.
     for person in rng.sample(people, 4):
         person.max_shifts_per_week = rng.choice((2, 3))
+    # Someone who does only the tasks of their skills, chosen without drawing
+    # (the draws above stay as they were): the one on the rota with the fewest skills.
+    skilled = [p for p in people if p.active and p.skills]
+    if skilled:
+        min(skilled, key=lambda p: (len(p.skills), p.id)).skilled_tasks_only = True
     _expand_every_day_rules(people)
     return people
 

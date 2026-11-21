@@ -174,6 +174,7 @@ def save_person(people: List[Person], catalog: Catalog, data: Json, salt: bytes 
     person.active = bool(data.get("active", True))
     person.archived = bool(data.get("archived", False))
     person.skills = [s for s in data.get("skills") or [] if s in skill_ids]
+    person.skilled_tasks_only = bool(data.get("skilled_tasks_only", False))
     person.preferences = preferences
     person.target_hours_per_week = number(data, "target_hours_per_week", 0, 80, "Target hours a week")
     person.max_hours = number(data, "max_hours", 0, 300, "Monthly limit")

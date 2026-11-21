@@ -12,13 +12,15 @@ const DAY_NAMES = {
 function editRegular(task, weekday, position, current) {
   const setup = state.session.setup;
   const active = setup.people.filter((p) => p.active && !p.archived).sort((a, b) => a.name.localeCompare(b.name));
-  const trained = active.filter((p) => !task.skill_id || p.skills.includes(task.skill_id));
+  // A task anyone can do is not for someone who does only the tasks of their skills
+  // (the rule is eligibility._skilled_only: a new month leaves that place open).
+  const trained = active.filter((p) => (task.skill_id ? p.skills.includes(task.skill_id) : !p.skilled_tasks_only));
   const others = active.filter((p) => !trained.includes(p));
   const person = h('select', { class: 'select', autofocus: true },
     h('option', { value: '' }, 'Nobody'),
     h('optgroup', { label: task.skill_id ? 'Trained for this task' : 'Everyone' },
       trained.map((p) => h('option', { value: p.id, selected: p.id === current?.person_id }, p.name))),
-    others.length ? h('optgroup', { label: 'Not trained' },
+    others.length ? h('optgroup', { label: task.skill_id ? 'Not trained' : 'Only the tasks of their skills' },
       others.map((p) => h('option', { value: p.id, selected: p.id === current?.person_id }, p.name))) : null);
   const frequency = select(Object.entries(setup.frequencies).map(([value, label]) => ({ value, label })), current?.frequency || 'weekly');
   const start = h('input', { class: 'input', type: 'date', value: current?.start || '' });

@@ -207,7 +207,7 @@ def _in_the_way(schedule: Schedule, person_id: str, iso: str, blocking: List[rul
             for a in schedule.on_day(person_id, day) if schedule.knows(a)]
 
 
-_UNLIFTABLE = {"inactive", "not_trained", "excluded", "unavailable", "never"}
+_UNLIFTABLE = {"inactive", "not_trained", "skilled_only", "excluded", "unavailable", "never"}
 """Rules no move of another shift can lift: the repair does not look further."""
 
 
@@ -448,14 +448,14 @@ _OBSTACLE_OF_RULE = {
     "weekly_shifts": "limit", "daily_tasks": "limit", "daily_hours": "limit", "monthly_hours": "limit",
     "double_booked": "busy", "overlap": "busy",
     "unavailable": "away", "never": "away",
-    "not_trained": "skill", "excluded": "skill", "inactive": "skill",
+    "not_trained": "skill", "skilled_only": "skill", "excluded": "skill", "inactive": "skill",
 }  # fmt: skip
 REASON_TEXTS = {
     "target": "the people who could take them would go more than {over}% over their target",
     "limit": "the people who could take them are at a limit on their card (shifts a week or a day, or hours)",
     "busy": "the people who could take them are on another shift then",
     "away": "everyone trained for them is away",
-    "skill": "nobody on the rota is trained for them",
+    "skill": "nobody on the rota is trained for them or does them",
 }
 
 

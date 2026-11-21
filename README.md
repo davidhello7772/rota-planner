@@ -126,8 +126,10 @@ folder.
   Settings; the program works out the month's figure from it: 3.5 h a week
   makes 15 h in a month of 30 days), and limits: hours (a month, a day) and, apart, a
   *Number of shifts* (at most so many a day, or a week from Monday to Sunday,
-  also across the end of a month; suggestions never go over them). *Skills
-  grid* ticks skills for many people at once; *Import people* adds a pasted
+  also across the end of a month; suggestions never go over them). *Only the
+  tasks of their skills*, under their skills, keeps the tasks anyone can do
+  from someone who can do only a few things ("Assign anyway" still can).
+  *Skills grid* ticks skills for many people at once; *Import people* adds a pasted
   list or a file.
 - **Tasks & Areas**: each month has its own tasks. Pick the month at the top;
   *Use the configuration of…* takes another month's tasks or a template, *Save
