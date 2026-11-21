@@ -524,6 +524,36 @@ class HandOverTest(Computers):
         with self.assertRaises(PenError):
             self.a.ensure_pen()
 
+    def test_the_step_line_while_asking(self):
+        def line(pen):
+            return [(s["text"], s["state"]) for s in pen["steps"]]
+        status = self.b.ask_pen()
+        self.assertEqual(status["busy"], "")  # the ask is over: what it waits for now is the hand-over
+        self.assertEqual(line(status), [("Asked Office", "done"),
+                                        ("Office sends its changes and hands over", "now"), ("You edit", "todo")])
+        self.assertRegex(status["steps"][1]["detail"], r"^waiting \d+ s · usually within a minute$")
+        self.b.state["pen"]["asked"] -= 70
+        self.assertRegex(self.b.pen()["steps"][1]["detail"], r"^waiting 1 min 1\d s ")
+        self.a.exchange()  # Office hands over
+        self.b.exchange()
+        handed = self.b.pen()
+        self.assertEqual(line(handed), [("Asked Office", "done"), ("Office handed over", "done"), ("You edit", "now")])
+        self.assertEqual(handed["steps"][2]["detail"], "taking its changes…")
+        self.b.follow_up()
+        pen = self.b.pen()
+        self.assertTrue(pen["mine"])
+        self.assertNotIn("steps", pen)  # the editing is here: nothing more to show
+        self.assertEqual(pen["busy"], "")
+
+    def test_the_step_line_when_the_holder_is_quiet(self):
+        self.b.ask_pen()
+        self.server.skew = sy.PEN_STALE_SECONDS + 60
+        self.b.exchange()
+        steps = self.b.pen()["steps"]
+        self.assertEqual([s["state"] for s in steps], ["done", "warn", "todo"])
+        self.assertEqual(steps[1]["text"], "Office does not answer")
+        self.assertEqual(steps[1]["detail"], "not seen for 6 min")
+
     def test_the_changes_are_taken_even_when_taking_by_itself_is_off(self):
         self.b.set_auto(False)
         self.note(0, "newer")
@@ -813,6 +843,99 @@ class TakeOverTest(Computers):
             shared, away = Path(self.place), Path(self.place).with_name("unplugged")
             (shared.rename(away) if unplugged else away.rename(shared))
 
+    def pause_in_the_look(self, one):
+        """``one`` stops (``stop_here``) after its first round with the place, before taking what is newer."""
+        deliver, paused = one.deliver, []
+
+        def deliver_():
+            if not paused:
+                paused.append(True)
+                self.stop_here()
+            return deliver()
+        patcher = unittest.mock.patch.object(one, "deliver", deliver_)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    @staticmethod
+    def line(pen):
+        return [(s["text"], s["state"], s["detail"]) for s in pen["steps"]]
+
+    def test_the_step_line_while_taking_over(self):
+        self.office_gone()
+        self.pause_in_the_look(self.b)
+        self.watch(self.b, before_list=self.stop_here)
+        take = self.run_aside(self.b.take_pen, force=True)
+        self.assertTrue(self.stopped.acquire(timeout=10))
+        looking = self.b.status()["pen"]  # read by the screen while the take runs
+        self.go.release()
+        self.assertTrue(self.stopped.acquire(timeout=10))
+        claiming = self.b.status()["pen"]
+        self.go.release()
+        done = self.finish(take)
+        self.assertEqual(looking["busy"], "take")
+        self.assertTrue(looking["read_only"])
+        self.assertEqual(self.line(looking), [("Office away", "done", "not seen for 6 min"),
+                                              ("Taking over", "now", "looking for newer changes…"),
+                                              ("You edit", "todo", "")])
+        self.assertEqual(self.line(claiming)[1], ("Taking over", "now", "making sure nobody else edits…"))
+        self.assertTrue(done["mine"])
+        self.assertEqual(done["busy"], "")
+        self.assertNotIn("steps", done)
+        pen = self.b.status()["pen"]
+        self.assertEqual(pen["busy"], "")
+        self.assertNotIn("steps", pen)
+
+    def test_the_step_line_while_asking(self):
+        self.a.ensure_pen()
+        self.round(self.b)
+        self.pause_in_the_look(self.b)
+        ask = self.run_aside(self.b.ask_pen)
+        self.assertTrue(self.stopped.acquire(timeout=10))
+        pen = self.b.status()["pen"]
+        self.go.release()
+        asked = self.finish(ask)
+        self.assertEqual(pen["busy"], "ask")
+        self.assertEqual(self.line(pen), [("Asking Office", "now", "looking for newer changes…"),
+                                          ("Office sends its changes and hands over", "todo", ""),
+                                          ("You edit", "todo", "")])
+        self.assertEqual(asked["busy"], "")
+        self.assertEqual([s["state"] for s in asked["steps"]], ["done", "now", "todo"])
+
+    def test_nobody_editing_then_taking(self):
+        self.pause_in_the_look(self.b)
+        self.watch(self.b, before_list=self.stop_here)
+        take = self.run_aside(self.b.take_pen, pressed=True)
+        self.assertTrue(self.stopped.acquire(timeout=10))
+        self.go.release()
+        self.assertTrue(self.stopped.acquire(timeout=10))
+        pen = self.b.status()["pen"]
+        self.go.release()
+        self.assertTrue(self.finish(take)["mine"])
+        self.assertEqual(self.line(pen)[:2], [("Nobody is editing", "done", ""),
+                                              ("Taking over", "now", "making sure nobody else edits…")])
+
+    def test_nothing_is_shown_under_way_once_a_take_is_over(self):
+        self.office_gone()
+        with self.assertRaises(PenError) as caught:  # refused: Office went quiet, and this is no take-over
+            self.b.take_pen(pressed=True)
+        self.assertEqual(caught.exception.kind, "stale")
+        self.assertEqual(caught.exception.info["busy"], "")
+        self.assertNotIn("steps", caught.exception.info)
+        self.assertEqual(self.b.status()["pen"]["busy"], "")
+        self.unplug()
+        with self.assertRaises(PenError) as caught:  # no connection
+            self.b.take_pen(force=True)
+        self.assertEqual(caught.exception.kind, "offline")
+        self.assertNotIn("steps", caught.exception.info)
+        self.assertEqual(self.b._busy, {})
+        with self.assertRaises(PenError):
+            self.b.ask_pen()
+        self.assertEqual(self.b._busy, {})
+        self.unplug(False)
+        self.assertTrue(self.b.take_pen(force=True)["mine"])
+        self.assertEqual(self.b._busy, {})
+        self.assertEqual(self.b.status()["pen"]["busy"], "")
+
     def test_take_over_pressed_twice(self):
         self.office_gone()
         written = self.watch(self.b, before_list=self.stop_here)
@@ -949,6 +1072,8 @@ class TakeOverTest(Computers):
         self.assertFalse(status["mine"])
         self.assertTrue(status["read_only"])
         self.assertIn("Office is there after all", status["text"])
+        self.assertEqual(status["steps"][0]["text"], "Office is there after all: asked it")
+        self.assertEqual(status["busy"], "")
         self.assertEqual(written, ["claim", "asking"])  # the request replaces the claim
         self.a._last_edit = time.time() - sy.GROUP_SECONDS - 1
         self.a.exchange()  # at its next round, Office sends its changes and hands over
@@ -1056,8 +1181,15 @@ class TakeOverTest(Computers):
         self.assertTrue(self.a.pen()["mine"])  # asked, not taken over
 
     def test_each_status_says_how_new_it_is(self):
-        first, second = self.b.status()["snapshot"], self.b.status()["snapshot"]
-        self.assertGreater(second, first)
+        first, second = self.b.status(), self.b.status()
+        self.assertGreater(second["snapshot"], first["snapshot"])
+        self.assertEqual(first["run"], second["run"])  # the same program: its snapshots compare
+        self.assertRegex(first["run"], r"^[0-9a-f]{8}$")
+        self.assertNotEqual(Sync(self.stores[1])._run, first["run"])  # started again: they count from 1 again
+
+    def test_durations_in_a_few_words(self):
+        self.assertEqual([sy._lasted(s) for s in (0, 40, 60, 70, 359, 600, 3599, 7200)],
+                         ["0 s", "40 s", "1 min", "1 min 10 s", "5 min 59 s", "10 min", "59 min", "2 h"])
 
 
 class SomeoneWritesAtThePlaceTest(Computers):

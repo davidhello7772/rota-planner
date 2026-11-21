@@ -214,6 +214,8 @@ a.btn { text-decoration: none; }
 /* A control that cannot act here but still takes the focus and explains itself (the arrows on People…). */
 .btn[aria-disabled="true"] { opacity: 0.5; cursor: default; }
 .btn.ghost[aria-disabled="true"]:hover { background: none; color: var(--text-2); }
+.btn.primary[aria-disabled="true"]:hover { background: var(--accent); border-color: var(--accent); }
+.btn[aria-busy="true"][aria-disabled="true"] { opacity: 0.8; cursor: progress; }  /* under way: the pen's buttons (sync.js) */
 
 /* ---- Recent changes (history.js) ---------------------------------------- */
 
@@ -312,13 +314,34 @@ a.btn { text-decoration: none; }
 .pen-chip .btn.small { height: 1.5rem; }
 .look-bar { background: var(--chip); color: var(--text-2); border: 1px solid var(--line); }
 .look-bar > svg { flex: none; width: 1rem; height: 1rem; }
-.look-bar > span { flex: 1; min-width: 0; }
+.look-bar > .look-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--space-1); }
+.look-bar.done { background: var(--ok-weak); color: var(--text); border-color: color-mix(in srgb, var(--ok) 40%, transparent); }
+.look-bar.done > svg { color: var(--ok); }
+/* The editing changing hands, step by step (sync.py words them): done ✓, now (pulsing dot), a warning, still to come. */
+.pen-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); font-size: var(--fs-sm); }
+.pen-step { display: inline-flex; align-items: center; gap: var(--space-1); min-width: 0; color: var(--text-2); }
+.pen-step + .pen-step::before { content: ""; flex: none; width: 1rem; height: 1px; margin-right: var(--space-1); background: var(--line-strong); }
+.pen-step > svg { flex: none; width: 0.875rem; height: 0.875rem; }
+.pen-step.done > svg { color: var(--ok); }
+.pen-step.now { color: var(--text); font-weight: 600; }
+.pen-step.warn { color: var(--warn); font-weight: 600; }
+.pen-step.warn > svg { color: var(--warn); }
+.pen-step.todo { color: var(--text-3); }
+.pen-step-detail { font-size: var(--fs-xs); font-weight: 400; color: var(--text-2); }
+.pen-step-detail::before { content: "· "; }
+.pen-dot { flex: none; width: 0.5rem; height: 0.5rem; margin: 0 0.1875rem; border-radius: 50%; border: 1px solid currentColor; }
+.pen-step.now .pen-dot { background: var(--accent); border-color: var(--accent); animation: pen-pulse 1.2s ease-in-out infinite; }
+@keyframes pen-pulse { 50% { transform: scale(0.6); opacity: 0.45; } }
+/* A narrow window: only the current step in words, the others as checks and dots (still read out). */
+@media (max-width: 1000px) {
+  .pen-step:not(.now):not(.warn) :is(.pen-step-text, .pen-step-detail) { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+}
 .look-bar.asking { background: var(--accent-weak); color: var(--text); border-color: var(--accent-line); }
 /* While another computer edits, what would change the data is greyed and cannot be used (components.js changes()). */
 .read-only .changes:not(.quiet) { opacity: 0.45; }
 .look-bar.asking > svg, .pen-chip.asking svg { color: var(--accent); animation: turning 1.6s linear infinite; }
 @keyframes turning { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .look-bar.asking > svg, .pen-chip.asking svg { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .look-bar.asking > svg, .pen-chip.asking svg, .pen-step.now .pen-dot { animation: none; } }
 .notice.info { background: var(--accent-weak); color: var(--text); border: 1px solid var(--accent-line); }
 .sync-banner.info > svg { color: var(--accent); }
 @media (max-width: 1366px) { .pen-chip .topbar-label { display: none; } }

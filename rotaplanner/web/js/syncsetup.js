@@ -357,8 +357,10 @@ export function syncLine() {
   const show = (status) => {
     if (!box.isConnected && box.dataset.shown) { stopWatching(); return; }
     if (!status) return;
-    // The status is asked often: redraw only when what is shown changed (not the time of the last look).
-    const same = JSON.stringify({ ...status, connection: { ...status.connection, last_ok: null } });
+    // The status is asked often: redraw only when what is shown changed (not the time of the last look,
+    // nor how new the answer is, nor the steps of the editing changing hands, shown at the top).
+    const same = JSON.stringify({ ...status, snapshot: null, run: null, pen: status.pen && { ...status.pen, steps: null },
+      connection: { ...status.connection, last_ok: null } });
     if (same === shown) return;
     shown = same;
     box.dataset.shown = '1';

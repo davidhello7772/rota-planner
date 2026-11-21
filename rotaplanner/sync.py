@@ -459,6 +459,8 @@ class Sync:
         self._io = threading.Lock()     # one exchange with the place at a time
         self._taking = threading.Lock()  # one take of the pen at a time (taken before the two others)
         self._snapshot = 0              # counts the statuses made: the screen keeps the newest
+        self._run = secrets.token_hex(4)  # this program, started once: its snapshots count from 1 again after a restart
+        self._busy: Json = {}           # a take or an ask pressed and under way here: {"what", "phase"} (the step line)
         self.state: Optional[Json] = None
         self._key: Optional[bytes] = None
         self._place: Any = None
@@ -1321,6 +1323,7 @@ class Sync:
                 "applied": self.state.get("applied", {"seq": 0}),
                 "pen": pen,
                 "snapshot": self._snapshot,
+                "run": self._run,
                 "log": [dict(e, when=time.strftime("%H:%M", time.localtime(e["at"]))) for e in self.state["log"][-12:]][::-1],
             }
             result["summary"] = summary(result)
@@ -1698,12 +1701,13 @@ class Sync:
                 result.update(handed=True, text=f"{name} has handed over: taking its changes, then you can edit…")
             elif note["live"]:
                 left = max(1, -(-int(PEN_STALE_SECONDS - (now - note["modified"])) // 60))
-                result.update(text=f"{name} is there after all: asking it to send its changes and hand over…"
+                result.update(left=left, text=f"{name} is there after all: asking it to send its changes and hand over…"
                               if pen.get("found") else f"Asking {name} to send its changes and hand over the editing…",
                               hint=f"Usually within a minute. If {name} is switched off or asleep, you can "
                                    f"take over in {left} min.")
             else:
-                result.update(stale=True, text=f"{name} does not answer (not seen for {ago(note['modified'], now).replace(' ago', '')}).")
+                unseen = ago(note["modified"], now).replace(" ago", "")
+                result.update(stale=True, unseen=unseen, text=f"{name} does not answer (not seen for {unseen}).")
         elif pen.get("mine"):
             result.update(holder="me", mine=True, name=self.state["name"], text="You are editing.")
         elif pen.get("offline"):
@@ -1714,15 +1718,88 @@ class Sync:
             result.update(holder=live[0]["id"], name=live[0]["name"],
                           text=f"{live[0]['name']} is editing{' since ' + since if since else ''}: you can look, not change.")
         elif stale:
-            result.update(holder=stale[0]["id"], name=stale[0]["name"], stale=True,
-                          text=f"{stale[0]['name']} was editing, not seen for {ago(stale[0]['modified'], now).replace(' ago', '')}.")
+            unseen = ago(stale[0]["modified"], now).replace(" ago", "")
+            result.update(holder=stale[0]["id"], name=stale[0]["name"], stale=True, unseen=unseen,
+                          text=f"{stale[0]['name']} was editing, not seen for {unseen}.")
         else:
             asker = self._asked_by(pens)  # this computer handed over: the one that asked takes it in a moment
             if asker is not None:
                 result.update(holder=asker["id"], name=asker["name"], handing=True,
                               text=f"{asker['name']} is taking over the editing: you can look, not change.")
+        self._progress(result)
         # Look only: someone else edits (or is about to), so nothing here can be changed.
         return _looking(result)
+
+    def _progress(self, result: Json) -> None:
+        """While the editing comes to this computer: where it stands, in three steps
+        (``steps``: text, state done / now / todo / warn, detail), and what runs here
+        for it now (``busy``: "take", "ask" or ""). ``result`` is the pen as
+        ``_pen_status`` made it; ``self.lock`` is held."""
+        assert self.state is not None
+        pen = self.state["pen"]
+        # Holding it already: whatever brought it here is over (the take only has to finish saying so).
+        busy = "" if result.get("mine") else self._busy.get("what", "")
+        phase = self._busy.get("phase", "")
+        result["busy"] = busy
+        result.pop("steps", None)
+        name = result.get("name") or "Another computer"
+        holder = result.get("holder")
+
+        def step(text: str, state: str, detail: str = "") -> Json:
+            return {"text": text, "state": state, "detail": detail}
+
+        you = step("You edit", "todo")
+        asking = bool(pen.get("asking")) and holder == pen.get("asking")
+        if asking and result.get("handed"):
+            steps = [step(f"Asked {name}", "done"), step(f"{name} handed over", "done"),
+                     step("You edit", "now", "taking its changes…")]
+        elif asking and not (result.get("stale") and busy == "take"):
+            first = f"{name} is there after all: asked it" if pen.get("found") else f"Asked {name}"
+            if result.get("stale"):
+                second = step(f"{name} does not answer", "warn", f"not seen for {result.get('unseen') or 'a while'}")
+            else:
+                waiting = time.time() - float(pen.get("asked") or time.time())
+                # Past the usual minute: when "Take over…" comes, should it be switched off or asleep.
+                later = (f"if it is switched off or asleep, you can take over in {result['left']} min"
+                         if waiting >= 60 and result.get("left") else "usually within a minute")
+                second = step(f"{name} sends its changes and hands over", "now", f"waiting {_lasted(waiting)} · {later}")
+            steps = [step(first, "done"), second, you]
+        elif busy == "take" or (busy == "ask" and holder is None):
+            if holder is None:
+                first = step("Nobody is editing", "done")
+            elif result.get("stale"):
+                first = step(f"{name} away", "done", f"not seen for {result.get('unseen') or 'a while'}")
+            else:
+                first = step(f"{name} is editing", "done")
+            steps = [first, step("Taking over", "now", "making sure nobody else edits…" if phase == "claim"
+                                 else "looking for newer changes…"), you]
+        elif busy == "ask":
+            steps = [step(f"Asking {name}", "now", "sending the request…" if phase == "claim"
+                          else "looking for newer changes…"),
+                     step(f"{name} sends its changes and hands over", "todo"), you]
+        else:
+            return
+        result["steps"] = steps
+
+    def _running(self, run: Callable[[], Json]) -> Json:
+        """A take or an ask (``_taking`` held): what it shows while under way
+        (``_busy``) never outlives it, nor shows in its answer or its refusal."""
+        try:
+            result = run()
+        except PenError as error:
+            self._idle(error.info)
+            raise
+        finally:
+            with self.lock:
+                self._busy = {}
+        self._idle(result)
+        return result
+
+    def _idle(self, pen: Any) -> None:
+        with self.lock:
+            self._busy = {}
+            if self.state is not None and isinstance(pen, dict) and "busy" in pen:
+                self._progress(pen)
 
     def _pen_round(self, place: Any, listing: places.Listing) -> None:
         """While this computer holds the pen: say so again, give way to a take-over
@@ -1813,7 +1890,7 @@ class Sync:
         hand over rather than refused. Returns the pen as the screens show it.
         One take at a time: a second one waits, then finds the pen taken."""
         with self._taking:
-            return self._take_pen(force, pressed)
+            return self._running(lambda: self._take_pen(force, pressed))
 
     def _take_pen(self, force: bool, pressed: bool) -> Json:
         with self.lock:
@@ -1821,6 +1898,8 @@ class Sync:
                 raise SyncError("Synchronisation is not set up.")
             if self.state["pen"].get("mine"):
                 return self._pen_status()
+            if force or pressed:  # shown on the screen, step by step (a change waits without it)
+                self._busy = {"what": "take", "phase": "look"}
         # A change, known to be without connection a moment ago: said at once rather than wait for the network again.
         known_offline = not (force or pressed) and self._known_offline()
         result = {"ok": False} if known_offline else self.exchange()
@@ -1854,6 +1933,8 @@ class Sync:
             # The state stays as it is until the outcome is known: a round meanwhile sees nothing half done.
             claim = self._pen_note(holding=False, since=since, asking="", asked=asked)
             held = self._pen_note(holding=True, since=since)
+            if self._busy:
+                self._busy = {"what": "take", "phase": "claim"}
         winner: Optional[Json] = None
         try:
             with self._io:
@@ -2064,7 +2145,7 @@ class Sync:
         and hand it over. It does so at its next round; ``follow_up`` then takes the pen.
         Never in the middle of a take or a giving back (``_taking``)."""
         with self._taking:
-            return self._ask_pen()
+            return self._running(self._ask_pen)
 
     def _ask_pen(self) -> Json:
         with self.lock:
@@ -2072,6 +2153,7 @@ class Sync:
                 raise SyncError("Synchronisation is not set up.")
             if self.state["pen"].get("mine") or self.state["pen"].get("asking"):
                 return self._pen_status()
+            self._busy = {"what": "ask", "phase": "look"}
         result = self.exchange()
         self.deliver()
         if not result["ok"]:
@@ -2089,6 +2171,7 @@ class Sync:
                 holder, name = status["holder"], status["name"]
                 self.state["pen"] = {"asking": holder, "name": name, "asked": time.time(), "asked_there": self._now_there()}
                 place, note = self._place, self._pen_note(holding=False)
+                self._busy = {"what": "ask", "phase": "claim"}
         if take:
             return self._take_pen(False, True)  # _taking is held already
         try:
@@ -2240,6 +2323,19 @@ def _how_to_edit(pen: Json) -> str:
         return f"Its changes arrive here by themselves. To edit here again, ask to edit once {name} has the pen."
     return (f"To change something, press “Ask to edit”: {name} sends its changes, then hands over by itself, "
             f"usually within a minute. Or press “I have finished” on {name}.")
+
+
+def _lasted(seconds: float) -> str:
+    """How long, in a few words: to the second while it is short ("40 s", "1 min 10 s")."""
+    seconds = max(0, int(seconds))
+    if seconds < 60:
+        return f"{seconds} s"
+    minutes, rest = divmod(seconds, 60)
+    if minutes < 10:
+        return f"{minutes} min {rest} s" if rest else f"{minutes} min"
+    if minutes < 60:
+        return f"{minutes} min"
+    return f"{round(minutes / 60)} h"
 
 
 def _no_connection(what: str) -> str:

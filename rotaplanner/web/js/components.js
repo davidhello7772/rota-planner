@@ -93,8 +93,20 @@ const openOverlays = [];  // a drawer can open over a dialog: Escape closes the 
 
 // ---- Looking only: another computer edits (sync.js) ----------------------------
 
-let makeLookBar = () => null;  // set by sync.js: why this computer only looks, and the way back to editing
+let makeLookBar = () => null;  // set by sync.js: why this computer only looks, the way back to editing, the steps
 export function setLookBar(make) { makeLookBar = make; }
+
+/**
+ * The look bar in every open window: redrawn where it is (`update()`: a button
+ * under the pointer stays), made when it is new, taken away when it has gone.
+ */
+export function refreshLookSlots() {
+  for (const slot of document.querySelectorAll('.look-slot')) {
+    if (slot.firstElementChild?.update?.()) continue;
+    const bar = makeLookBar();
+    if (bar || slot.firstChild) fill(slot, bar);
+  }
+}
 
 /**
  * Mark a control that changes the shared data: while another computer edits it
@@ -112,7 +124,7 @@ export function applyReadOnly() {
   document.body.classList.toggle('read-only', looking);
   for (const el of document.querySelectorAll('.changes')) el.inert = looking;
   for (const set of document.querySelectorAll('fieldset.change-fields')) set.disabled = looking;
-  for (const slot of document.querySelectorAll('.look-slot')) fill(slot, looking ? makeLookBar() : null);
+  refreshLookSlots();
 }
 
 /**
@@ -157,7 +169,7 @@ function overlay(kind, { title, subtitle, body, actions, onClose, wide, changes:
       h('div', {}, h('h2', {}, title), subtitle ? h('p', { class: 'muted' }, subtitle) : null),
       h('button', { class: 'btn ghost icon-only', type: 'button', 'aria-label': 'Close', onclick: close }, icon('close'))),
     h('div', { class: `${kind}-body` }, changing
-      ? [h('div', { class: 'look-slot' }, readOnly() ? makeLookBar() : null),
+      ? [h('div', { class: 'look-slot' }, makeLookBar()),
         h('fieldset', { class: 'change-fields', disabled: readOnly() }, body)]
       : body),
     actions ? h('footer', { class: [`${kind}-foot`, changing && 'change-foot'] }, actions) : null);
