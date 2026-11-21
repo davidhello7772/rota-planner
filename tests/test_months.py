@@ -115,6 +115,49 @@ class AssignTest(unittest.TestCase):
         made = self.assign("lunch", "2026-12-01", 1, person_id="ana")
         status = checks.assignment_status(h.schedule(self.month), made)
         self.assertIn("not_required", [f.rule for f in status.findings])
+        self.assertIn("Beyond the 1 needed that day", [f.message for f in status.findings])
+
+    def view(self):
+        return view.month_view(self.month, h.catalog(), self.people, self.settings)
+
+    def test_the_rota_says_how_many_people_each_task_needs(self):
+        tasks = {t["id"]: t for area in self.view()["areas"] for t in area["tasks"]}
+        self.assertEqual(tasks["lunch"]["need"], {"text": "1", "title": "Needs 1 person a day."})
+        self.assertEqual(tasks["helper"]["need"]["text"], "2")
+        months.set_headcount(self.month, "lunch", "2026-12-03", 2)
+        cells = self.view()["cells"]
+        self.assertEqual(cells["lunch|2026-12-03"]["need"],
+                         {"count": 2, "title": "2 people needed this day (usually 1): set by hand."})
+        self.assertIsNone(cells["lunch|2026-12-04"]["need"])
+        months.set_headcount(self.month, "lunch", "2026-12-04", 0)   # no place left: "Not needed" says it
+        self.assertIsNone(self.view()["cells"]["lunch|2026-12-04"]["need"])
+
+    def test_a_place_beyond_what_the_day_needs(self):
+        # One fewer needed with both places taken: nobody is hidden, the second place is beyond the need.
+        months.set_headcount(self.month, "lunch", "2026-12-01", 2)
+        self.assign("lunch", "2026-12-01", 0, person_id="ana")
+        self.assign("lunch", "2026-12-01", 1, person_id="ben")
+        self.assertNotIn("beyond", self.view()["cells"]["lunch|2026-12-01"]["slots"][1])
+        months.set_headcount(self.month, "lunch", "2026-12-01", 1)
+        cell = self.view()["cells"]["lunch|2026-12-01"]
+        self.assertEqual([slot.get("beyond", False) for slot in cell["slots"]], [False, True])
+        self.assertIn("Beyond the 1 needed that day", [f["message"] for f in cell["slots"][1]["findings"]])
+        self.assertIsNone(cell["need"])   # back to its usual number
+        months.set_headcount(self.month, "lunch", "2026-12-01", 0)
+        cell = self.view()["cells"]["lunch|2026-12-01"]
+        self.assertEqual([slot.get("beyond", False) for slot in cell["slots"]], [True, True])
+        self.assertIn("Not needed that day", [f["message"] for f in cell["slots"][0]["findings"]])
+        self.assertEqual(cell["need"], {"count": 0, "title": "Nobody needed this day (usually 1): set by hand."})
+
+    def test_a_place_beyond_the_need_after_the_task_changed(self):
+        # A Saturday needs two helpers; the month's task then asks for one: the second place is beyond.
+        self.assign("helper", "2026-12-05", 0, person_id="ana")
+        self.assign("helper", "2026-12-05", 1, person_id="cleo")
+        next(t for t in self.month.tasks if t.id == "helper").headcount["sat"] = 1
+        cell = self.view()["cells"]["helper|2026-12-05"]
+        self.assertEqual([slot.get("beyond", False) for slot in cell["slots"]], [False, True])
+        self.assertEqual(cell["slots"][1]["state"], checks.WARN)
+        self.assertIsNone(cell["need"])   # the usual number has changed with it
 
 
 class RegularTest(unittest.TestCase):

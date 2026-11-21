@@ -71,6 +71,7 @@ def _task_json(task: Task, skill_names: Dict[str, str], month: Month) -> Json:
         "anytime": task.any_time,
         "skill": skill_names.get(task.skill_id or "", "Anyone"),
         "priority": task.priority,
+        "need": demand.usual_need(task),   # by its name: the number, or a range, and the words
     }
 
 
@@ -131,6 +132,8 @@ def month_view(
                 proposal = proposed.get(slot_key(task.id, iso, position))
                 if assignment is not None:
                     slot = _assignment_json(assignment, statuses[assignment.slot])
+                    if position >= required:
+                        slot["beyond"] = True   # a place past what the day needs
                     if slot["state"] == checks.CONFLICT:
                         day_stats[iso]["conflicts"] += 1
                 else:
@@ -145,12 +148,15 @@ def month_view(
             day_stats[iso]["required"] += required
             day_stats[iso]["filled"] += sum(1 for p in schedule.cell(task.id, iso) if p < required)
             change = month.time_changes.get(f"{task.id}|{iso}")
+            # A number of its own for this day; not when no place shows ("Not needed" says it).
+            need = demand.day_need(month, task, iso, required) if count else None
             cells[f"{task.id}|{iso}"] = {
                 "time": schedule.task_on(task.id, iso).time_text() if change else None,
                 "required": required,
                 "usual": demand.rule_headcount(task, iso, month.day_type(iso), month.events),
                 "adjusted": iso in adjusted_days,
                 "closed": closed.label if closed else None,
+                "need": need,   # None, or the day's own number and its words
                 "slots": slots,
             }
     summary = checks.summarize(schedule, statuses).to_dict()

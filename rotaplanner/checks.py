@@ -23,7 +23,8 @@ def assignment_status(schedule: Schedule, assignment: Assignment) -> Status:
     findings: List[rules.Finding] = []
     required = schedule.required.get((assignment.task_id, assignment.date), 0)
     if assignment.position >= required:
-        findings.append(rules.Finding("not_required", rules.WARN, "Not required that day"))
+        words = f"Beyond the {required} needed that day" if required else "Not needed that day"
+        findings.append(rules.Finding("not_required", rules.WARN, words))
 
     if assignment.outsider:
         return Status(WARN if findings else GUEST, findings)

@@ -79,10 +79,10 @@ export function chipFor(slot, ctx) {
 
   return h('button', {
     class: ['chip', `s-${slot.state}`, slot.source === 'regular' && 'regular', highlighted && 'hl', slot.proposal && 'moving', slot.unnamed && 'unnamed',
-      slot.note && 'noted'],
+      slot.note && 'noted', slot.beyond && 'beyond'],
     dataset,
     tabindex: '-1',
-    'aria-label': [full, STATE_WORDS[slot.state]].filter(Boolean).join(', '),
+    'aria-label': [full, STATE_WORDS[slot.state], slot.beyond && 'beyond what the day needs'].filter(Boolean).join(', '),
   },
   h('span', { class: 't-init' }, initials),
   h('span', { class: 't-short' }, short),

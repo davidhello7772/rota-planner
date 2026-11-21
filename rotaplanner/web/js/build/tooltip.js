@@ -83,6 +83,7 @@ function labelLines(th) {
   if (!task) return null;
   return [h('strong', {}, task.name),
     h('span', { class: 'tt-line' }, [task.time, task.hours ? `${task.hours} h` : 'not counted in hours'].filter(Boolean).join(' · ')),
+    task.need?.title ? h('span', { class: 'tt-line' }, task.need.title) : null,
     h('span', { class: 'tt-line' }, `Skill: ${task.skill}`),
     task.priority !== 'normal' ? h('span', { class: 'tt-line' }, task.priority === 'critical' ? 'Essential' : 'Optional') : null];
 }

@@ -91,6 +91,13 @@ function visibleTasks(area, month, visible, ui, session) {
   });
 }
 
+/** How many people the task usually needs, after its name: "1", or "1–2" when it varies by weekday.
+ *  Its words (`need.title`) are in the task's hover card. */
+function needMark(need) {
+  if (!need?.text) return null;
+  return h('span', { class: 'task-need', role: 'img', 'aria-label': need.title }, icon('users'), need.text);
+}
+
 /** The event a task belongs to: a link to that event and its tasks. */
 export function eventTag(task) {
   return h('button', { class: 'event-tag', type: 'button', dataset: { eventTasks: task.event_id },
@@ -130,21 +137,24 @@ function areaRows(area, month, visible, ui, session, people) {
   for (const task of tasks) {
     const row = h('tr', { class: [`area-${area.color}`, !task.on_main_rota && 'event-only'] },
       h('th', { class: 'sticky task-label', scope: 'row', dataset: { task: task.id } },
-        h('span', { class: 'task-name' }, task.name),
+        h('span', { class: 'task-name' }, h('span', { class: 'task-name-text' }, task.name), needMark(task.need)),
         h('span', { class: 'task-meta' },
           task.event ? eventTag(task) : null,
           task.priority === 'critical' ? h('span', { class: 'prio' }, 'Essential · ') : null,
           [task.time, task.hours ? `${task.hours} h` : null].filter(Boolean).join(' · '))));
     visible.forEach((day, i) => {
       const cell = month.cells[`${task.id}|${day.date}`];
-      const td = h('td', { class: ['cell', day.weekend && 'weekend-col', cell?.closed && 'closed', cell?.time && 'retimed'] });
+      const td = h('td', {
+        class: ['cell', day.weekend && 'weekend-col', cell?.closed && 'closed', cell?.time && 'retimed', cell?.need && 'own-need'],
+        dataset: cell?.need ? { need: cell.need.count } : {},
+      });
       const chips = cellChips(cell, {
         taskId: task.id, date: day.date, col: i, priority: task.priority, showEmpty: ui.showEmpty,
         people, eligible: session.eligible, highlight: session.person,
       });
       if (chips.length) td.append(h('div', { class: 'stack' }, chips));
-      if (cell?.closed) td.title = cell.closed;
-      if (cell?.time) td.title = `Other time this day: ${cell.time}`;
+      const title = [cell?.closed, cell?.need?.title, cell?.time && `Other time this day: ${cell.time}`].filter(Boolean);
+      if (title.length) td.title = title.join('\n');
       row.append(td);
     });
     rows.push(row);

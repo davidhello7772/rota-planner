@@ -1,7 +1,7 @@
 import unittest
 
-from rotaplanner import availability, demand, editing, month_setup
-from rotaplanner.model import Assignment, Regular, Settings
+from rotaplanner import availability, demand, editing, month_setup, months
+from rotaplanner.model import Assignment, Regular, Settings, Task
 
 from . import helpers as h
 
@@ -101,6 +101,77 @@ class DaysTest(unittest.TestCase):
         self.assertEqual(balance(120), ("warn", 0))     # more than nine tenths of what people can give
         self.assertEqual(balance(125), ("ok", 0))
         self.assertEqual(month_setup.overview(self.month, [], Settings())["balance"], "bad")
+
+
+class NeedTest(unittest.TestCase):
+    """How many people a task needs, as the rota says it: by the task's name, and on a day of its own."""
+
+    def setUp(self):
+        self.catalog = h.catalog()
+        self.month = h.month(self.catalog)
+        self.tasks = {task.id: task for task in self.month.tasks}
+
+    def day(self, task_id, iso):
+        return demand.day_need(self.month, self.tasks[task_id], iso,
+                               demand.required(self.month).get((task_id, iso), 0))
+
+    def test_the_usual_need_by_the_name_of_the_task(self):
+        usual = demand.usual_need
+        self.assertEqual(usual(self.tasks["lunch"]), {"text": "1", "title": "Needs 1 person a day."})
+        self.assertEqual(usual(Task("t", "kitchen", "T", headcount={"default": 1, "wed": 2, "event": 3})),
+                         {"text": "1–2", "title": "Needs 1 person a day, 2 on Wednesdays. At least 3 on event days."})
+        self.assertEqual(usual(self.tasks["helper"]),
+                         {"text": "2", "title": "Needs 2 people on Saturdays and Sundays. At least 3 on event days."})
+        self.assertEqual(usual(Task("t", "kitchen", "T", headcount={"default": 1, "sat": 2, "sun": 0})),
+                         {"text": "1–2", "title": "Needs 1 person on Mondays to Fridays and 2 on Saturdays."})
+        self.assertEqual(usual(Task("t", "kitchen", "T", headcount={"default": 2, "event": 2})),
+                         {"text": "2", "title": "Needs 2 people a day."})   # event days ask no more
+        self.assertEqual(usual(Task("t", "kitchen", "T", headcount={"event": 3})),
+                         {"text": "3", "title": "Needed only on event days: 3 people."})
+        self.assertEqual(usual(Task("t", "kitchen", "T", headcount={}))["text"], "")   # never needed: no number
+        self.assertEqual(usual(Task("t", "kitchen", "T", headcount={"sun": 0}))["text"], "")
+        retreat = month_setup.save_event(self.month, {"name": "Retreat", "start": "2026-12-11", "end": "2026-12-13"})
+        chocolate = month_setup.save_event_task(self.month, self.catalog, {
+            "event_id": retreat.id, "name": "Hot chocolate", "area_id": "kitchen", "start": "20:30", "end": "21:00", "people": 3})
+        self.assertEqual(usual(chocolate), {"text": "3", "title": "Needed only on the days of its event: 3 people."})
+
+    def test_a_day_that_needs_another_number(self):
+        self.assertIsNone(self.day("lunch", "2026-12-01"))   # an ordinary day
+        months.set_headcount(self.month, "lunch", "2026-12-01", 2)
+        self.assertEqual(self.day("lunch", "2026-12-01"),
+                         {"count": 2, "title": "2 people needed this day (usually 1): set by hand."})
+        months.set_headcount(self.month, "helper", "2026-12-05", 1)   # a Saturday: usually 2
+        self.assertEqual(self.day("helper", "2026-12-05"),
+                         {"count": 1, "title": "1 person needed this day (usually 2): set by hand."})
+        months.set_headcount(self.month, "helper", "2026-12-06", 2)   # by hand, but as usual
+        self.assertIsNone(self.day("helper", "2026-12-06"))
+
+    def test_an_event_day_that_asks_for_more(self):
+        self.tasks["supper"].headcount["event"] = 3
+        month_setup.save_event(self.month, {"name": "Weekend retreat", "start": "2026-12-08", "end": "2026-12-09"})
+        self.assertEqual(self.day("supper", "2026-12-08"),
+                         {"count": 3, "title": "3 people needed this day (usually 1): Weekend retreat."})
+        self.assertEqual(self.day("helper", "2026-12-09"),   # a Wednesday: usually nobody
+                         {"count": 3, "title": "3 people needed this day (usually none): Weekend retreat."})
+        self.assertIsNone(self.day("lunch", "2026-12-08"))   # no event number: as usual
+        month_setup.set_day_type(self.month, "2026-12-15", "event")   # an event day chosen by hand
+        self.assertEqual(self.day("supper", "2026-12-15"),
+                         {"count": 3, "title": "3 people needed this day (usually 1): an event day."})
+
+    def test_a_task_of_an_event_differs_only_by_hand(self):
+        retreat = month_setup.save_event(self.month, {"name": "Retreat", "start": "2026-12-11", "end": "2026-12-13"})
+        chocolate = month_setup.save_event_task(self.month, self.catalog, {
+            "event_id": retreat.id, "name": "Hot chocolate", "area_id": "kitchen", "start": "20:30", "end": "21:00", "people": 3})
+        self.tasks[chocolate.id] = chocolate
+        self.assertIsNone(self.day(chocolate.id, "2026-12-11"))   # its need comes from its event
+        months.set_headcount(self.month, chocolate.id, "2026-12-12", 1)
+        self.assertEqual(self.day(chocolate.id, "2026-12-12"),
+                         {"count": 1, "title": "1 person needed this day (usually 3): set by hand."})
+
+    def test_a_closed_day_shows_by_itself(self):
+        month_setup.save_marker(self.month, {"kind": "closed", "label": "Christmas", "start": "2026-12-25"})
+        self.assertIsNone(self.day("lunch", "2026-12-25"))
+        self.assertIsNone(demand.day_need(self.month, self.tasks["lunch"], "2026-12-25", 0))
 
 
 class OverTwoMonthsTest(unittest.TestCase):

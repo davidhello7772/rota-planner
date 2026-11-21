@@ -1,10 +1,20 @@
 // One day as a vertical list grouped by area: the layout used for big
 // events, and handy for reviewing a single busy day.
 import { formatHours, h } from '../dom.js';
+import { icon } from '../icons.js';
 import { cellChips } from './chips.js';
 import { eventTag, matchesFilter } from './grid.js';
 
 const LONG = new Intl.DateTimeFormat('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
+
+/** How many people the task needs that day, after its name: "2 needed" when that is not its usual number. */
+function dayNeed(task, cell) {
+  if (cell.need) {
+    return h('span', { class: 'task-need own', title: cell.need.title }, icon('users'), cell.need.count ? `${cell.need.count} needed` : 'Not needed');
+  }
+  if (!cell.required) return null;
+  return h('span', { class: 'task-need', title: task.need?.title || undefined }, icon('users'), String(cell.required));
+}
 
 /** `allTasks`: also the tasks kept on an event's own rota (true in the Event view). */
 export function buildDayView({ month, day, ui, session, people, allTasks = false }) {
@@ -22,7 +32,7 @@ export function buildDayView({ month, day, ui, session, people, allTasks = false
       if (session.openOnly && !matchesFilter(cell, session.openOnly)) return null;
       return h('div', { class: ['day-task', cell.closed && 'closed'], title: cell.closed || undefined },
         h('div', {},
-          h('span', { class: 'task-name' }, task.name),
+          h('span', { class: 'task-name' }, task.name, dayNeed(task, cell)),
           task.event ? [' · ', eventTag(task)] : null,
           h('span', { class: ['task-meta', cell.time && 'retimed-note'] },
             cell.time ? `◷ ${cell.time} (other time this day)` : [task.time, task.hours ? formatHours(task.hours) : null].filter(Boolean).join(' · '))),
