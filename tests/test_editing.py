@@ -64,6 +64,15 @@ class PersonTest(unittest.TestCase):
         del old["skilled_tasks_only"]   # saved before the box existed
         self.assertIs(Person.from_dict(old).skilled_tasks_only, False)
 
+    def test_no_lay_name_or_phone(self):
+        # Sent by an older screen: not kept.
+        ana = editing.save_person(self.people, self.catalog,
+                                  {"id": "ana", "first_name": "Ana", "lay_name": "Ann", "phone": "0700"})
+        self.assertFalse({"lay_name", "phone"} & set(ana.to_dict()))
+        # A file saved before they were taken out still opens; they are gone from the next save.
+        old = {**ana.to_dict(), "lay_name": "Ann", "phone": "0700"}
+        self.assertFalse({"lay_name", "phone"} & set(Person.from_dict(old).to_dict()))
+
     def test_counts_are_whole_numbers(self):
         def save(**limits):
             return editing.save_person(self.people, self.catalog, {"id": "ana", "first_name": "Ana", **limits})
@@ -271,6 +280,9 @@ class PeopleImportTest(unittest.TestCase):
         row = people_import.preview(self.people, self.catalog, text=text)["rows"][0]
         self.assertEqual((row["first_name"], row["last_name"], row["skills"], row["resident"]),
                          ("Ray", "Moss", ["cook"], False))
+        self.assertNotIn("0700", str(row))   # a phone column is not read
+        (added,) = people_import.apply(self.people, self.catalog, [row])
+        self.assertNotIn("0700", str(added.to_dict()))
         data = build_xlsx({"People": {"cells": {(1, 1): "Name", (1, 2): "Surname", (2, 1): "Lia", (2, 2): "Tor"}}})
         row = people_import.preview(self.people, self.catalog, file_bytes=data, filename="list.xlsx")["rows"][0]
         self.assertEqual((row["first_name"], row["last_name"], row["status"]), ("Lia", "Tor", "new"))

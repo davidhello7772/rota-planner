@@ -358,8 +358,6 @@ class Person(Record):
     """Name on the rota, e.g. "Quinn J."."""
     first_name: str = ""
     last_name: str = ""
-    lay_name: str = ""
-    phone: str = ""
     resident: bool = True
     active: bool = True
     archived: bool = False

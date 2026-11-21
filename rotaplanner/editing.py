@@ -168,8 +168,6 @@ def save_person(people: List[Person], catalog: Catalog, data: Json, salt: bytes 
         person.email_fp = ""
     person.name = name
     person.first_name, person.last_name = first, last
-    person.lay_name = _text(data, "lay_name")
-    person.phone = _text(data, "phone")
     person.resident = bool(data.get("resident", True))
     person.active = bool(data.get("active", True))
     person.archived = bool(data.get("archived", False))

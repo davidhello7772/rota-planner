@@ -21,7 +21,7 @@ const NEVER_PERIODS = [
 
 function matches(person, query) {
   if (!query) return true;
-  const text = `${person.name} ${person.first_name} ${person.last_name} ${person.lay_name}`.toLowerCase();
+  const text = `${person.name} ${person.first_name} ${person.last_name}`.toLowerCase();
   return query.toLowerCase().split(/\s+/).every((word) => text.includes(word));
 }
 
@@ -81,13 +81,11 @@ function preferenceEditor(areas, preferences) {
 
 export function editPerson(person) {
   const setup = state.session.setup;
-  const p = person || { first_name: '', last_name: '', name: '', lay_name: '', phone: '', resident: true, active: true,
+  const p = person || { first_name: '', last_name: '', name: '', resident: true, active: true,
     skills: [], skilled_tasks_only: false, preferences: {}, never: [], avoid_task_ids: [], note: '' };
   const first = textInput(p.first_name, { autofocus: true, autocomplete: 'off' });
   const last = textInput(p.last_name, { autocomplete: 'off' });
   const rota = textInput(p.name, { placeholder: 'First name and initial, e.g. Quinn J.', autocomplete: 'off' });
-  const lay = textInput(p.lay_name);
-  const phone = textInput(p.phone, { type: 'tel' });
   // Write-only: the address is turned into a fingerprint by the program and never shown again.
   const email = textInput('', { type: 'email', autocomplete: 'off',
     placeholder: p.has_email ? 'Known · type a new one to replace it' : 'name@example.org' });
@@ -129,7 +127,7 @@ export function editPerson(person) {
 
   const save = async () => {
     const data = {
-      id: p.id, first_name: first.value, last_name: last.value, name: rota.value, lay_name: lay.value, phone: phone.value,
+      id: p.id, first_name: first.value, last_name: last.value, name: rota.value,
       resident: resident.input.checked, active: active.input.checked, archived: archived.input.checked,
       skills: skills.getValue(), skilled_tasks_only: skilledOnly.input.checked, target_hours_per_week: target.value, max_hours: maxMonth.value,
       max_hours_per_day: maxDay.value, max_tasks_per_day: tasksDay.value, max_shifts_per_week: shiftsWeek.value,
@@ -151,7 +149,6 @@ export function editPerson(person) {
     body: [
       h('div', { class: 'form-grid' }, field('First name', first), field('Last name', last)),
       field('Name on the rota', rota, 'Left empty, it is made from the first name and the initial.'),
-      h('div', { class: 'form-grid' }, field('Lay name', lay), field('Phone', phone)),
       h('div', { class: 'email-field' }, field('E-mail address', email), h('div', { class: 'email-state' }, emailState, forgetButton)),
       h('div', { class: 'form-row' }, resident, active),
       h('h3', { class: 'form-section' }, 'Skills'), skills,
@@ -185,7 +182,7 @@ export function editPerson(person) {
 const STATUS_WORDS = { new: 'New', exists: 'Already in the list', duplicate: 'Looks like', invalid: 'No name' };
 
 function importPeople() {
-  const text = h('textarea', { class: 'input textarea', rows: 8, placeholder: 'One person per line, e.g.\nQuinn Jansen\nMaya Marin\n\nOr paste a table with a header row (First name, Last name, Phone, skills…).' });
+  const text = h('textarea', { class: 'input textarea', rows: 8, placeholder: 'One person per line, e.g.\nQuinn Jansen\nMaya Marin\n\nOr paste a table with a header row (First name, Last name, skills…).' });
   const file = h('input', { type: 'file', accept: '.csv,.txt,.xlsx', class: 'file' });
   const result = h('div', { class: 'import-result' });
   let rows = [];

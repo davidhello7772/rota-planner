@@ -33,7 +33,6 @@ HEADER_WORDS = {
     "first_name": ("first name", "firstname", "first", "given name", "prénom", "prenom", "name"),
     "last_name": ("last name", "lastname", "surname", "family name", "nom de famille", "nom"),
     "name": ("name on rota", "rota name", "short name", "display name"),
-    "phone": ("phone", "phone number", "mobile", "telephone", "téléphone"),
     "email": ("email", "e mail", "email address", "e mail address", "mail", "courriel", "adresse mail", "adresse e mail"),
     "resident": ("resident", "résident"),
     "active": ("active", "active on rota"),
@@ -101,7 +100,7 @@ def _rows(table: List[List[str]], skills: List[Any]) -> List[Json]:
     body = table[1:] if mapping else table
     rows = []
     for raw in body[:MAX_ROWS]:
-        row: Json = {"first_name": "", "last_name": "", "name": "", "phone": "", "email": "", "skills": []}
+        row: Json = {"first_name": "", "last_name": "", "name": "", "email": "", "skills": []}
         if mapping is None:
             words = (raw[0] if len(raw) == 1 else " ".join(raw[:2])).split()
             row["first_name"], row["last_name"] = (words[0] if words else ""), " ".join(words[1:])
@@ -202,7 +201,6 @@ def apply(people: List[Person], catalog: Catalog, rows: List[Json], salt: bytes 
             name = rota_name(first, last, taken)
         person = Person(
             id=new_id("person"), name=name, first_name=first, last_name=last,
-            phone=" ".join(str(row.get("phone") or "").split()),
             resident=bool(row.get("resident", True)), active=bool(row.get("active", True)),
             skills=[s for s in row.get("skills") or [] if s in skill_ids],
         )
