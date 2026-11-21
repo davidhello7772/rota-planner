@@ -11,7 +11,6 @@ from __future__ import annotations
 import copy
 import math
 from collections import defaultdict
-from datetime import timedelta
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set
 
 from . import demand, editing
@@ -29,6 +28,7 @@ from .model import (
     Task,
     new_id,
     parse_date,
+    week_start,
 )
 from .months import apply_regulars
 from .schedule import Schedule
@@ -50,11 +50,13 @@ def new_month(
     month_number: int,
     people: Iterable[Person],
     settings: Settings,
+    around: Iterable[Month] = (),
 ) -> Month:
     """A new month with the areas and tasks of ``source``, regular week applied.
 
     Tasks that only existed on particular days of the source month, or for
     one of its events, are left behind: they belonged to that month.
+    ``around``: the existing months next door, which the rules look into.
     """
     month = Month(
         id=Month.make_id(year, month_number),
@@ -63,7 +65,7 @@ def new_month(
         areas=copy.deepcopy(source.areas),
         tasks=[copy.deepcopy(t) for t in source.tasks if not t.only_dates and t.event_id is None],
     )
-    apply_regulars(month, catalog, people, settings)
+    apply_regulars(month, catalog, people, settings, around)
     return month
 
 
@@ -379,9 +381,7 @@ def overview(month: Month, people: List[Person], settings: Settings) -> Json:
 
     weeks: Dict[str, Json] = defaultdict(lambda: {"shifts": 0, "hours": 0.0, "days": []})
     for iso in schedule.dates:
-        day = parse_date(iso)
-        monday = (day - timedelta(days=day.weekday())).isoformat()
-        week = weeks[monday]
+        week = weeks[week_start(iso)]
         week["shifts"] += per_day[iso]["shifts"]
         week["hours"] += per_day[iso]["hours"]
         week["days"].append(iso)

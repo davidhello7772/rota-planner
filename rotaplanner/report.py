@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter
-from typing import Any, Dict, List
+from typing import Any, Dict, Iterable, List
 
 from . import checks
 from .eligibility import WEEKDAY_NAMES as DAY_NAMES
@@ -135,9 +135,11 @@ def calendar_row(schedule: Schedule, shifts: List[Any], away: Dict[str, List[str
     return row
 
 
-def check_report(month: Month, people: List[Person], settings: Settings, previous: List[Month]) -> Json:
-    """``previous``: earlier months, most recent first, for the hours history."""
-    schedule = Schedule(month, people, settings)
+def check_report(month: Month, people: List[Person], settings: Settings, previous: List[Month],
+                 around: Iterable[Month] = ()) -> Json:
+    """``previous``: earlier months, most recent first, for the hours history.
+    ``around``: the months next door, which the rules look into (see ``Schedule``)."""
+    schedule = Schedule(month, people, settings, around)
     statuses = checks.all_statuses(schedule)
     names = {p.id: p.name for p in people}
 

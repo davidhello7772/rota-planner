@@ -37,14 +37,17 @@ def regulars_on(catalog: Catalog, iso: str) -> Dict[Tuple[str, int], Regular]:
     return {(r.task_id, r.position): r for r in catalog.regulars if r.applies(iso)}
 
 
-def apply_regulars(month: Month, catalog: Catalog, people: Iterable[Person], settings: Settings) -> int:
+def apply_regulars(
+    month: Month, catalog: Catalog, people: Iterable[Person], settings: Settings, around: Iterable[Month] = ()
+) -> int:
     """Pre-fill the month with the regular week.
 
     A regular who cannot do a given day (away, already busy…) is skipped; the
-    slot stays open and the grid shows it as "cover needed".
+    slot stays open and the grid shows it as "cover needed". ``around``: the
+    months next door, which the rules look into (see ``Schedule``).
     Returns the number of assignments made.
     """
-    schedule = Schedule(month, people, settings)
+    schedule = Schedule(month, people, settings, around)
     placed = 0
     for iso in month.dates():
         for regular in regulars_on(catalog, iso).values():
@@ -94,13 +97,15 @@ def assign(
     force: bool = False,
     reason: Optional[str] = None,
     guest_kind: str = "",
+    around: Iterable[Month] = (),
 ) -> Assignment:
     """Put a person, a guest or a volunteer in a slot, replacing whoever was there.
 
     A guest or volunteer may have no name yet (``guest_kind`` alone).
     Raises ``RuleViolation`` when a hard rule is broken and ``force`` is off.
+    ``around``: the months next door, which the rules look into (see ``Schedule``).
     """
-    schedule = Schedule(month, people, settings)
+    schedule = Schedule(month, people, settings, around)
     _check_slot(schedule, task_id, iso, position)
     guest = " ".join(guest.split())[:GUEST_NAME_MAX]
     if guest_kind and guest_kind not in GUEST_KINDS:

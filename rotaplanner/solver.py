@@ -87,9 +87,11 @@ def prefill(
     area_ids: Optional[Set[str]] = None,
     seed: int = 0,
     seconds: float = IMPROVE_SECONDS,
+    around: Iterable[Month] = (),
 ) -> Tuple[List[Proposal], List[Slot]]:
-    """Proposals for open shifts (in the given days / areas); and those left open."""
-    schedule = Schedule(month, people, settings)
+    """Proposals for open shifts (in the given days / areas); and those left open.
+    ``around``: the months next door, which the rules look into (see ``Schedule``)."""
+    schedule = Schedule(month, people, settings, around)
 
     def in_scope(slot: Slot) -> bool:
         task = schedule.tasks[slot[0]]
@@ -206,13 +208,13 @@ def _worth_moving(schedule: Schedule, assignment: Assignment, taker: str) -> boo
 
 
 def rebalance(month: Month, people: Iterable[Person], settings: Settings,
-              max_moves: int = REBALANCE_MAX_MOVES) -> List[Proposal]:
+              max_moves: int = REBALANCE_MAX_MOVES, around: Iterable[Month] = ()) -> List[Proposal]:
     """Single moves that clearly even out the work, best first; each person moves once at most.
 
     Regular-week, locked and forced shifts stay where they are: they were
     decided on purpose.
     """
-    schedule = Schedule(month, people, settings)
+    schedule = Schedule(month, people, settings, around)
     moves = []
     for assignment in month.assignments:
         if not assignment.person_id or assignment.locked or assignment.forced_reason is not None \
@@ -284,10 +286,10 @@ def _max_matching(slots: List[Slot], options: Dict[Slot, List[str]], capacity: D
 
 
 def shortages(month: Month, people: Iterable[Person], settings: Settings,
-              skill_names: Dict[str, str], limit: int = 6) -> List[Dict[str, object]]:
+              skill_names: Dict[str, str], limit: int = 6, around: Iterable[Month] = ()) -> List[Dict[str, object]]:
     """Days where open shifts outnumber the people who could take them, worst first;
     then the skills most often missing."""
-    schedule = Schedule(month, people, settings)
+    schedule = Schedule(month, people, settings, around)
     by_day: Dict[str, List[Slot]] = defaultdict(list)
     for slot in schedule.open_slots():
         by_day[slot[1]].append(slot)
@@ -345,9 +347,10 @@ def _mentions(comment: str, iso: str, task_name: str) -> bool:
 
 
 def ideas(month: Month, people: Iterable[Person], settings: Settings, catalog_regulars: Iterable,
-          task_id: str, iso: str, position: int, limit: int = 6) -> List[Dict[str, object]]:
+          task_id: str, iso: str, position: int, limit: int = 6,
+          around: Iterable[Month] = ()) -> List[Dict[str, object]]:
     """Ways out for a shift with no clean candidate, gentlest first."""
-    schedule = Schedule(month, people, settings)
+    schedule = Schedule(month, people, settings, around)
     task = schedule.task_on(task_id, iso)
     current = schedule.at((task_id, iso, position))
     found: List[Dict[str, object]] = []

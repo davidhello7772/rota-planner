@@ -213,6 +213,12 @@ cost a bug report.
 - **A shift belongs to the month of its date.** The Event view can show days
   of another month: actions must target `monthOf(date)` (`actions.js`), and
   the other month's view lives in `state.session.otherMonths`.
+- **Rules see the nearby days of the months next door.** Wherever rules are
+  evaluated, `Schedule(..., around=App._around(month_id))` gets the month
+  before and after (read only, never changed); a night on the 31st clashes
+  with a morning on the 1st, and a week (Monday to Sunday) counts across two
+  months. Those shifts never count in the month's own totals, slots or
+  statuses. A new place that evaluates rules must pass `around` too.
 - **Parts of the day**: morning before 14:00, afternoon 14:00–17:00, evening
   after 17:00 (`editing.periods_for_times`). A part counts when the task
   spends at least half an hour in it (14:00–17:15 is not an evening task).

@@ -101,9 +101,11 @@ def month_view(
     can_undo: bool = False,
     can_redo: bool = False,
     proposals: Iterable[Proposal] = (),
+    around: Iterable[Month] = (),
 ) -> Json:
-    """``proposals`` are suggestions not yet accepted; they are shown on their slots."""
-    schedule = Schedule(month, people, settings)
+    """``proposals`` are suggestions not yet accepted; they are shown on their slots.
+    ``around``: the months next door, which the rules look into (see ``Schedule``)."""
+    schedule = Schedule(month, people, settings, around)
     statuses = checks.all_statuses(schedule)
     proposals = still_valid(schedule, proposals)
     proposed = {p.key: p for p in proposals}
@@ -226,10 +228,12 @@ def candidates_view(
     iso: str,
     position: int,
     catalog: Optional[Catalog] = None,
+    around: Iterable[Month] = (),
 ) -> Json:
     """Everyone for one slot, ranked, with the reasons behind each rank; and
     ideas when nobody can simply take it."""
-    schedule = Schedule(month, people, settings)
+    around = list(around)
+    schedule = Schedule(month, people, settings, around)
     task = schedule.tasks.get(task_id)
     if task is None or iso not in schedule.dates:
         raise ValueError("Unknown task or date.")
@@ -268,7 +272,8 @@ def candidates_view(
         "current": (current.person_id or current.guest_label) if current else None,
         "current_guest": {"kind": current.guest_kind or "guest", "name": current.guest} if current and current.outsider else None,
         "candidates": ranked,
-        "ideas": solver.ideas(month, people, settings, catalog.regulars if catalog else [], task_id, iso, position)
+        "ideas": solver.ideas(month, people, settings, catalog.regulars if catalog else [], task_id, iso, position,
+                              around=around)
                  if current is None and not any(c["group"] == rules.BEST for c in ranked) else [],
     }
 
@@ -286,9 +291,11 @@ def still_valid(schedule: Schedule, proposals: Iterable[Proposal]) -> List[Propo
     return valid
 
 
-def eligible_slots(month: Month, people: List[Person], settings: Settings, person_id: str) -> Json:
+def eligible_slots(
+    month: Month, people: List[Person], settings: Settings, person_id: str, around: Iterable[Month] = ()
+) -> Json:
     """Open slots this person could take, and how cleanly."""
-    schedule = Schedule(month, people, settings)
+    schedule = Schedule(month, people, settings, around)
     person = schedule.people.get(person_id)
     if person is None:
         raise ValueError("Unknown person.")

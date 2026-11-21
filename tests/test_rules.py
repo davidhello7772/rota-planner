@@ -2,7 +2,11 @@ import unittest
 
 from rotaplanner import demand
 from rotaplanner import eligibility as rules
-from rotaplanner.model import ANYTIME, Assignment, Event, Marker, NeverRule, Settings, Task, TimeChange
+from rotaplanner.model import (
+    ANYTIME, Assignment, Event, Marker, NeverRule, Settings, Task, TimeChange, week_dates, week_start,
+)
+from rotaplanner.months import create_month
+from rotaplanner.schedule import Schedule
 
 from . import helpers as h
 
@@ -173,3 +177,90 @@ class RuleTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MonthsNextDoorTest(unittest.TestCase):
+    """Rules look a few days into the months next door; those shifts never count in this month."""
+
+    def setUp(self):
+        self.november = create_month(h.catalog(), 2026, 11)
+        self.night = Assignment("night", "2026-11-30", 0, person_id="ben")  # 22:00–08:00, a Monday
+        self.november.assignments.append(self.night)
+        self.december = h.month()
+
+    def schedule(self, around=()):
+        return Schedule(self.december, h.people(), Settings(), around)
+
+    def test_weeks_run_monday_to_sunday(self):
+        self.assertEqual(week_start("2026-12-01"), "2026-11-30")
+        self.assertEqual(week_start("2026-11-30"), "2026-11-30")
+        self.assertEqual(week_start("2026-12-06"), "2026-11-30")
+        self.assertEqual(week_dates("2026-12-03"), ["2026-11-30", "2026-12-01", "2026-12-02", "2026-12-03",
+                                                     "2026-12-04", "2026-12-05", "2026-12-06"])
+
+    def test_a_night_on_the_last_day_blocks_a_morning_on_the_first(self):
+        self.assertNotIn("overlap", findings_for(self.schedule(), "ben", "breakfast", "2026-12-01"))
+        s = self.schedule([self.november])
+        self.assertEqual(findings_for(s, "ben", "breakfast", "2026-12-01")["overlap"], rules.BLOCK)
+        self.assertNotIn("overlap", findings_for(s, "ben", "lunch", "2026-12-01"))  # 09:00, after the night
+        self.assertNotIn("overlap", findings_for(s, "cleo", "breakfast", "2026-12-01"))
+        # And the other way round: November sees a breakfast already on 1 December.
+        self.november.assignments.remove(self.night)
+        self.december.assignments.append(Assignment("breakfast", "2026-12-01", 0, person_id="ben"))
+        november = Schedule(self.november, h.people(), Settings(), [self.december])
+        self.assertEqual(findings_for(november, "ben", "night", "2026-11-30")["overlap"], rules.BLOCK)
+
+    def test_the_month_next_door_keeps_its_own_tasks_and_times(self):
+        # A shorter night there, on that day only: no clash.
+        self.november.time_changes["night|2026-11-30"] = TimeChange("20:00", "23:00", 0, "")
+        self.assertNotIn("overlap", findings_for(self.schedule([self.november]), "ben", "breakfast", "2026-12-01"))
+        del self.november.time_changes["night|2026-11-30"]
+        # The same task id with other usual times next door.
+        next(t for t in self.november.tasks if t.id == "night").end = "23:30"
+        s = self.schedule([self.november])
+        self.assertNotIn("overlap", findings_for(s, "ben", "breakfast", "2026-12-01"))
+        self.assertEqual(s.task_on("night", "2026-11-30").end, "23:30")
+        self.assertEqual(s.task_on("night", "2026-12-01").end, "08:00")
+        # A task no longer in November: its shift is not known, so it does not clash.
+        self.november.tasks = [t for t in self.november.tasks if t.id != "night"]
+        s = self.schedule([self.november])
+        self.assertFalse(s.knows(self.night))
+        self.assertNotIn("overlap", findings_for(s, "ben", "breakfast", "2026-12-01"))
+        self.assertEqual(s.shifts_in_week("ben", "2026-12-01"), 0)
+
+    def test_nearby_shifts_never_count_in_the_month(self):
+        self.december.assignments.append(Assignment("lunch", "2026-12-05", 0, person_id="ben"))  # a Saturday
+        self.november.assignments.append(Assignment("helper", "2026-11-29", 0, person_id="ben"))  # a Sunday
+        ana_lunch = Assignment("lunch", "2026-11-30", 0, person_id="ana")
+        self.november.assignments.append(ana_lunch)
+        self.november.time_changes["lunch|2026-11-30"] = TimeChange("09:00", "14:00", 5, "")
+        alone, together = self.schedule(), self.schedule([self.november])
+        for person_id in ("ana", "ben", "cleo"):
+            self.assertEqual(together.hours(person_id), alone.hours(person_id))
+            self.assertEqual(together.weekends(person_id), alone.weekends(person_id))
+            self.assertEqual(together.evenings(person_id), alone.evenings(person_id))
+        self.assertEqual(len(together.all_assignments()), 1)
+        self.assertEqual(together.open_slots(), alone.open_slots())
+        self.assertEqual(together.on_day("ben", "2026-11-30"), [self.night])
+        self.assertEqual(alone.on_day("ben", "2026-11-30"), [])
+        self.assertEqual(together.hours_of(ana_lunch), 5)  # as November has it that day
+        self.assertEqual(together.hours("ana"), 0)
+        self.assertEqual(together.dates, alone.dates)
+
+    def test_shifts_in_week_count_across_the_two_months(self):
+        s = self.schedule([self.november])
+        self.assertEqual(s.shifts_in_week("ben", "2026-12-01"), 1)  # the night of Monday 30 November
+        self.assertEqual(s.shifts_in_week("ben", "2026-12-06"), 1)
+        self.assertEqual(s.shifts_in_week("ben", "2026-12-07"), 0)
+        self.assertEqual(self.schedule().shifts_in_week("ben", "2026-12-01"), 0)
+        lunch = Assignment("lunch", "2026-12-03", 0, person_id="ben")
+        s.add(lunch)
+        self.assertEqual(s.shifts_in_week("ben", "2026-12-01"), 2)
+        self.assertEqual(s.shifts_in_week("ana", "2026-12-01"), 0)
+        s.remove(lunch)
+        self.assertEqual(s.shifts_in_week("ben", "2026-12-01"), 1)
+        # Only the nearby days: an earlier November week is not this month's business.
+        self.november.assignments.append(Assignment("lunch", "2026-11-23", 0, person_id="ben"))
+        s = self.schedule([self.november])
+        self.assertEqual(s.shifts_in_week("ben", "2026-11-23"), 0)
+        self.assertEqual(s.on_day("ben", "2026-11-23"), [])

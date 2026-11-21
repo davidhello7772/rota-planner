@@ -80,6 +80,16 @@ class App:
             self._months[month_id] = self.store.load_month(month_id)
         return self._months[month_id]
 
+    def _around(self, month_id: str) -> List[Month]:
+        """The months just before and after ``month_id``, those that exist: the rules
+        look a few days into them (a night shift on the 31st, a week across two months).
+        Only read: a change to one month never writes into the others."""
+        year, number = (int(part) for part in month_id.split("-"))
+        index = year * 12 + number - 1
+        existing = set(self.store.list_months())
+        ids = [Month.make_id((index + step) // 12, (index + step) % 12 + 1) for step in (-1, 1)]
+        return [self.month(m) for m in ids if m in existing and m != month_id]
+
     def month_view(self, month_id: str) -> Json:
         result = self._month_view(month_id)
         # Where the rota stands (draft, with the manager, published…), shown on every screen.
@@ -95,16 +105,19 @@ class App:
             can_undo=bool(self._undo.get(month_id)),
             can_redo=bool(self._redo.get(month_id)),
             proposals=self._proposals.get(month_id, []),
+            around=self._around(month_id),
         )
 
     def candidates(self, month_id: str, query: Dict[str, str]) -> Json:
         return view.candidates_view(
             self.month(month_id), self.people, self.settings,
             query.get("task", ""), query.get("date", ""), to_int(query.get("position")), catalog=self.catalog,
+            around=self._around(month_id),
         )
 
     def eligible(self, month_id: str, person_id: str) -> Json:
-        return view.eligible_slots(self.month(month_id), self.people, self.settings, person_id)
+        return view.eligible_slots(self.month(month_id), self.people, self.settings, person_id,
+                                   around=self._around(month_id))
 
     # -- changing ----------------------------------------------------------
 
@@ -140,14 +153,15 @@ class App:
         """Suggest someone for the open shifts (of some days or one area)."""
         dates = set(body["dates"]) if body.get("dates") else None
         areas = {str(body["area_id"])} if body.get("area_id") else None
-        proposals, left = solver.prefill(self.month(month_id), self.people, self.settings, dates=dates, area_ids=areas)
+        proposals, left = solver.prefill(self.month(month_id), self.people, self.settings, dates=dates, area_ids=areas,
+                                         around=self._around(month_id))
         self._proposals[month_id] = proposals
         result = self.month_view(month_id)
         result["prefill"] = {"proposed": len(proposals), "left_open": len(left)}
         return result
 
     def rebalance(self, month_id: str, _body: Json) -> Json:
-        proposals = solver.rebalance(self.month(month_id), self.people, self.settings)
+        proposals = solver.rebalance(self.month(month_id), self.people, self.settings, around=self._around(month_id))
         self._proposals[month_id] = proposals
         result = self.month_view(month_id)
         result["rebalance"] = {"proposed": len(proposals)}
@@ -163,6 +177,7 @@ class App:
         pending = self._proposals.get(month_id, [])
         chosen = [p for p in pending if not wanted or p.key in wanted]
         accepted, skipped = 0, 0
+        around = self._around(month_id)
 
         def change(month: Month) -> bool:
             nonlocal accepted, skipped
@@ -173,7 +188,7 @@ class App:
                     continue
                 try:
                     made = months.assign(month, self.people, self.settings, proposal.task_id, proposal.date,
-                                         proposal.position, person_id=proposal.person_id)
+                                         proposal.position, person_id=proposal.person_id, around=around)
                     made.source = "auto"
                     accepted += 1
                 except (months.RuleViolation, ValueError):
@@ -196,11 +211,14 @@ class App:
     def swap(self, month_id: str, body: Json) -> Json:
         """Free someone for a shift by giving their other shift that day to another person."""
         target, source = months.parse_slot_key(str(body.get("key"))), months.parse_slot_key(str(body.get("from")))
+        around = self._around(month_id)
 
         def change(month: Month) -> bool:
             try:
-                months.assign(month, self.people, self.settings, *source, person_id=str(body.get("replacement")))
-                months.assign(month, self.people, self.settings, *target, person_id=str(body.get("person_id")))
+                months.assign(month, self.people, self.settings, *source, person_id=str(body.get("replacement")),
+                              around=around)
+                months.assign(month, self.people, self.settings, *target, person_id=str(body.get("person_id")),
+                              around=around)
             except months.RuleViolation as violation:
                 raise ApiError(HTTPStatus.CONFLICT, f"This exchange no longer works: {violation}") from violation
             return True
@@ -212,11 +230,12 @@ class App:
         ids = self.store.list_months()
         earlier = [m for m in ids if m < month_id][-2:]
         return report.check_report(self.month(month_id), self.people, self.settings,
-                                   [self.month(m) for m in reversed(earlier)])
+                                   [self.month(m) for m in reversed(earlier)], around=self._around(month_id))
 
     def shortages(self, month_id: str) -> Json:
         names = {s.id: s.name for s in self.catalog.skills}
-        return {"items": solver.shortages(self.month(month_id), self.people, self.settings, names)}
+        return {"items": solver.shortages(self.month(month_id), self.people, self.settings, names,
+                                          around=self._around(month_id))}
 
     # -- creating and preparing a month ----------------------------------------
 
@@ -264,7 +283,8 @@ class App:
         if month_id in self.store.list_months():
             raise ApiError(HTTPStatus.CONFLICT, f"{calendar.month_name[number]} {year} already exists.")
         source = self._source(str(body.get("source") or TYPICAL))
-        month = month_setup.new_month(self.catalog, source, year, number, self.people, self.settings)
+        month = month_setup.new_month(self.catalog, source, year, number, self.people, self.settings,
+                                      around=self._around(month_id))
         # Events and closures already planned that run into this month come with it.
         month_setup.take_linked_items(month, [self.month(m) for m in self._neighbours(month_id)])
         self.store.save_month(month)
@@ -438,7 +458,9 @@ class App:
             m, str(body.get("date")), str(day_type) if day_type else None))
 
     def reapply_regulars(self, month_id: str, _body: Json) -> Json:
-        return self._setup_change(month_id, lambda m: months.apply_regulars(m, self.catalog, self.people, self.settings) > 0)
+        around = self._around(month_id)
+        return self._setup_change(
+            month_id, lambda m: months.apply_regulars(m, self.catalog, self.people, self.settings, around) > 0)
 
     # -- availability -----------------------------------------------------------
 
@@ -531,6 +553,8 @@ class App:
         return result
 
     def assign(self, month_id: str, body: Json) -> Json:
+        around = self._around(month_id)
+
         def change(month: Month) -> bool:
             reason = body.get("reason")
             try:
@@ -540,6 +564,7 @@ class App:
                     person_id=str(body.get("person_id") or ""), guest=str(body.get("guest") or ""),
                     guest_kind=str(body.get("guest_kind") or ""),
                     force=bool(body.get("force")), reason=str(reason) if reason is not None else None,
+                    around=around,
                 )
                 return True
             except months.RuleViolation as violation:

@@ -84,6 +84,17 @@ Every constraint is one small function in `eligibility.RULES`, returning a
 picker, the checks and the solver. To add a rule: write the function,
 add it to `RULES`, add a test in `tests/test_rules.py`.
 
+Rules look past the month's edges: `Schedule(month, people, settings,
+around=…)` is given the months just before and after (`App._around`), and
+indexes their shifts on the nearby days (the rest of the first and last
+weeks, at least the day before and the day after). So a night shift on the
+31st clashes with a morning shift on the 1st, and `shifts_in_week` counts a
+whole week, Monday to Sunday (`model.week_start`), across two months. Those
+shifts are seen by `on_day`, `shifts_in_week`, `task_on` and `hours_of`
+(with the other month's own tasks and times) and never count in the month's
+hours, weekends, evenings, slots or statuses. Without `around` a schedule
+sees its month only.
+
 ## Data format
 
 JSON files in the data folder (`catalog.json`, `people.json`,

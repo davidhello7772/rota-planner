@@ -51,12 +51,14 @@ function reportError(error) {
 /** Send a change to a month (the one on screen unless another is named) and show the result. */
 async function post(rest, body, monthId = state.month.id) {
   needPen();
+  changesSent += 1;
   const month = await api.post(monthPath(monthId, rest), body);
   if (monthId === state.month.id) {
     setMonth(month);
   } else {
     setSession({ otherMonths: { ...state.session.otherMonths, [monthId]: month } });
   }
+  await refreshNextDoor(monthId);
   // The highlighted person's possible slots change with every assignment.
   const person = state.session.person;
   if (person) {
@@ -64,6 +66,31 @@ async function post(rest, body, monthId = state.month.id) {
     if (state.session.person === person) setSession({ eligible });
   }
   return month;
+}
+
+let changesSent = 0;  // every change sent from here: an answer fetched before a later one is out of date
+
+/**
+ * After a change to `changedId` in the Event view over two months, fetch again the
+ * other months on screen: the rules look a few days into the month next door, so a
+ * mark there can change too.
+ */
+async function refreshNextDoor(changedId) {
+  if (state.route !== 'build' || state.ui.view !== 'event') return;
+  const others = [state.month.id, ...Object.keys(state.session.otherMonths)].filter((id) => id !== changedId);
+  if (!Object.keys(state.session.otherMonths).length || !others.length) return;
+  const asked = changesSent;
+  let views;
+  try {
+    views = await Promise.all(others.map((id) => api.get(monthPath(id))));
+  } catch {
+    return;  // the change itself was made; the marks there are fetched again next time
+  }
+  if (asked !== changesSent) return;  // something else was changed meanwhile: its own answer is newer
+  others.forEach((id, i) => {
+    if (id === state.month?.id) setMonth(views[i]);
+    else if (state.session.otherMonths[id]) setSession({ otherMonths: { ...state.session.otherMonths, [id]: views[i] } });
+  });
 }
 
 let lastChanged = null;  // month of the last change made here (an event can show two months)

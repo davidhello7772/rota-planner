@@ -53,6 +53,18 @@ def weekday_key(iso: str) -> str:
     return WEEKDAY_KEYS[parse_date(iso).weekday()]
 
 
+def week_start(iso: str) -> str:
+    """The Monday of the week of ``iso``: weeks run Monday to Sunday everywhere in the program."""
+    day = parse_date(iso)
+    return (day - timedelta(days=day.weekday())).isoformat()
+
+
+def week_dates(iso: str) -> List[str]:
+    """The seven dates, Monday to Sunday, of the week of ``iso``."""
+    monday = parse_date(week_start(iso))
+    return [(monday + timedelta(days=offset)).isoformat() for offset in range(7)]
+
+
 def month_dates(year: int, month: int) -> List[str]:
     """ISO dates of every day in the month, in order."""
     last = calendar.monthrange(year, month)[1]

@@ -153,7 +153,7 @@ def _overlap(p: Placement) -> Optional[Finding]:
     for offset in (-1, 0, 1):
         day = shift_date(p.date, offset)
         for other in p.others_on(day):
-            if other.task_id not in p.schedule.tasks:
+            if not p.schedule.knows(other):
                 continue
             other_task = p.schedule.task_on(other.task_id, day)
             theirs = _span(other_task, offset)

@@ -6,6 +6,8 @@ import unittest
 from pathlib import Path
 
 from rotaplanner.app import App
+from rotaplanner.model import Assignment
+from rotaplanner.months import create_month
 from rotaplanner.server import TOKEN_HEADER, create_server, host_allowed, is_loopback
 from rotaplanner.store import Store
 
@@ -340,6 +342,59 @@ class ServerTest(unittest.TestCase):
         self.assertEqual([c["id"] for c in body["candidates"] if c["group"] == "best"], ["ana", "ben"])
         status, body = self.json("GET", "/api/months/2026-12/people/cleo/eligible")
         self.assertTrue(all(key.split("|")[0] in ("night", "helper", "breakfast") for key in body["slots"]))
+
+
+
+class MonthsNextDoorTest(unittest.TestCase):
+    """A shift late on the last day of November shows as a conflict in December."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        store = Store(Path(self.tmp.name))
+        store.save_catalog(h.catalog())
+        store.save_people(h.people())
+        november = create_month(h.catalog(), 2026, 11)
+        november.assignments.append(Assignment("night", "2026-11-30", 0, person_id="ben"))  # 22:00–08:00
+        december = h.month()
+        december.assignments.append(Assignment("breakfast", "2026-12-01", 0, person_id="ben"))  # 07:00–09:00
+        store.save_month(november)
+        store.save_month(december)
+        self.server = create_server(App(store), TOKEN, 0)
+        self.port = self.server.server_address[1]
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    def tearDown(self):
+        self.server.shutdown()
+        self.server.server_close()
+        self.tmp.cleanup()
+
+    def json(self, method, path, body=None):
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+        headers = {"Host": f"127.0.0.1:{self.port}", TOKEN_HEADER: TOKEN, "Content-Type": "application/json"}
+        conn.request(method, path, body=json.dumps(body).encode() if body is not None else None, headers=headers)
+        response = conn.getresponse()
+        data = json.loads(response.read())
+        conn.close()
+        return response.status, data
+
+    def breakfast(self):
+        status, view = self.json("GET", "/api/months/2026-12")
+        self.assertEqual(status, 200)
+        return view["cells"]["breakfast|2026-12-01"]["slots"][0]
+
+    def test_conflict_across_the_end_of_the_month(self):
+        slot = self.breakfast()
+        self.assertEqual(slot["state"], "conflict")
+        self.assertTrue(any(f["message"].startswith("Overlaps Night guard") for f in slot["findings"]))
+        status, november = self.json("POST", "/api/months/2026-11/clear", {"task_id": "night", "date": "2026-11-30", "position": 0})
+        self.assertEqual(status, 200)
+        self.assertNotIn("person", november["cells"]["night|2026-11-30"]["slots"][0])
+        self.assertNotEqual(self.breakfast()["state"], "conflict")
+        # Placing the night again is now refused: it would overlap the breakfast next door.
+        status, refused = self.json("POST", "/api/months/2026-11/assign",
+                                    {"task_id": "night", "date": "2026-11-30", "position": 0, "person_id": "ben"})
+        self.assertEqual(status, 409)
+        self.assertTrue(any(f["message"].startswith("Overlaps Breakfast") for f in refused["findings"]))
 
 
 if __name__ == "__main__":
