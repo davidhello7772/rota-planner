@@ -4,7 +4,8 @@ Files are kept in memory. It can pretend to be in trouble (``mode``):
 "ok", "auth" (refuses the password), "full" (no space), "busy" (try later),
 "portal" (a Wi-Fi sign-in page answers instead), "redirect", "down" (cuts
 every connection). Its clock can be moved (``skew``), to try what happens
-when time passes.
+when time passes; ``locked`` file requests in a row answer "locked" (423), as a
+server does while another computer reads or writes that file.
 
     python3 -m tests.webdav_server 8899     # http://127.0.0.1:8899/rota/  user "rota", password "secret"
 """
@@ -31,6 +32,7 @@ class WebDavServer:
         self.exists = True
         self.mode = "ok"
         self.skew = 0.0
+        self.locked = 0  # this many file requests (GET, PUT, DELETE) answer 423 "locked"
         self.requests: list = []
         self.lock = threading.Lock()
         self._versions = 0
@@ -75,6 +77,9 @@ class WebDavServer:
                     return self._answer(404)
                 name = path[len(owner.folder):]
                 with owner.lock:
+                    if owner.locked and name and self.command in ("GET", "PUT", "DELETE"):
+                        owner.locked -= 1
+                        return self._answer(423)
                     self._act(name, body, mode)
 
             def _act(self, name: str, body: bytes, mode: str) -> None:

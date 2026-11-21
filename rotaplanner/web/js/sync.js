@@ -462,6 +462,7 @@ function refusedChange(code, payload) {
   else if ((payload.kind === 'held' || payload.kind === 'handing') && payload.pen?.read_only) {
     explainLooking(payload.pen);
   }
+  else if (payload.kind === 'busy') toast(payload.error);  // the server, a moment: said, nothing to choose
   else if (payload.kind === 'offline') {
     const dialog = openDialog({
       title: 'No connection to the other computers',

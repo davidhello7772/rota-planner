@@ -43,6 +43,9 @@ NAME = re.compile(r"^(rota|pen)-(c-[0-9a-f]{12})\.rpsync\Z")
 MAX_FILE_BYTES = 40_000_000    # one computer's whole data, sealed: far more than it ever is
 MAX_LISTING_BYTES = 2_000_000
 TIMEOUT_SECONDS = 20
+# A file "locked" by the server (answer 423: another computer is reading or writing it
+# at that very moment) is asked for again after these pauses, then said to be busy.
+LOCKED_WAITS = (0.5, 1.5)
 LOOPBACK = ("127.0.0.1", "localhost", "::1")
 PROPFIND = (b'<?xml version="1.0" encoding="utf-8"?><d:propfind xmlns:d="DAV:"><d:prop>'
             b"<d:getetag/><d:getcontentlength/><d:getlastmodified/></d:prop></d:propfind>")
@@ -281,6 +284,17 @@ class WebDavPlace:
                 except OSError:
                     pass
 
+    def _answer(self, method: str, name: str = "", **options: Any) -> Tuple[int, Any, bytes]:
+        """``_request``, asked again after a short pause while the server answers that the
+        file is locked (423): another computer is reading or writing it just then."""
+        answer = self._request(method, name, **options)
+        for pause in LOCKED_WAITS:
+            if answer[0] != 423:
+                break
+            time.sleep(pause)
+            answer = self._request(method, name, **options)
+        return answer
+
     def _refused(self, status: int, headers: Any, what: str) -> PlaceError:
         """The error for an answer that is not the one hoped for."""
         if status == 401:
@@ -292,14 +306,16 @@ class WebDavPlace:
             return PlaceError("missing", "The folder was not found on the server. Check the address.")
         if status == 507 or status == 413:
             return PlaceError("full", "The server's space is full (or the file is too big for it).")
-        if status in (429, 502, 503, 504):
+        if status in (423, 429, 502, 503, 504):
             try:
                 wait = float(headers.get("Retry-After", "0") or 0)
             except (TypeError, ValueError):
                 wait = 0.0
             if not math.isfinite(wait):
                 wait = 0.0
-            return PlaceError("busy", "The server is busy: Rota Planner will try again shortly.", min(max(wait, 0.0), 3600.0))
+            words = ("A file on the server is in use by another computer just now: Rota Planner will try again shortly."
+                     if status == 423 else "The server is busy: Rota Planner will try again shortly.")
+            return PlaceError("busy", words, min(max(wait, 0.0), 3600.0))
         if 300 <= status < 400:
             return PlaceError("moved", "The server answered with another address. Use the folder's final address "
                                        "(Rota Planner never follows a redirection, so the password goes nowhere else).")
@@ -308,8 +324,8 @@ class WebDavPlace:
     # -- the gestures ----------------------------------------------------------
 
     def list(self) -> Listing:
-        status, headers, body = self._request("PROPFIND", body=PROPFIND,
-                                              headers={"Depth": "1", "Content-Type": 'application/xml; charset="utf-8"'})
+        status, headers, body = self._answer("PROPFIND", body=PROPFIND,
+                                             headers={"Depth": "1", "Content-Type": 'application/xml; charset="utf-8"'})
         if status != 207:
             if status == 200:  # a Wi-Fi sign-in page, a proxy: not the server
                 raise PlaceError("offline", "Something answered in place of the server (a Wi-Fi sign-in page?).")
@@ -318,20 +334,20 @@ class WebDavPlace:
 
     def read(self, name: str, limit: int = MAX_FILE_BYTES) -> bytes:
         _named(name)
-        status, headers, body = self._request("GET", name, limit=limit)
+        status, headers, body = self._answer("GET", name, limit=limit)
         if status != 200:
             raise self._refused(status, headers, "give a file")
         return body
 
     def write(self, name: str, data: bytes) -> None:
         _named(name)
-        status, headers, _ = self._request("PUT", name, body=data, headers={"Content-Type": "application/octet-stream"})
+        status, headers, _ = self._answer("PUT", name, body=data, headers={"Content-Type": "application/octet-stream"})
         if status not in (200, 201, 204):
             raise self._refused(status, headers, "store a file")
 
     def delete(self, name: str) -> None:
         _named(name)
-        status, headers, _ = self._request("DELETE", name)
+        status, headers, _ = self._answer("DELETE", name)
         if status not in (200, 202, 204, 404):
             raise self._refused(status, headers, "remove a file")
 

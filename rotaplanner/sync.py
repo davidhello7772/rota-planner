@@ -1905,6 +1905,8 @@ class Sync:
         result = {"ok": False} if known_offline else self.exchange()
         self.deliver()  # what is newer is taken first: nobody edits old data
         if not result["ok"]:
+            if self.connection.get("kind") == "busy":  # the server, a moment: not a lost connection
+                raise PenError(_in_use(), "busy", self.pen())
             raise PenError(_no_connection("take the pen"), "offline", self.pen())
         ask = force or pressed  # a holder there after all is asked to hand over; a change is refused
         with self.lock:
@@ -1964,6 +1966,8 @@ class Sync:
             with self.lock:
                 if self.state is not None:
                     self._say_again()
+            if error.kind == "busy":
+                raise PenError(_in_use(), "busy", self.pen()) from None
             raise PenError(f"The pen could not be taken: {error}", "offline", self.pen()) from None
 
     def _say_again(self) -> None:
@@ -2336,6 +2340,11 @@ def _lasted(seconds: float) -> str:
     if minutes < 60:
         return f"{minutes} min"
     return f"{round(minutes / 60)} h"
+
+
+def _in_use() -> str:
+    return ("A file on the server was in use by another computer just then, so nothing was taken. "
+            "Try again in a moment.")
 
 
 def _no_connection(what: str) -> str:

@@ -336,6 +336,35 @@ class WebDavTest(Computers):
         self.assertEqual(self.states(self.a), {PEOPLE: "both"})  # both wrote while apart: asked, nothing lost
         self.assertEqual(self.a.apply_automatic()["taken"], [])
 
+    def test_a_file_locked_by_the_server_passes(self):
+        """Answer 423: the server keeps a file for a moment while another computer reads it.
+        Waited out when brief; otherwise busy for now, never a problem to put right in Settings."""
+        self.settle()
+        self.note(0, "written while locked")
+        with unittest.mock.patch.object(places, "LOCKED_WAITS", (0.0, 0.0)):
+            self.server.locked = 2
+            self.assertTrue(self.a.exchange()["sent"])
+            self.note(0, "written while locked longer")
+            self.server.locked = 20
+            self.assertFalse(self.a.exchange()["ok"])
+        status = self.a.status()
+        self.assertEqual((status["kind"], status["to_fix"], status["passing"]), ("busy", False, True))
+        self.server.locked = 0
+        self.assertTrue(self.a.exchange()["sent"])
+        self.assertIsNone(self.a.status()["problem"])
+
+    def test_a_take_over_meeting_a_locked_file_says_so(self):
+        self.settle()
+        with unittest.mock.patch.object(places, "LOCKED_WAITS", (0.0, 0.0)):
+            self.server.locked = 20
+            with self.assertRaises(PenError) as caught:
+                self.b.take_pen(force=True, pressed=True)
+        self.assertEqual(caught.exception.kind, "busy")  # not "no connection"
+        self.assertIn("in use by another computer", str(caught.exception))
+        self.assertFalse(self.b.pen()["mine"])
+        self.server.locked = 0
+        self.assertTrue(self.b.take_pen(force=True, pressed=True)["mine"])
+
     def test_a_refused_password_is_said_and_not_hammered(self):
         self.settle()
         self.server.mode = "auth"

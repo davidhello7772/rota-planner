@@ -3,6 +3,7 @@ this computer), and what each says when something is wrong."""
 
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 from rotaplanner import places
@@ -160,6 +161,19 @@ class WebDavPlaceTest(unittest.TestCase):
         started = clock.time()
         self.assertEqual(self.kind(place.list), "offline")
         self.assertLess(clock.time() - started, 5)  # the whole answer has a time limit, not each piece
+
+    def test_a_file_locked_for_a_moment_is_asked_for_again(self):
+        with unittest.mock.patch.object(places, "LOCKED_WAITS", (0.0, 0.0)):
+            self.server.locked = 2  # another computer reads it just then
+            self.place.write(A, b"x")
+            self.server.locked = 2
+            self.assertEqual(self.place.read(A), b"x")
+            self.server.locked = 3  # still in use after the pauses: busy for now, not broken
+            with self.assertRaises(PlaceError) as caught:
+                self.place.write(A, b"y")
+        self.assertEqual(caught.exception.kind, "busy")
+        self.assertIn("in use by another computer", str(caught.exception))
+        self.assertEqual(self.place.read(A), b"x")
 
     def test_odd_waiting_times_are_ignored(self):
         error = self.place._refused(503, {"Retry-After": "nan"}, "x")
