@@ -351,7 +351,11 @@ class Weights(Record):
     """How strongly each wish pulls when ranking who to suggest.
 
     Each weight multiplies a quantity of roughly unit size, so the numbers
-    can be compared with one another directly.
+    can be compared with one another directly. ``load`` and ``over_target``
+    weigh hours against each person's own target, so that everyone ends at
+    about the same percentage of theirs; ``weekend``, ``evening`` and
+    ``same_week`` (shifts already held that week) count in proportion to the
+    target too (see ``eligibility.placement_cost``).
     """
 
     load: float = 10.0

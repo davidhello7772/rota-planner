@@ -115,7 +115,7 @@ export const QUESTIONS = [
   { q: 'Put someone on a shift', go: 'build', find: 'assign place choose person slot',
     a: 'Click the shift. People are listed best first, with why. Click a name, or type a few letters and press Enter. With the arrows you move between shifts; Enter opens the list.' },
   { q: 'Fill the open shifts quickly', go: 'build', find: 'prefill automatic suggest auto fast',
-    a: 'In the Assistant, “Prefill the rota…” suggests someone for every open shift, starting with the essential ones and the least busy people. Suggestions are dashed: accept them all, or click one to choose someone else.' },
+    a: 'In the Assistant, “Prefill the rota…” suggests someone for every open shift, starting with the essential ones. The work is shared in proportion to each person’s target and spread over the weeks, never beyond a limit on their card. Suggestions are dashed: accept them all, or click one to choose someone else.' },
   { q: 'Nobody is free for a shift', go: 'build', find: 'no one empty shortage cannot fill ideas',
     a: 'Open the shift: under “Ideas” the program proposes an exchange that frees someone, a person who has not replied, a comment about that day, or a regular who is away. You can also highlight the shift (H): it is printed “Sign up”, and listed on the sign-up sheet.' },
   { q: 'Use someone who said they are away', go: 'build', find: 'force override unavailable assign anyway exception',
@@ -125,7 +125,7 @@ export const QUESTIONS = [
   { q: 'Add a note to someone’s shift', go: 'build', find: 'note comment remark arrives late trainee',
     a: 'Click the shift: under the name, type a short note (“arrives at 10”, “with a trainee”) and press Enter. It shows as ✎ and is printed with the name, so keep it practical: nothing about health or private matters.' },
   { q: 'Share the hours more fairly', go: 'build', find: 'balance even rebalance too many hours overloaded',
-    a: '“Rebalance hours” in the Assistant proposes moves from the busiest people to the least busy. The People tab sorts everyone by load; click someone to see their shifts.' },
+    a: '“Rebalance hours” in the Assistant proposes moves from the busiest people to the least busy, each compared with their own target, spread over the weeks and never beyond a limit on their card. The People tab sorts everyone by load; click someone to see their shifts.' },
   { q: 'A task is not needed one day, or needs more people', go: 'build', find: 'disable shift headcount one more fewer not needed number',
     a: 'Open a shift of that day: “Not needed this day”, “One fewer needed” or “One more needed”. On a day that usually needs nobody, press “All tasks” above the rota, then the “+” in that cell.' },
   { q: 'A task at another time one day', go: 'build', find: 'different time special hours christmas meal',
@@ -229,8 +229,8 @@ export const HINTS = {
   noReply: 'Someone who has not replied is treated as available all month. Their name is shown lighter, and the program says so when you choose them.',
   versions: 'A version records who is on each shift, for the manager to check or published for the residents. Later changes are marked ● on printouts, so people only look at what moved.',
   eventDay: 'On the days of an event, each usual task uses its “Event day” number of people when that is higher (set in Tasks & Areas).',
-  target: 'The hours each person is expected to give in a month. Someone away part of the month has a lower target. Suggestions keep everyone close to theirs.',
-  prefill: 'Essential tasks first, then the shifts with the fewest possible people; each time the least busy person who fits. Nothing is placed without your agreement.',
+  target: 'The hours each person is expected to give in a month. Someone away part of the month has a lower target. Suggestions and the list for a shift compare each person’s hours with their own target, so someone with half the usual target gets about half the work.',
+  prefill: 'Essential tasks first, then the shifts with the fewest possible people; each time the person who fits and is furthest below their own target. The work is shared in proportion to each person’s target, spread over the weeks, and never beyond a limit on their card. Nothing is placed without your agreement.',
 };
 
 /**

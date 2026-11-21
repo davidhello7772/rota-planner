@@ -3,7 +3,7 @@ import unittest
 from rotaplanner import checks, demand
 from rotaplanner import eligibility as rules
 from rotaplanner.model import (
-    ANYTIME, Assignment, Event, Marker, NeverRule, Settings, Task, TimeChange, week_dates, week_start,
+    ANYTIME, Assignment, Event, Marker, NeverRule, Person, Settings, Task, TimeChange, week_dates, week_start,
 )
 from rotaplanner.months import create_month
 from rotaplanner.schedule import Schedule
@@ -173,10 +173,6 @@ class RuleTest(unittest.TestCase):
         ranked = rules.candidates(s, s.tasks["lunch"], "2026-12-03")
         self.assertEqual([c.person.id for c in ranked if c.group == rules.BEST], ["ana", "ben"])
         self.assertEqual(ranked[-1].group, rules.BLOCKED)
-
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 class MonthsNextDoorTest(unittest.TestCase):
@@ -399,3 +395,44 @@ class WeeklyLimitTest(unittest.TestCase):
         ])
         self.ana.max_shifts_per_week = 1
         self.assertEqual(rules.limits_text(self.ana)[0], "At most 1 shift a week")
+
+
+class FairRankingTest(unittest.TestCase):
+    """The picker and the suggestions compare people with their own target."""
+
+    def setUp(self):
+        self.month = h.month()
+        self.big = Person("big", "Big A.", skills=["cook"], target_hours=12)
+        self.small = Person("small", "Small B.", skills=["cook"], target_hours=6)
+
+    def suppers(self, person, *days):  # 3 h each, Tuesdays of other weeks
+        for day in days:
+            self.month.assignments.append(Assignment("supper", f"2026-12-{day:02d}", 0, person_id=person.id))
+
+    def ranked(self):
+        s = Schedule(self.month, [self.big, self.small], Settings())
+        found = rules.candidates(s, s.tasks["breakfast"], "2026-12-03")
+        return [c.person.id for c in found if c.group == rules.BEST], {c.person.id: c.cost for c in found}
+
+    def test_at_the_same_percentage_the_other_wishes_decide(self):
+        self.suppers(self.big, 15, 22)   # 6 h of 12
+        self.suppers(self.small, 29)     # 3 h of 6
+        _, costs = self.ranked()
+        self.assertLess(abs(costs["big"] - costs["small"]), Settings().weights.preference)
+        self.small.preferences = {"kitchen": 5}
+        self.assertEqual(self.ranked()[0], ["small", "big"])
+        self.small.preferences, self.big.preferences = {}, {"kitchen": 5}
+        self.assertEqual(self.ranked()[0], ["big", "small"])
+
+    def test_the_one_further_from_their_own_target_comes_first(self):
+        self.suppers(self.big, 8, 15, 22, 29)   # 100 % of 12
+        self.suppers(self.small, 29)            # 50 % of 6
+        self.assertEqual(self.ranked()[0], ["small", "big"])
+        self.month.assignments = []
+        self.suppers(self.big, 15, 22)          # 50 % of 12
+        self.suppers(self.small, 22, 29)        # 100 % of 6
+        self.assertEqual(self.ranked()[0], ["big", "small"])
+
+
+if __name__ == "__main__":
+    unittest.main()

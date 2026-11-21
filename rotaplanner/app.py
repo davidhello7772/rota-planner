@@ -209,7 +209,7 @@ class App:
         return self.month_view(month_id)
 
     def swap(self, month_id: str, body: Json) -> Json:
-        """Free someone for a shift by giving their other shift that day to another person."""
+        """Free someone for a shift by giving another of their shifts (that day, or that week) to someone else."""
         target, source = months.parse_slot_key(str(body.get("key"))), months.parse_slot_key(str(body.get("from")))
         around = self._around(month_id)
 

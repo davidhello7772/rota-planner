@@ -146,6 +146,8 @@ export async function assign(key, who, { force = false, reason = null } = {}) {
 
 /** Ask for suggestions for open shifts: `scope` is {} (whole month), {dates} or {area_id}. */
 export async function prefill(scope = {}) {
+  if (state.session.looking) return;
+  setSession({ looking: 'prefill' });
   try {
     // Days of an event can belong to two months: each month suggests for its own days.
     const byMonth = new Map();
@@ -163,15 +165,21 @@ export async function prefill(scope = {}) {
       : 'Nobody can be suggested for these shifts.');
   } catch (error) {
     reportError(error);
+  } finally {
+    setSession({ looking: null });
   }
 }
 
 export async function rebalance() {
+  if (state.session.looking) return;
+  setSession({ looking: 'rebalance' });
   try {
     const month = await post('/rebalance');
     toast(month.rebalance.proposed ? `${month.rebalance.proposed} moves suggested to even out hours` : 'Hours are already as even as they can be.');
   } catch (error) {
     reportError(error);
+  } finally {
+    setSession({ looking: null });
   }
 }
 
@@ -196,7 +204,7 @@ export async function discardProposals(keys = null, monthId = monthOfKeys(keys))
   }
 }
 
-/** Free `personId` for `key` by giving their shift `from` to `replacement` (same day, same month). */
+/** Free `personId` for `key` by giving their shift `from` to `replacement` (that day or that week, same month). */
 export async function swap(key, personId, from, replacement) {
   const monthId = monthOf(parseSlotKey(key).date);
   try {

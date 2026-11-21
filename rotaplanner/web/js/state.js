@@ -42,6 +42,7 @@ export const state = {
     zoom: 2,          // zoom level actually on screen
     eventId: null,    // event shown in the Event view
     otherMonths: {},  // views of other months, for an event running into them
+    looking: null,    // 'prefill' | 'rebalance' while the program looks for suggestions
     peopleQuery: '',
     peopleSort: 'load',
     setup: null,      // people, tasks, regular week… for the set-up screens

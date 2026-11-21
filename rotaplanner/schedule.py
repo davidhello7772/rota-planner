@@ -145,6 +145,10 @@ class Schedule:
                 return other, self._next_door_tasks[other.id]
         return self.month, self.tasks
 
+    def in_month(self, iso: str) -> bool:
+        """Is this day one of the month's own (not a nearby day of the month next door)?"""
+        return iso in self._in_month
+
     def knows(self, assignment: Assignment) -> bool:
         """Is the task of this shift still in the month of its date?"""
         return assignment.task_id in self._owner(assignment.date)[1]

@@ -147,14 +147,17 @@ folder.
 3. **Build**: the rota itself. The *Event* view shows an event day by day,
    grouped by area.
    - *Prefill the rota…* (Assistant panel) suggests someone for every open
-     shift — or only the days on screen, or one area. Suggestions appear
-     dashed; accept them all, or click one to choose someone else.
+     shift — or only the days on screen, or one area. The work is shared in
+     proportion to each person's target and spread over the weeks, never
+     beyond a limit on their card. Suggestions appear dashed; accept them all,
+     or click one to choose someone else.
    - *Rebalance hours* suggests moves from the busiest people to the least
      busy, one by one.
    - *Not enough people* lists the days where open shifts outnumber the people
      who could take them, and the skills most often missing.
    - When nobody can take a shift, its picker shows *Ideas*: an exchange that
-     frees someone (done in one click), someone who has not replied, a comment
+     frees someone (done in one click; their other shift can be on another
+     day of that week), someone who has not replied, a comment
      about that day, a regular who is away, someone who could be trained.
 4. **Check**: what breaks a rule, the open shifts (essential first), the rules
    overridden and why, and the balance of hours, weekends and evenings, with

@@ -67,10 +67,10 @@ function assistant(month) {
         tile(String(s.guests), 'not on the list', ''))),
     month.proposals.length ? proposalsBox(month) : h('section', { class: 'actions' },
       h('h3', {}, 'Suggestions', hint('prefill')),
-      changes(h('button', { class: 'btn', type: 'button', title: 'Suggest someone for open shifts',
-        onclick: (e) => prefillMenu(e.currentTarget, month) }, icon('wand'), 'Prefill the rota…')),
-      changes(h('button', { class: 'btn', type: 'button', title: 'Suggest moves from the busiest people to the least busy',
-        onclick: () => rebalance() }, icon('scale'), 'Rebalance hours'))),
+      suggestButton('prefill', 'Suggest someone for open shifts', 'wand', 'Prefill the rota…',
+        (e) => prefillMenu(e.currentTarget, month)),
+      suggestButton('rebalance', 'Suggest moves from the busiest people to the least busy', 'scale', 'Rebalance hours',
+        () => rebalance())),
     otherMonthsProposals(),
     shortagesBox(month),
     tips.length ? h('section', {},
@@ -87,6 +87,15 @@ function assistant(month) {
 }
 
 // ---- Suggestions: prefill and rebalance ---------------------------------
+
+/** One of the two buttons: while either is looking, both wait, and the one at work says so. */
+function suggestButton(kind, title, iconName, label, onclick) {
+  const looking = state.session.looking;
+  const mine = looking === kind;
+  return changes(h('button', { class: 'btn', type: 'button', title, onclick,
+    disabled: Boolean(looking), 'aria-busy': mine ? 'true' : null },
+  icon(iconName), mine ? 'Looking…' : label));
+}
 
 /** Dates on screen; for an event, all its days in months that exist (it may run into the next month). */
 function datesOnScreen(month) {

@@ -311,21 +311,51 @@ def group_of(findings: List[Finding]) -> str:
     return POSSIBLE if WARN in severities else BEST
 
 
+OVER_TARGET_CURVE = 4.0
+"""How much faster a load grows past the target than below it (with ``Weights.over_target``)."""
+
+
+def _load(ratio: float, weights) -> float:
+    """What a load (hours over target) costs: it grows with the square, and faster past the target."""
+    return weights.load * ratio**2 + weights.over_target * OVER_TARGET_CURVE * max(0.0, ratio - 1.0) ** 2
+
+
+def allowed(placement: Placement) -> Optional[List[Finding]]:
+    """The findings of a placement, or ``None`` as soon as a rule blocks it.
+
+    Quicker than ``evaluate`` for the solver: ``RULES`` is ordered cheapest
+    first, and most people are blocked by one of the first rules."""
+    findings = []
+    for rule in RULES:
+        finding = rule(placement)
+        if finding:
+            if finding.severity == BLOCK:
+                return None
+            findings.append(finding)
+    return findings
+
+
 def placement_cost(p: Placement, findings: List[Finding]) -> float:
     """Lower is a better choice. Blocked placements are not ranked by this.
 
-    The main term is the growth of the person's squared load (hours over
-    target): giving an hour to someone at 20 % of their target costs far less
-    than giving it to someone at 90 %, which is what evens loads out.
+    The main term is the growth of the person's load (hours over their own
+    target), weighed by their share (their target against the usual one):
+    minimising it brings everyone to the same percentage of their own target,
+    whatever its size. Weekends, evenings and other shifts that week count
+    divided by that share, so they are shared in proportion too.
     """
     weights = p.schedule.settings.weights
-    target = max(p.schedule.target(p.person.id), 1.0)
+    raw = p.schedule.target(p.person.id)
+    target = max(raw, 1.0)
+    # 1 for the usual target, 0.5 for half of it. A target of zero keeps 1: such a
+    # person stays the last choice.
+    share = target / max(p.schedule.settings.default_target_hours, 1.0) if raw > 0 else 1.0
     effort = p.task.hours or NOMINAL_EFFORT_HOURS
     before = p.hours_this_month() / target
     after = before + effort / target
 
-    cost = weights.load * (after**2 - before**2)
-    cost += weights.over_target * max(0.0, after - 1.0)
+    cost = share * (_load(after, weights) - _load(before, weights))
+    cost += weights.same_week * p.shifts_that_week() / share   # spread over the weeks
     cost += weights.same_day * len(p.others_on(p.date))
     cost += weights.back_to_back * sum(
         1
@@ -334,15 +364,15 @@ def placement_cost(p: Placement, findings: List[Finding]) -> float:
         if other.task_id == p.task.id
     )
     # Share weekends and evenings: each one already held makes another less likely.
-    mine = p.ignore if p.ignore is not None and p.ignore.person_id == p.person.id else None
+    mine = p.ignore if p.rechecking else None
     if parse_date(p.date).weekday() >= 5:
         held = p.schedule.weekends(p.person.id) - (1 if mine and parse_date(mine.date).weekday() >= 5 else 0)
-        cost += weights.weekend * held
+        cost += weights.weekend * held / share
     if "evening" in p.task.periods:
         mine_evening = mine is not None and mine.task_id in p.schedule.tasks and \
             "evening" in p.schedule.task_on(mine.task_id, mine.date).periods
         held = p.schedule.evenings(p.person.id) - (1 if mine_evening else 0)
-        cost += weights.evening * held
+        cost += weights.evening * held / share
     preference = p.person.preferences.get(p.task.area_id)
     if preference:
         cost -= weights.preference * (preference - 3)
