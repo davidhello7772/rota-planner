@@ -16,7 +16,7 @@ from dataclasses import asdict, dataclass, field, fields
 from datetime import date, timedelta
 from typing import Any, ClassVar, Dict, List, Optional, Tuple
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 PERIODS = ("morning", "afternoon", "evening")
 ANYTIME = "anytime"
@@ -337,6 +337,8 @@ class Person(Record):
     max_hours: Optional[float] = None
     max_hours_per_day: Optional[float] = None
     max_tasks_per_day: Optional[int] = None
+    max_shifts_per_week: Optional[int] = None
+    """At most so many shifts (one task on one day) from Monday to Sunday; ``None``: no limit."""
     never: List[NeverRule] = field(default_factory=list)
     avoid_task_ids: List[str] = field(default_factory=list)
     note: str = ""
@@ -360,6 +362,7 @@ class Weights(Record):
     warning: float = 4.0
     weekend: float = 0.8
     evening: float = 0.5
+    same_week: float = 0.6
 
 
 PRINT_SIZES = {

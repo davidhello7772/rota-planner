@@ -121,8 +121,12 @@ folder.
 
 ## Setting things up
 
-- **People**: everyone with skills, hours and constraints. *Skills grid* ticks
-  skills for many people at once; *Import people* adds a pasted list or a file.
+- **People**: everyone with skills, hours and constraints. A person's card
+  holds their target hours and limits: hours (a month, a day) and, apart, a
+  *Number of shifts* (at most so many a day, or a week from Monday to Sunday,
+  also across the end of a month; suggestions never go over them). *Skills
+  grid* ticks skills for many people at once; *Import people* adds a pasted
+  list or a file.
 - **Tasks & Areas**: each month has its own tasks. Pick the month at the top;
   *Use the configuration of…* takes another month's tasks or a template, *Save
   as template…* keeps the current ones for later. Drag cards to reorder them.
@@ -199,8 +203,8 @@ one event, planned and printed whole.
   needed* change the number of people for that day; *Change the time this day*
   handles a special meal. In *All tasks* mode, a "+" asks for a shift on a day
   the task is not usually needed.
-- **People panel**: click a name to see their shifts and where they could still
-  help; *Paint shifts* gives them shifts in a few clicks.
+- **People panel**: click a name to see their shifts, their limits and where
+  they could still help; *Paint shifts* gives them shifts in a few clicks.
 - **Keyboard**: arrows move between shifts, Enter opens the choice, Delete empties
   a shift, H highlights an empty one, Ctrl+Z / Ctrl+Y undo and redo, F gives the
   whole screen to the rota.

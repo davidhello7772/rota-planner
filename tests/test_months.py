@@ -130,6 +130,30 @@ class RegularTest(unittest.TestCase):
         cells = view.month_view(month, cat, h.people(), Settings())["cells"]
         self.assertEqual(cells["lunch|2026-12-08"]["slots"][0]["cover_for"], "Ana B.")
 
+    def test_regulars_stop_at_the_weekly_limit(self):
+        cat = h.catalog()
+        cat.regulars = [Regular(f"r-{day}", "ana", "lunch", day) for day in ("mon", "wed", "fri")]
+        ppl = h.people()
+        ppl[0].max_shifts_per_week = 2
+        month = h.month(cat)
+        months.apply_regulars(month, cat, ppl, Settings())
+        week = {a.date for a in month.assignments if "2026-12-07" <= a.date <= "2026-12-13"}
+        self.assertEqual(week, {"2026-12-07", "2026-12-09"})  # Friday 11 stays open
+        cells = view.month_view(month, cat, ppl, Settings())["cells"]
+        self.assertEqual(cells["lunch|2026-12-11"]["slots"][0]["cover_for"], "Ana B.")
+
+    def test_regulars_see_the_week_in_the_month_before(self):
+        cat = h.catalog()
+        cat.regulars = [Regular("r-tue", "ana", "lunch", "tue")]
+        ppl = h.people()
+        ppl[0].max_shifts_per_week = 1
+        november = months.create_month(cat, 2026, 11)
+        november.assignments.append(Assignment("supper", "2026-11-30", 0, person_id="ana"))  # a Monday
+        month = h.month(cat)
+        months.apply_regulars(month, cat, ppl, Settings(), around=[november])
+        self.assertEqual(sorted(a.date for a in month.assignments),
+                         ["2026-12-08", "2026-12-15", "2026-12-22", "2026-12-29"])  # Tuesday 1 left open
+
 
 class MonthInPreparationTest(unittest.TestCase):
     def test_next_month_first_then_this_month(self):

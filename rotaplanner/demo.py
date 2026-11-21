@@ -324,6 +324,9 @@ def build_people(catalog: Catalog, rng: random.Random) -> List[Person]:
         person.max_hours = 20.0
     for person, note in zip(rng.sample(people, len(NOTES)), NOTES):
         person.note = note
+    # Drawn last, so that everything drawn before stays as it was.
+    for person in rng.sample(people, 4):
+        person.max_shifts_per_week = rng.choice((2, 3))
     _expand_every_day_rules(people)
     return people
 

@@ -14,9 +14,10 @@ A rule returns ``None`` when it has nothing to say, or a ``Finding``:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, Iterable, List, Optional, Tuple
 
-from .model import MINUTES_PER_DAY, PERIODS, Assignment, Person, Task, parse_date, shift_date, weekday_key
+from .model import (MINUTES_PER_DAY, PERIODS, Assignment, Person, Task, parse_date, shift_date, week_dates,
+                    weekday_key)
 from .schedule import Schedule
 
 BLOCK, WARN, NOTE = "block", "warn", "note"
@@ -55,8 +56,36 @@ class Placement:
     date: str
     ignore: Optional[Assignment] = None
 
+    @property
+    def rechecking(self) -> bool:
+        """An existing shift of this person is under review (not a new placement).
+
+        The solver also passes someone else's shift as ``ignore`` when it asks
+        who could take it: for those other people it is a new placement."""
+        return self.ignore is not None and self.ignore.person_id == self.person.id
+
     def others_on(self, iso: str) -> List[Assignment]:
         return [a for a in self.schedule.on_day(self.person.id, iso) if a is not self.ignore]
+
+    def counted(self, assignments: Iterable[Assignment]) -> List[Assignment]:
+        """Shifts that count against a personal limit. When an existing shift is
+        re-checked, those assigned anyway do not count against it: the override
+        is theirs alone to show, it does not turn the person's other shifts red."""
+        if not self.rechecking or self.ignore.forced_reason is not None:
+            # A new placement, or a shift itself assigned anyway: everything counts,
+            # so the override keeps showing (also when there are two of them).
+            return list(assignments)
+        return [a for a in assignments if a.forced_reason is None]
+
+    def shifts_that_week(self) -> int:
+        """All the person's other shifts in the week (Monday to Sunday) of this
+        day, those of the month next door included; quick (a counter)."""
+        count = self.schedule.shifts_in_week(self.person.id, self.date)
+        mine = self.ignore
+        if self.rechecking and mine is not None and self.schedule.knows(mine) \
+                and self.schedule.week_of(mine.date) == self.schedule.week_of(self.date):
+            count -= 1
+        return count
 
     def hours_that_day(self) -> float:
         return sum(self.schedule.hours_of(a) for a in self.others_on(self.date))
@@ -166,9 +195,33 @@ def _overlap(p: Placement) -> Optional[Finding]:
 
 def _daily_tasks(p: Placement) -> Optional[Finding]:
     limit = p.person.max_tasks_per_day
-    already = len(p.others_on(p.date))
-    if limit is not None and already + 1 > limit:
+    if limit is None:
+        return None
+    already = len(p.counted(p.others_on(p.date)))
+    if already + 1 > limit:
         return Finding("daily_tasks", BLOCK, f"Already has {already} task(s) that day (limit {limit})")
+    return None
+
+
+def _weekly_shifts(p: Placement) -> Optional[Finding]:
+    """At most so many shifts from Monday to Sunday, across two months too.
+
+    A number of shifts, whatever their length: never hours. A new placement
+    reads the counter; a re-check walks the week, so that the shifts assigned
+    anyway can be left out (``Placement.counted``). Both count the same
+    shifts: those whose task the month of their date still has."""
+    limit = p.person.max_shifts_per_week
+    if limit is None:
+        return None
+    if p.rechecking:
+        already = len(p.counted(
+            other for day in week_dates(p.date) for other in p.others_on(day) if p.schedule.knows(other)
+        ))
+    else:
+        already = p.shifts_that_week()
+    if already + 1 > limit:
+        plural = "" if already == 1 else "s"
+        return Finding("weekly_shifts", BLOCK, f"Already has {already} shift{plural} that week (limit {limit})")
     return None
 
 
@@ -222,10 +275,29 @@ RULES: Tuple[Rule, ...] = (
     _double_booked,
     _overlap,
     _daily_tasks,
+    _weekly_shifts,
     _daily_hours,
     _monthly_hours,
     _no_reply,
 )
+
+
+def _count(number: int, word: str) -> str:
+    return f"{number} {word}{'' if number == 1 else 's'}"
+
+
+def limits_text(person: Person) -> List[str]:
+    """The limits on a person's card, in short sentences for the screen."""
+    texts = []
+    if person.max_shifts_per_week is not None:
+        texts.append(f"At most {_count(person.max_shifts_per_week, 'shift')} a week")
+    if person.max_tasks_per_day is not None:
+        texts.append(f"At most {_count(person.max_tasks_per_day, 'task')} a day")
+    if person.max_hours is not None:
+        texts.append(f"At most {_hours(person.max_hours)} a month")
+    if person.max_hours_per_day is not None:
+        texts.append(f"At most {_hours(person.max_hours_per_day)} a day")
+    return texts
 
 
 def evaluate(placement: Placement) -> List[Finding]:

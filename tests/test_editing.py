@@ -26,16 +26,35 @@ class PersonTest(unittest.TestCase):
     def test_update_constraints(self):
         editing.save_person(self.people, self.catalog, {
             "id": "ana", "name": "Ana B.", "first_name": "Ana", "last_name": "Berg", "target_hours": "10",
-            "max_tasks_per_day": 1, "never": [{"weekday": "mon", "period": "evening"}],
+            "max_tasks_per_day": 1, "max_shifts_per_week": "3", "never": [{"weekday": "mon", "period": "evening"}],
             "preferences": {"kitchen": 5, "ghost": 2}, "avoid_task_ids": ["night", "nope"],
         })
         ana = self.people[0]
-        self.assertEqual((ana.target_hours, ana.max_tasks_per_day), (10.0, 1))
+        self.assertEqual((ana.target_hours, ana.max_tasks_per_day, ana.max_shifts_per_week), (10.0, 1, 3))
+        self.assertIsInstance(ana.max_shifts_per_week, int)
+        self.assertIsInstance(ana.max_tasks_per_day, int)
         self.assertEqual((ana.never[0].weekday, ana.never[0].period), ("mon", "evening"))
         self.assertEqual(ana.preferences, {"kitchen": 5})
         self.assertEqual(ana.avoid_task_ids, ["night"])
         with self.assertRaises(ValueError):
             editing.save_person(self.people, self.catalog, {"id": "ana", "first_name": "Ana", "never": [{"weekday": "xyz"}]})
+
+    def test_counts_are_whole_numbers(self):
+        def save(**limits):
+            return editing.save_person(self.people, self.catalog, {"id": "ana", "first_name": "Ana", **limits})
+
+        self.assertEqual(save(max_shifts_per_week=2.0).max_shifts_per_week, 2)
+        self.assertIsNone(save(max_shifts_per_week="").max_shifts_per_week)  # empty: no limit
+        for bad, words in (("1.5", "Shifts a week must be a whole number."),
+                           (0, "Shifts a week must be between 1 and 50."),
+                           (51, "Shifts a week must be between 1 and 50."),
+                           ("two", "Shifts a week must be a number.")):
+            with self.assertRaises(ValueError) as raised:
+                save(max_shifts_per_week=bad)
+            self.assertEqual(str(raised.exception), words)
+        with self.assertRaises(ValueError) as raised:
+            save(max_tasks_per_day="1.5")
+        self.assertEqual(str(raised.exception), "Tasks a day must be a whole number.")
 
     def test_skill_matrix_toggle(self):
         editing.set_person_skill(self.people, self.catalog, "cleo", "cook", True)

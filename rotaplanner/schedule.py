@@ -78,7 +78,7 @@ class Schedule:
                     continue  # a shift belongs to the month of its date
                 self._nearby[(assignment.person_id, iso)].append(assignment)
                 if self.knows(assignment):
-                    self._weeks[(assignment.person_id, self._week(iso))] += 1
+                    self._weeks[(assignment.person_id, self.week_of(iso))] += 1
 
     # -- changing ----------------------------------------------------------
 
@@ -99,7 +99,7 @@ class Schedule:
     def _count_kinds(self, assignment: Assignment, step: int) -> None:
         if assignment.task_id not in self.tasks:
             return
-        self._weeks[(assignment.person_id, self._week(assignment.date))] += step
+        self._weeks[(assignment.person_id, self.week_of(assignment.date))] += step
         if parse_date(assignment.date).weekday() >= 5:
             self._weekends[assignment.person_id] += step
         if "evening" in self.task_on(assignment.task_id, assignment.date).periods:
@@ -174,7 +174,8 @@ class Schedule:
             return self._days.get((person_id, iso), [])
         return self._nearby.get((person_id, iso), [])
 
-    def _week(self, iso: str) -> str:
+    def week_of(self, iso: str) -> str:
+        """The Monday of the week of ``iso`` (remembered: it is asked thousands of times)."""
         monday = self._week_of.get(iso)
         if monday is None:
             monday = self._week_of[iso] = week_start(iso)
@@ -183,7 +184,7 @@ class Schedule:
     def shifts_in_week(self, person_id: str, iso: str) -> int:
         """Shifts the person has in the week (Monday to Sunday) of ``iso``, counting
         those of the month next door on the nearby days."""
-        return self._weeks.get((person_id, self._week(iso)), 0)
+        return self._weeks.get((person_id, self.week_of(iso)), 0)
 
     def hours(self, person_id: str) -> float:
         return self._hours.get(person_id, 0.0)

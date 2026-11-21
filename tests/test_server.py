@@ -345,18 +345,14 @@ class ServerTest(unittest.TestCase):
 
 
 
-class MonthsNextDoorTest(unittest.TestCase):
-    """A shift late on the last day of November shows as a conflict in December."""
+class TwoMonthsServed:
+    """November and December 2026 in a fresh data folder, served for one test."""
 
-    def setUp(self):
+    def serve(self, people, november, december):
         self.tmp = tempfile.TemporaryDirectory()
         store = Store(Path(self.tmp.name))
         store.save_catalog(h.catalog())
-        store.save_people(h.people())
-        november = create_month(h.catalog(), 2026, 11)
-        november.assignments.append(Assignment("night", "2026-11-30", 0, person_id="ben"))  # 22:00–08:00
-        december = h.month()
-        december.assignments.append(Assignment("breakfast", "2026-12-01", 0, person_id="ben"))  # 07:00–09:00
+        store.save_people(people)
         store.save_month(november)
         store.save_month(december)
         self.server = create_server(App(store), TOKEN, 0)
@@ -377,6 +373,17 @@ class MonthsNextDoorTest(unittest.TestCase):
         conn.close()
         return response.status, data
 
+
+class MonthsNextDoorTest(TwoMonthsServed, unittest.TestCase):
+    """A shift late on the last day of November shows as a conflict in December."""
+
+    def setUp(self):
+        november = create_month(h.catalog(), 2026, 11)
+        november.assignments.append(Assignment("night", "2026-11-30", 0, person_id="ben"))  # 22:00–08:00
+        december = h.month()
+        december.assignments.append(Assignment("breakfast", "2026-12-01", 0, person_id="ben"))  # 07:00–09:00
+        self.serve(h.people(), november, december)
+
     def breakfast(self):
         status, view = self.json("GET", "/api/months/2026-12")
         self.assertEqual(status, 200)
@@ -395,6 +402,43 @@ class MonthsNextDoorTest(unittest.TestCase):
                                     {"task_id": "night", "date": "2026-11-30", "position": 0, "person_id": "ben"})
         self.assertEqual(status, 409)
         self.assertTrue(any(f["message"].startswith("Overlaps Breakfast") for f in refused["findings"]))
+
+
+class WeeklyLimitNextDoorTest(TwoMonthsServed, unittest.TestCase):
+    """Ana does at most one shift a week; the week of 1 December starts on Monday 30 November."""
+
+    def setUp(self):
+        people = h.people()
+        people[0].max_shifts_per_week = 1
+        self.serve(people, create_month(h.catalog(), 2026, 11), h.month())
+
+    def assign_on_the_30th(self):
+        status, _ = self.json("POST", "/api/months/2026-11/assign",
+                              {"task_id": "lunch", "date": "2026-11-30", "position": 0, "person_id": "ana"})
+        self.assertEqual(status, 200)
+
+    def test_accepting_skips_a_suggestion_over_the_weekly_limit(self):
+        status, body = self.json("POST", "/api/months/2026-12/prefill", {"dates": ["2026-12-02"], "area_id": "kitchen"})
+        hers = [p["key"] for p in body["proposals"] if p["person_id"] == "ana"]
+        self.assertEqual(len(hers), 1)  # one shift that week, as her card says
+        self.assign_on_the_30th()  # meanwhile, in November
+        status, body = self.json("POST", "/api/months/2026-12/proposals/accept", {})
+        self.assertEqual(status, 200)
+        self.assertEqual(body["skipped"], 1)
+        task_id, iso, position = hers[0].split("|")
+        self.assertNotIn("person", body["cells"][f"{task_id}|{iso}"]["slots"][int(position)])
+
+    def test_an_exchange_over_the_weekly_limit_is_refused(self):
+        self.assign_on_the_30th()
+        status, _ = self.json("POST", "/api/months/2026-12/assign",
+                              {"task_id": "supper", "date": "2026-12-02", "position": 0, "person_id": "ben"})
+        self.assertEqual(status, 200)
+        status, refused = self.json("POST", "/api/months/2026-12/swap", {
+            "key": "lunch|2026-12-02|0", "person_id": "ben", "from": "supper|2026-12-02|0", "replacement": "ana"})
+        self.assertEqual(status, 409)
+        self.assertIn("Already has 1 shift that week (limit 1)", refused["error"])
+        self.assertEqual(self.json("GET", "/api/months/2026-12")[1]["cells"]["supper|2026-12-02"]["slots"][0]["person"],
+                         "ben")
 
 
 if __name__ == "__main__":

@@ -95,6 +95,13 @@ shifts are seen by `on_day`, `shifts_in_week`, `task_on` and `hours_of`
 hours, weekends, evenings, slots or statuses. Without `around` a schedule
 sees its month only.
 
+The personal limits that count shifts (`daily_tasks`, `weekly_shifts`, a
+number of shifts and never hours) count everything for a new placement. When
+an existing shift is re-checked (`Placement.rechecking`: `ignore` is that
+person's own shift), the shifts assigned anyway do not count against it
+(`Placement.counted`): one deliberate override is flagged on that shift
+alone, instead of turning the person's whole week red.
+
 ## Data format
 
 JSON files in the data folder (`catalog.json`, `people.json`,

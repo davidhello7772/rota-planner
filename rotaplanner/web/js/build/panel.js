@@ -189,6 +189,7 @@ function personCard(person) {
       person.replied ? (away ? `Away ${away}% of the month` : 'Available all month') : 'No availability reply',
       person.resident ? 'Resident' : 'Non-resident',
     ].join(' · ')),
+    person.limits.length ? h('span', { class: 'muted' }, person.limits.join(' · ')) : null,
     person.note ? h('span', {}, person.note) : null,
     person.skills.length ? h('div', { class: 'chips-inline' }, person.skills.map((s) => h('span', {}, s))) : null,
     h('div', { class: 'person-actions' },

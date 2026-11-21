@@ -250,6 +250,38 @@ class OlderFilesTest(unittest.TestCase):
         self.assertEqual([t.on_month_rota for t in month.tasks], [None, None, None, True])  # one exception kept
         self.assertEqual([month.on_main_rota(t) for t in month.tasks], [True, False, False, True])
 
+    def test_format_4_people_have_no_weekly_limit_and_older_programs_refuse_format_5(self):
+        import json
+        import tempfile
+        from pathlib import Path
+
+        from rotaplanner.model import SCHEMA_VERSION, Person
+        from rotaplanner.store import Store, StoreError, migrate
+        self.assertEqual(SCHEMA_VERSION, 5)
+        document = {"schema_version": 4, "people": [{"id": "ana", "name": "Ana B.", "max_tasks_per_day": 1}]}
+        migrated = migrate(json.loads(json.dumps(document)))
+        self.assertEqual(migrated, dict(document, schema_version=5))  # nothing else changes
+        person = Person.from_dict(migrated["people"][0])
+        self.assertIsNone(person.max_shifts_per_week)
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Store(Path(tmp))
+            ana = h.people()[0]
+            ana.max_shifts_per_week = 2
+            store.save_people([ana])
+            saved = json.loads((Path(tmp) / "people.json").read_text())
+            self.assertEqual(saved["schema_version"], 5)
+            self.assertEqual(saved["people"][0]["max_shifts_per_week"], 2)
+            self.assertEqual(store.load_people()[0].max_shifts_per_week, 2)
+        # What a program still at format 4 does with it: refuse, rather than drop the limit when saving.
+        import rotaplanner.store as store_module
+        original = store_module.SCHEMA_VERSION
+        store_module.SCHEMA_VERSION = 4
+        try:
+            with self.assertRaises(StoreError):
+                migrate(dict(saved))
+        finally:
+            store_module.SCHEMA_VERSION = original
+
 
 class AvailabilityTest(unittest.TestCase):
     def setUp(self):

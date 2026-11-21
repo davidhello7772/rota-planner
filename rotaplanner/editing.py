@@ -69,6 +69,16 @@ def number(data: Json, key: str, low: float, high: float, label: str) -> Optiona
     return number
 
 
+def whole(data: Json, key: str, low: int, high: int, label: str) -> Optional[int]:
+    """A count (shifts, tasks): a whole number, never cut silently (1.5 is refused)."""
+    value = number(data, key, low, high, label)
+    if value is None:
+        return None
+    if not value.is_integer():
+        raise ValueError(f"{label} must be a whole number.")
+    return int(value)
+
+
 def _date(value: Any, label: str) -> str:
     if not value:
         return ""
@@ -155,8 +165,8 @@ def save_person(people: List[Person], catalog: Catalog, data: Json, salt: bytes 
     person.target_hours = number(data, "target_hours", 0, 300, "Target hours")
     person.max_hours = number(data, "max_hours", 0, 300, "Monthly limit")
     person.max_hours_per_day = number(data, "max_hours_per_day", 0, 24, "Hours a day")
-    tasks_per_day = number(data, "max_tasks_per_day", 1, 20, "Tasks a day")
-    person.max_tasks_per_day = int(tasks_per_day) if tasks_per_day is not None else None
+    person.max_tasks_per_day = whole(data, "max_tasks_per_day", 1, 20, "Tasks a day")
+    person.max_shifts_per_week = whole(data, "max_shifts_per_week", 1, 50, "Shifts a week")
     person.never = never
     person.avoid_task_ids = [t for t in data.get("avoid_task_ids") or [] if t in task_ids]
     person.note = str(data.get("note") or "")[:1000].strip()

@@ -68,7 +68,7 @@ export const SCREENS = {
     title: 'People',
     tip: 'Everyone who can be on the rota, with what they can do. The skills grid ticks skills for many people at once.',
     points: [
-      'A person’s card holds their skills, target hours and limits (no evenings, never on Monday morning…).',
+      'A person’s card holds their skills, target hours, limits (hours, and a number of shifts a day or a week) and when they are never available (no evenings, never on Monday morning…).',
       'Import people adds a pasted list of names or a file; nothing is created before you confirm.',
       'In the skills grid, click a skill’s name to rename or delete it.',
       'Someone who leaves: switch off “On the rota” on their card. Their past shifts stay.',
@@ -170,6 +170,8 @@ export const QUESTIONS = [
     a: 'In Regular week, click the cell of the task and weekday and choose the person. They are placed first each time a month is created.' },
   { q: 'Add a person, or a new skill', go: 'people', find: 'new resident create skill trained',
     a: '“Add a person” in People. Skills are ticked on the person’s card or, for many people at once, in the skills grid. A new skill is created from Tasks & Areas › New skill.' },
+  { q: 'Limit how many shifts someone does in a week', go: 'people', find: 'weekly limit maximum per week too many shifts',
+    a: 'Open the person in People: under “Number of shifts”, fill in “A week, at most” (2, for example). It counts shifts, whatever their length, not hours. Weeks run Monday to Sunday, also across the end of a month. Suggestions never go over it, and the list for a shift shows them under “Away, busy or not trained”, with the reason. “Assign anyway” still works: only that shift is flagged. Their limits also show on their card in the People tab of the rota.' },
   { q: 'Rename or delete a skill', go: 'people', find: 'skill rename remove delete change name wrong',
     a: 'People › Skills grid: click the skill’s name at the top of its column. Rename it, or “Delete…” (asked twice): it comes off everyone who has it. A skill that a task still needs cannot be deleted: change those tasks first.' },
   { q: 'Undo a mistake', go: 'build', find: 'cancel revert go back wrong',

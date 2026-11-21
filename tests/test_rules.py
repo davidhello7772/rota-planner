@@ -1,6 +1,6 @@
 import unittest
 
-from rotaplanner import demand
+from rotaplanner import checks, demand
 from rotaplanner import eligibility as rules
 from rotaplanner.model import (
     ANYTIME, Assignment, Event, Marker, NeverRule, Settings, Task, TimeChange, week_dates, week_start,
@@ -264,3 +264,138 @@ class MonthsNextDoorTest(unittest.TestCase):
         s = self.schedule([self.november])
         self.assertEqual(s.shifts_in_week("ben", "2026-11-23"), 0)
         self.assertEqual(s.on_day("ben", "2026-11-23"), [])
+
+
+class WeeklyLimitTest(unittest.TestCase):
+    """At most so many shifts a week: a number of shifts, Monday to Sunday, across two months too."""
+
+    def setUp(self):
+        self.month = h.month()
+        self.people = h.people()
+        self.ana = self.people[0]
+        self.settings = Settings(default_max_hours_per_day=10)
+
+    def add(self, task_id, iso, person_id="ana", forced=None, month=None):
+        made = Assignment(task_id, iso, 0, person_id=person_id, forced_reason=forced)
+        (month or self.month).assignments.append(made)
+        return made
+
+    def schedule(self, around=()):
+        return Schedule(self.month, self.people, self.settings, around)
+
+    def test_a_third_shift_that_week_is_blocked(self):
+        self.ana.max_shifts_per_week = 2
+        self.add("lunch", "2026-12-07")   # Monday
+        self.add("lunch", "2026-12-09")   # Wednesday
+        s = self.schedule()
+        placement = rules.Placement(s, self.ana, s.task_on("lunch", "2026-12-11"), "2026-12-11")
+        found = {f.rule: f for f in rules.evaluate(placement)}
+        self.assertEqual(found["weekly_shifts"].severity, rules.BLOCK)
+        self.assertEqual(found["weekly_shifts"].message, "Already has 2 shifts that week (limit 2)")
+        self.assertEqual(findings_for(s, "ana", "breakfast", "2026-12-13")["weekly_shifts"], rules.BLOCK)  # Sunday
+        self.assertNotIn("weekly_shifts", findings_for(s, "ana", "lunch", "2026-12-14"))  # the next Monday
+        self.assertNotIn("weekly_shifts", findings_for(s, "ben", "lunch", "2026-12-11"))  # no limit
+        self.ana.max_shifts_per_week = None
+        self.assertNotIn("weekly_shifts", findings_for(self.schedule(), "ana", "lunch", "2026-12-11"))
+
+    def test_a_zero_hour_shift_counts_like_any_other(self):
+        ben = self.people[1]
+        ben.max_shifts_per_week = 1
+        self.add("night", "2026-12-08", "ben")  # counts for 0 hours
+        s = self.schedule()
+        found = {f.rule: f.message for f in rules.evaluate(
+            rules.Placement(s, ben, s.task_on("lunch", "2026-12-10"), "2026-12-10"))}
+        self.assertEqual(found["weekly_shifts"], "Already has 1 shift that week (limit 1)")
+
+    def test_the_week_runs_into_the_month_before(self):
+        self.ana.max_shifts_per_week = 1
+        november = create_month(h.catalog(), 2026, 11)
+        self.add("lunch", "2026-11-30", month=november)  # a Monday
+        self.assertNotIn("weekly_shifts", findings_for(self.schedule(), "ana", "lunch", "2026-12-03"))
+        s = self.schedule([november])
+        for day in ("2026-12-01", "2026-12-06"):
+            self.assertEqual(findings_for(s, "ana", "lunch", day)["weekly_shifts"], rules.BLOCK)
+        self.assertNotIn("weekly_shifts", findings_for(s, "ana", "lunch", "2026-12-07"))
+        # A shift of this month re-checked sees the November one too.
+        mine = self.add("lunch", "2026-12-02")
+        s = self.schedule([november])
+        placement = rules.Placement(s, self.ana, s.task_on("lunch", "2026-12-02"), "2026-12-02", ignore=mine)
+        self.assertIn("weekly_shifts", {f.rule for f in rules.evaluate(placement)})
+
+    def test_a_new_placement_and_a_re_check_count_the_same_shifts(self):
+        self.ana.max_shifts_per_week = 2
+        november = create_month(h.catalog(), 2026, 11)
+        self.add("lunch", "2026-11-30", month=november)
+        shifts = [self.add("lunch", "2026-12-01"), self.add("breakfast", "2026-12-03"),
+                  self.add("lunch", "2026-12-08")]
+        self.add("gone", "2026-12-02")   # a task taken off the month: counted by neither
+        self.add("supper", "2026-12-04", "ben")
+        s = self.schedule([november])
+
+        def walked(p):
+            return len(p.counted(o for d in week_dates(p.date) for o in p.others_on(d) if s.knows(o)))
+
+        for shift in shifts:
+            recheck = rules.Placement(s, self.ana, s.task_on(shift.task_id, shift.date), shift.date, ignore=shift)
+            self.assertTrue(recheck.rechecking)
+            self.assertEqual(recheck.shifts_that_week(), walked(recheck))
+            new = rules.Placement(s, self.ana, s.task_on("supper", shift.date), shift.date)
+            self.assertFalse(new.rechecking)
+            self.assertEqual(new.shifts_that_week(), recheck.shifts_that_week() + 1)
+        self.assertEqual(rules.Placement(s, self.ana, s.tasks["supper"], "2026-12-05").shifts_that_week(), 3)
+        # Someone else's shift under review (the solver asking who could take it): a new placement.
+        theirs = rules.Placement(s, self.ana, s.task_on("lunch", "2026-12-01"), "2026-12-01", ignore=shifts[0])
+        other = rules.Placement(s, self.people[1], s.task_on("lunch", "2026-12-01"), "2026-12-01", ignore=shifts[0])
+        self.assertTrue(theirs.rechecking)
+        self.assertFalse(other.rechecking)
+
+    def test_someone_elses_shift_under_review_counts_everything(self):
+        self.ana.max_shifts_per_week = 2
+        self.add("lunch", "2026-12-07", forced="")
+        self.add("lunch", "2026-12-09")
+        bens = self.add("supper", "2026-12-10", "ben")
+        s = self.schedule()
+        placement = rules.Placement(s, self.ana, s.task_on("supper", "2026-12-10"), "2026-12-10", ignore=bens)
+        self.assertIn("weekly_shifts", {f.rule for f in rules.evaluate(placement)})
+
+    def statuses(self):
+        s = self.schedule()
+        return [checks.assignment_status(s, a).state for a in self.month.assignments]
+
+    def test_a_shift_assigned_anyway_does_not_turn_the_others_red(self):
+        self.ana.max_shifts_per_week = 2
+        for day in ("2026-12-07", "2026-12-09", "2026-12-11"):
+            self.add("lunch", day)
+        self.assertEqual(self.statuses(), [checks.CONFLICT] * 3)
+        self.month.assignments[2].forced_reason = ""
+        self.assertEqual(self.statuses(), [checks.OK, checks.OK, checks.FORCED])
+        forced = checks.assignment_status(self.schedule(), self.month.assignments[2])
+        self.assertIn("Already has 2 shifts that week (limit 2)", [f.message for f in forced.findings])
+
+    def test_two_shifts_assigned_anyway_both_keep_their_flag(self):
+        self.ana.max_shifts_per_week = 1
+        for day in ("2026-12-07", "2026-12-09"):
+            self.add("lunch", day)
+        for assignment in self.month.assignments:
+            assignment.forced_reason = ""
+        self.assertEqual(self.statuses(), [checks.FORCED, checks.FORCED])
+
+    def test_the_same_for_tasks_a_day(self):
+        self.ana.max_tasks_per_day = 1
+        self.add("breakfast", "2026-12-07")
+        self.add("lunch", "2026-12-07")
+        self.assertEqual(self.statuses(), [checks.CONFLICT] * 2)
+        self.month.assignments[1].forced_reason = "Agreed"
+        self.assertEqual(self.statuses(), [checks.OK, checks.FORCED])
+        # A new placement still counts the one assigned anyway.
+        self.assertEqual(findings_for(self.schedule(), "ana", "supper", "2026-12-07")["daily_tasks"], rules.BLOCK)
+
+    def test_limits_in_words(self):
+        self.assertEqual(rules.limits_text(self.ana), [])
+        self.ana.max_shifts_per_week, self.ana.max_tasks_per_day = 2, 1
+        self.ana.max_hours, self.ana.max_hours_per_day = 20.0, 3.5
+        self.assertEqual(rules.limits_text(self.ana), [
+            "At most 2 shifts a week", "At most 1 task a day", "At most 20 h a month", "At most 3.5 h a day",
+        ])
+        self.ana.max_shifts_per_week = 1
+        self.assertEqual(rules.limits_text(self.ana)[0], "At most 1 shift a week")

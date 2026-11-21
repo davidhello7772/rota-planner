@@ -39,6 +39,7 @@ function constraintsText(person) {
   if (person.max_hours != null) parts.push(`Max ${person.max_hours} h/month`);
   if (person.max_hours_per_day != null) parts.push(`Max ${person.max_hours_per_day} h/day`);
   if (person.max_tasks_per_day != null) parts.push(`Max ${person.max_tasks_per_day} task${person.max_tasks_per_day > 1 ? 's' : ''}/day`);
+  if (person.max_shifts_per_week != null) parts.push(`Max ${person.max_shifts_per_week} shift${person.max_shifts_per_week > 1 ? 's' : ''}/week`);
   if (person.never.length) parts.push(`${person.never.length} standing absence${person.never.length > 1 ? 's' : ''}`);
   if (person.avoid_task_ids.length) parts.push(`avoids ${person.avoid_task_ids.length} task${person.avoid_task_ids.length > 1 ? 's' : ''}`);
   return parts.join(' · ');
@@ -105,6 +106,7 @@ export function editPerson(person) {
   const maxMonth = numberInput(p.max_hours, { min: 0, step: 0.5, placeholder: 'No limit' });
   const maxDay = numberInput(p.max_hours_per_day, { min: 0, step: 0.5, placeholder: String(setup.settings.default_max_hours_per_day) });
   const tasksDay = numberInput(p.max_tasks_per_day, { min: 1, step: 1, placeholder: 'No limit' });
+  const shiftsWeek = numberInput(p.max_shifts_per_week, { min: 1, step: 1, placeholder: 'No limit' });
   const never = neverEditor(p.never);
   const avoid = chipChoice(setup.catalog.tasks.filter((t) => !t.archived).map((t) => ({ value: t.id, label: t.name })), p.avoid_task_ids, { label: 'Tasks to avoid' });
   const prefs = preferenceEditor(setup.catalog.areas, p.preferences);
@@ -116,7 +118,8 @@ export function editPerson(person) {
       id: p.id, first_name: first.value, last_name: last.value, name: rota.value, lay_name: lay.value, phone: phone.value,
       resident: resident.input.checked, active: active.input.checked, archived: archived.input.checked,
       skills: skills.getValue(), target_hours: target.value, max_hours: maxMonth.value,
-      max_hours_per_day: maxDay.value, max_tasks_per_day: tasksDay.value, never: never.getValue(),
+      max_hours_per_day: maxDay.value, max_tasks_per_day: tasksDay.value, max_shifts_per_week: shiftsWeek.value,
+      never: never.getValue(),
       avoid_task_ids: avoid.getValue(), preferences: prefs.getValue(), note: note.value,
       email: email.value, forget_email: forgetEmail,
     };
@@ -141,7 +144,11 @@ export function editPerson(person) {
       h('h3', { class: 'form-section' }, 'Hours'),
       h('div', { class: 'form-grid' },
         field('Target a month', target, 'Empty: the usual target'), field('At most a month', maxMonth),
-        field('At most a day', maxDay, 'Empty: the usual limit (a warning only)'), field('Tasks a day, at most', tasksDay)),
+        field('At most a day', maxDay, 'Empty: the usual limit (a warning only)')),
+      // Counts, kept apart from the hours so that a number of shifts is never read as hours.
+      h('h3', { class: 'form-section' }, 'Number of shifts'),
+      h('div', { class: 'form-grid' },
+        field('A day, at most', tasksDay), field('A week, at most', shiftsWeek, 'Monday to Sunday')),
       h('h3', { class: 'form-section' }, 'Never available'), never,
       h('h3', { class: 'form-section' }, 'Tasks to avoid'), avoid,
       h('h3', { class: 'form-section' }, 'Likes helping in…'),

@@ -73,7 +73,20 @@ def _fields_older_programs_would_drop(document: Dict[str, Any]) -> Dict[str, Any
     return document
 
 
-MIGRATIONS: Dict[int, Migration] = {1: _tasks_get_periods, 2: _events_decide_main_rota, 3: _fields_older_programs_would_drop}
+def _weekly_limit_older_programs_would_drop(document: Dict[str, Any]) -> Dict[str, Any]:
+    """Format 4 → 5: nothing to transform. People now carry a weekly limit (at
+    most so many shifts a week): an older program would silently drop it when
+    saving the people, so with a higher number it refuses the newer files
+    instead, on a second computer not yet updated for example."""
+    return document
+
+
+MIGRATIONS: Dict[int, Migration] = {
+    1: _tasks_get_periods,
+    2: _events_decide_main_rota,
+    3: _fields_older_programs_would_drop,
+    4: _weekly_limit_older_programs_would_drop,
+}
 """Upgrade steps, keyed by the version they upgrade *from*.
 
 To change the file format: bump ``SCHEMA_VERSION`` and register here a

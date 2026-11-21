@@ -216,6 +216,7 @@ def _person_json(
         "presence": round(schedule.presence(person.id), 2),
         "replied": schedule.has_replied(person.id),
         "skills": [skill_names[s] for s in person.skills if s in skill_names],
+        "limits": rules.limits_text(person),
         "note": person.note,
     }
 
