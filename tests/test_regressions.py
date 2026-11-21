@@ -56,6 +56,134 @@ class TwoMonthEventsTest(unittest.TestCase):
         self.app.save_event("2027-01", {"event": {"id": self.event_id, "name": "Again", "start": "2026-12-30", "end": "2027-01-02"}})
         self.assertEqual(len(self.app.history.stacks("2026-12")[0]), december_steps)
 
+    # -- undo over two months ----------------------------------------------------
+
+    def january_slot(self, day, task="lunch", person="ana"):
+        return {"task_id": task, "date": f"2027-01-{day:02d}", "position": 0, "person_id": person, "force": True}
+
+    def names(self):
+        return [self.app.month(m).events[0].name if self.app.month(m).events else None for m in ("2026-12", "2027-01")]
+
+    def placed(self, month_id, task_id):
+        return [(a.date, a.person_id) for a in self.app.month(month_id).assignments if a.task_id == task_id]
+
+    def hot_chocolate(self):
+        return next(t.id for t in month_setup.event_tasks(self.app.month("2026-12"), self.event_id) if t.name == "Hot chocolate")
+
+    def rename_from_december(self, name):
+        self.app.save_event("2026-12", {"event": {"id": self.event_id, "name": name, "start": "2026-12-30", "end": "2027-01-02"}})
+
+    def test_undoing_an_older_step_keeps_a_change_made_to_the_event_from_the_other_month(self):
+        self.app.assign("2027-01", self.january_slot(5))  # a step in January, before the event changes
+        self.rename_from_december("Renamed")
+        self.assertEqual(self.names(), ["Renamed", "Renamed"])
+        self.app.undo("2027-01", {})
+        self.assertEqual(self.placed("2027-01", "lunch"), [])  # only that step is undone
+        self.assertEqual(self.names(), ["Renamed", "Renamed"])  # not silently put back in either month
+        self.assertEqual(self.store.load_month("2027-01").events[0].name, "Renamed")  # as saved
+        self.app.redo("2027-01", {})
+        self.assertEqual((self.placed("2027-01", "lunch"), self.names()), ([("2027-01-05", "ana")], ["Renamed", "Renamed"]))
+
+    def test_going_back_several_steps_keeps_it_too(self):
+        first = self.app.assign("2027-01", self.january_slot(5))["history"]["undo"]["id"]
+        self.app.assign("2027-01", self.january_slot(6))
+        self.rename_from_december("Renamed")
+        self.app.assign("2027-01", self.january_slot(7))
+        self.app.history_go("2027-01", {"to": first})
+        self.assertEqual(self.placed("2027-01", "lunch"), [])
+        self.assertEqual(self.names(), ["Renamed", "Renamed"])
+
+    def test_undoing_a_step_that_changed_the_event_still_reaches_the_other_month(self):
+        self.app.save_event("2027-01", {"event": {"id": self.event_id, "name": "From January", "start": "2026-12-30",
+                                                  "end": "2027-01-02"}})
+        self.rename_from_december("From December")
+        self.app.undo("2027-01", {})  # that step did change the event: as it was before it, everywhere
+        self.assertEqual(self.names(), ["New Year", "New Year"])
+
+    def test_people_placed_in_the_other_month_come_back_with_the_event(self):
+        task = self.hot_chocolate()
+        self.app.assign("2027-01", self.january_slot(1, task=task))
+        january = self.app.history.stacks("2027-01")
+        self.app.delete_event("2026-12", {"id": self.event_id})
+        self.assertEqual(self.placed("2027-01", task), [])
+        self.app.undo("2026-12", {})
+        self.assertEqual(self.placed("2027-01", task), [("2027-01-01", "ana")])
+        self.assertEqual(self.placed("2027-01", task), [(a.date, a.person_id) for a in self.store.load_month("2027-01").assignments
+                                                        if a.task_id == task])  # saved
+        self.app.redo("2026-12", {})
+        self.assertEqual(self.placed("2027-01", task), [])
+        self.app.undo("2026-12", {})  # a second time too
+        self.assertEqual(self.placed("2027-01", task), [("2027-01-01", "ana")])
+        self.assertEqual(self.app.history.stacks("2027-01"), january)  # nothing recorded in January's own history
+
+    def test_each_step_knows_the_events_it_changed(self):
+        self.rename_from_december("Renamed")
+        self.assertEqual(self.app.history.top("2026-12").linked, {("events", self.event_id)})
+        self.app.assign("2026-12", {"task_id": "lunch", "date": "2026-12-02", "position": 0, "person_id": "ana"})
+        self.assertEqual(self.app.history.top("2026-12").linked, frozenset())
+
+    def test_going_back_several_steps_brings_them_back_too(self):
+        task = self.hot_chocolate()
+        self.app.assign("2027-01", self.january_slot(1, task=task))
+        deleted = self.app.delete_event("2026-12", {"id": self.event_id})["history"]["undo"]["id"]
+        self.app.assign("2026-12", {"task_id": "lunch", "date": "2026-12-02", "position": 0, "person_id": "ana"})
+        self.app.history_go("2026-12", {"to": deleted})
+        self.assertEqual(self.placed("2027-01", task), [("2027-01-01", "ana")])
+        self.app.history_go("2026-12", {"to": self.app.history.stacks("2026-12")[1][0].id})  # redo both
+        self.assertEqual(self.placed("2027-01", task), [])
+        self.app.undo("2026-12", {})
+        self.app.undo("2026-12", {})
+        self.assertEqual(self.placed("2027-01", task), [("2027-01-01", "ana")])
+
+    def test_an_older_step_undone_where_the_event_is_gone_leaves_its_people_to_the_other_month(self):
+        task = self.hot_chocolate()
+        self.app.assign("2027-01", self.january_slot(1, task=task))
+        self.app.assign("2027-01", self.january_slot(5))
+        self.app.delete_event("2026-12", {"id": self.event_id})
+        self.app.undo("2027-01", {})  # the lunch on the 5th; the event stays deleted, in January too
+        self.assertEqual((self.names(), self.placed("2027-01", task), self.placed("2027-01", "lunch")), ([None, None], [], []))
+        self.app.undo("2026-12", {})  # the event comes back, with whoever was on it
+        self.assertEqual(self.placed("2027-01", task), [("2027-01-01", "ana")])
+
+    def test_people_placed_on_a_task_an_undo_took_away_come_back_with_the_redo(self):
+        self.app.save_event_task("2026-12", {"task": {"event_id": self.event_id, "name": "Tea", "area_id": "kitchen"}})
+        task = next(t.id for t in month_setup.event_tasks(self.app.month("2027-01"), self.event_id) if t.name == "Tea")
+        self.app.undo("2026-12", {})
+        self.app.redo("2026-12", {})
+        self.app.assign("2027-01", self.january_slot(2, task=task))  # placed in January after the task came back
+        self.app.undo("2026-12", {})
+        self.assertEqual(self.placed("2027-01", task), [])
+        self.app.redo("2026-12", {})
+        self.assertEqual(self.placed("2027-01", task), [("2027-01-02", "ana")])
+
+    def test_shortening_the_event_out_of_the_month_and_back(self):
+        task = self.hot_chocolate()
+        self.app.assign("2027-01", self.january_slot(1, task=task))
+        self.app.save_event("2026-12", {"event": {"id": self.event_id, "name": "New Year", "start": "2026-12-30", "end": "2026-12-31"}})
+        self.assertEqual(month_setup.event_tasks(self.app.month("2027-01"), self.event_id), [])
+        self.app.undo("2026-12", {})
+        self.assertEqual(self.placed("2027-01", task), [("2027-01-01", "ana")])
+
+    def test_a_place_taken_since_is_not_taken_back(self):
+        task = self.hot_chocolate()
+        self.app.assign("2027-01", self.january_slot(1, task=task))
+        self.app.save_event("2026-12", {"event": {"id": self.event_id, "name": "New Year", "start": "2026-12-30", "end": "2026-12-31"}})
+        self.app.undo("2026-12", {})
+        self.app.assign("2027-01", self.january_slot(1, task=task, person="ben"))  # Ben replaces Ana in January
+        self.app.redo("2026-12", {})
+        self.app.undo("2026-12", {})
+        self.assertEqual(self.placed("2027-01", task), [("2027-01-01", "ben")])  # the latest, not Ana again
+
+    def test_a_closure_undone_gives_back_the_regular_shifts_it_took_off(self):
+        self.app.set_regular({"task_id": "lunch", "weekday": "fri", "person_id": "ana"})
+        self.app.reapply_regulars("2027-01", {})
+        self.assertIn(("2027-01-01", "ana"), self.placed("2027-01", "lunch"))
+        self.app.save_marker("2026-12", {"marker": {"kind": "closed", "label": "Closed", "start": "2026-12-31",
+                                                    "end": "2027-01-01"}})
+        self.assertNotIn(("2027-01-01", "ana"), self.placed("2027-01", "lunch"))
+        self.app.undo("2026-12", {})
+        self.assertIn(("2027-01-01", "ana"), self.placed("2027-01", "lunch"))
+
     def test_a_closure_saved_from_the_other_month_keeps_its_areas(self):
         result = self.app.save_marker("2026-12", {"marker": {"kind": "closed", "label": "Tent down", "start": "2026-12-30",
                                                              "end": "2027-01-02", "area_ids": ["tent"]}})

@@ -18,6 +18,7 @@ from .editing import TaskConfig
 from .model import (
     EVENT_DAY,
     NORMAL_DAY,
+    Assignment,
     Catalog,
     Event,
     EventType,
@@ -349,6 +350,23 @@ def _sync_tasks(month: Month, event_id: str, tasks: Sequence[Task], areas: Seque
         else:
             month.tasks.append(task)
     return True
+
+
+def put_back(month: Month, placements: Iterable[Json]) -> int:
+    """Put back placements a change to an event or closure took off (plain dicts),
+    each where its task exists again and its place is still free; the first of
+    two for the same place wins. Returns how many came back.
+
+    No rule is checked: they were there before, and anything that changed since
+    shows in the checks."""
+    tasks = {t.id for t in month.tasks}
+    back = 0
+    for data in placements:
+        assignment = Assignment.from_dict(data)
+        if assignment.task_id in tasks and month.find_assignment(*assignment.slot) is None:
+            month.assignments.append(assignment)
+            back += 1
+    return back
 
 
 def take_linked_items(month: Month, neighbours: Iterable[Month]) -> bool:

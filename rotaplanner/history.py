@@ -19,7 +19,7 @@ import json
 import time
 import zlib
 from dataclasses import dataclass, replace
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, FrozenSet, List, Optional, Tuple
 
 Json = Dict[str, Any]
 
@@ -47,6 +47,12 @@ class Step:
     proposals: Optional[Any] = None
     """The suggestions waiting in the state this step puts back (as ``App`` keeps
     them), when the step changed them; ``None``: crossing it leaves them alone."""
+    linked: FrozenSet[Tuple[str, str]] = frozenset()
+    """The events and closures (``(kind, id)``) this step itself changed: only those
+    follow it to the other months they reach when it is crossed."""
+    removed: Optional[Dict[str, List[Json]]] = None
+    """Placements taken off other months (month id: assignments, as plain dicts)
+    when this step last reached them; crossing it the other way puts them back."""
 
 
 class History:
@@ -59,9 +65,10 @@ class History:
         self._notes: Dict[str, str] = {}
         self._ids = itertools.count(1)
 
-    def record(self, month_id: str, label: str, kind: str, before: Json, proposals: Optional[Any] = None) -> Step:
+    def record(self, month_id: str, label: str, kind: str, before: Json, proposals: Optional[Any] = None,
+               linked: FrozenSet[Tuple[str, str]] = frozenset()) -> Step:
         """A change was made to ``month_id``; ``before`` is the month as it was. Empties the redo list."""
-        step = Step(next(self._ids), label, kind, time.time(), pack(before), proposals)
+        step = Step(next(self._ids), label, kind, time.time(), pack(before), proposals, frozenset(linked))
         undo = self._undo.setdefault(month_id, [])
         undo.append(step)
         if len(undo) > self.limit:
@@ -111,6 +118,13 @@ class History:
             if last.proposals is not None:
                 waiting, carried = last.proposals, True
         return replace(last, proposals=waiting if carried else None)
+
+    def keep_removed(self, month_id: str, step_id: int, removed: Optional[Dict[str, List[Json]]]) -> None:
+        """Note on a step (in either list) the placements it took off other months."""
+        for stack in (self._undo.get(month_id, []), self._redo.get(month_id, [])):
+            for index, step in enumerate(stack):
+                if step.id == step_id:
+                    stack[index] = replace(step, removed=removed or None)
 
     def scrub(self, month_id: str, scrub: Callable[[Json], bool]) -> None:
         """Apply ``scrub`` (which edits a stored month in place and says whether it

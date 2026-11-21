@@ -359,7 +359,14 @@ Step ids grow across the program, so the newest change in two months on
 screen (an event's Event view) is the one with the highest id. Going back k
 steps (`App.history_go`) is k undos with one save. The screen is told what was
 done (`did`: text, and the step id that reverses it), and a message's Undo
-names its step (`expect`), so it never undoes something changed since. People,
+names its step (`expect`), so it never undoes something changed since. An
+event or closure that runs into other months follows an undo there only when
+a step crossed changed it itself (`Step.linked`); one changed from another
+month since keeps its current form, so an older undo never silently reverts
+it. When a change reaches another month and takes placements off it (the
+event's tasks gone, regular shifts on a closed day), its step keeps them
+(`Step.removed`) and crossing it the other way puts each back where its task
+exists again and the place is free (`month_setup.put_back`). People,
 Regular week, Settings and the typical month have no undo: they are saved as
 they are changed.
 Colours, sizes and spacing are tokens at the top of `web/css/app.css`.

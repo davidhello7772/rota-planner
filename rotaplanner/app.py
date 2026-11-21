@@ -16,11 +16,11 @@ import time
 from datetime import date
 from http import HTTPStatus
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, FrozenSet, List, Optional, Tuple, Union
 
 from . import availability, editing, emails, mail, month_setup, months, people_import, report, solver, transfer, view
 from .exporters import documents, pdf, personal, sheet, versions, xlsx_rota
-from .history import AUTO, VERSION, History, unpack
+from .history import AUTO, VERSION, History, Step, unpack
 from .model import (
     EVENT_TASK_DAYS, EVENT_TASKS_PRINTED, FREQUENCIES, PRINT_SIZES, WEEKDAY_KEYS, Assignment, ConfigTemplate, Month,
     PrintTemplate, Task, day_text, new_id,
@@ -151,6 +151,7 @@ class App:
         """
         month = self.month(month_id)
         before = month.to_dict()
+        linked_before = self._linked_state(month) if record else {}
         try:
             changed = change(month)
         except Exception:
@@ -159,7 +160,9 @@ class App:
             raise
         if changed and month.to_dict() != before:
             if record:
-                self.history.record(month_id, self._label(label), kind, before, proposals)
+                # The events and closures this step changed: only those follow its undo elsewhere.
+                linked = self._differing(linked_before, self._linked_state(month))
+                self.history.record(month_id, self._label(label), kind, before, proposals, linked=linked)
             self.store.save_month(month)
         return (answer or self.month_view)(month_id)
 
@@ -380,8 +383,13 @@ class App:
         nearby = {Month.make_id((index + step) // 12, (index + step) % 12 + 1) for step in (-3, -2, -1, 1, 2, 3)}
         return sorted(nearby & set(self.store.list_months()))
 
-    def _spread(self, month_id: str, kind: str, item_id: str) -> List[Json]:
+    def _spread(self, month_id: str, kind: str, item_id: str,
+                removed: Optional[Dict[str, List[Json]]] = None) -> List[Json]:
         """After a change to an event or closure, update the other months it touches.
+
+        ``removed`` (when given) collects, per other month, the placements this
+        took off there (the event's tasks gone, regular shifts on a closed day),
+        so that crossing the step the other way can put them back.
 
         Returns the months it reaches that do not exist yet, so the screen can
         offer to create them.
@@ -389,10 +397,20 @@ class App:
         source = self.month(month_id)
         item = next((x for x in getattr(source, kind) if x.id == item_id), None)
         tasks = month_setup.event_tasks(source, item_id) if kind == "events" else []
-        for other in self._neighbours(month_id):
+
+        def sync(other: Month) -> bool:
+            had = list(other.assignments)
+            changed = month_setup.sync_item(other, kind, item_id, item, tasks, source.areas)
+            if removed is not None:
+                kept = {id(a) for a in other.assignments}
+                gone = [a.to_dict() for a in had if id(a) not in kept]
+                if gone:
+                    removed.setdefault(other.id, []).extend(gone)
+            return changed
+
+        for other_id in self._neighbours(month_id):
             # Not an undo step of the other month: undoing there would only undo this copy.
-            self._change(other, lambda m: month_setup.sync_item(m, kind, item_id, item, tasks, source.areas),
-                         answer=lambda _: {}, record=False)
+            self._change(other_id, sync, answer=lambda _: {}, record=False)
         existing = set(self.store.list_months())
         missing = [m for m in month_setup.months_spanned(item.start, item.end) if m not in existing] if item else []
         return [{"id": m, "year": int(m[:4]), "month": int(m[5:]), "title": f"{calendar.month_name[int(m[5:])]} {m[:4]}"}
@@ -451,29 +469,33 @@ class App:
         saved = []
         data = body.get("event") or {}
         verb = "changed" if self._item(month_id, "events", data.get("id")) else "added"
+        since = self.history.top(month_id)
         self._setup_change(month_id, lambda m: saved.append(month_setup.save_event(m, data)),
                            label=lambda: f"Event {verb}: {saved[0].name}")
-        return self._after_linked_change(month_id, "events", saved[0].id)
+        return self._after_linked_change(month_id, "events", saved[0].id, since)
 
     def delete_event(self, month_id: str, body: Json) -> Json:
         event = self._item(month_id, "events", str(body.get("id")))
+        since = self.history.top(month_id)
         self._setup_change(month_id, lambda m: month_setup.delete_event(m, str(body.get("id"))),
                            label=lambda: f"Event removed: {event.name}")
-        return self._after_linked_change(month_id, "events", str(body.get("id")))
+        return self._after_linked_change(month_id, "events", str(body.get("id")), since)
 
     def save_marker(self, month_id: str, body: Json) -> Json:
         saved = []
         data = body.get("marker") or {}
         verb = "changed" if self._item(month_id, "markers", data.get("id")) else "added"
+        since = self.history.top(month_id)
         self._setup_change(month_id, lambda m: saved.append(month_setup.save_marker(m, data)),
                            label=lambda: f"{MARKER_WORDS.get(saved[0].kind, 'Day')} {verb}: {saved[0].label}")
-        return self._after_linked_change(month_id, "markers", saved[0].id)
+        return self._after_linked_change(month_id, "markers", saved[0].id, since)
 
     def delete_marker(self, month_id: str, body: Json) -> Json:
         marker = self._item(month_id, "markers", str(body.get("id")))
+        since = self.history.top(month_id)
         self._setup_change(month_id, lambda m: month_setup.delete_marker(m, str(body.get("id"))),
                            label=lambda: f"{MARKER_WORDS.get(marker.kind, 'Day')} removed: {marker.label}")
-        return self._after_linked_change(month_id, "markers", str(body.get("id")))
+        return self._after_linked_change(month_id, "markers", str(body.get("id")), since)
 
     # -- tasks of one event, and event types that keep the usual ones ----------
 
@@ -482,18 +504,20 @@ class App:
         saved = []
         verb = "changed" if any(t.id == task.get("id") for t in self.month(month_id).tasks) else "added"
         event = self._item(month_id, "events", task.get("event_id"))
+        since = self.history.top(month_id)
         self._setup_change(month_id, lambda m: saved.append(month_setup.save_event_task(m, self.catalog, task)),
                            label=lambda: f"Event task {verb}: {saved[0].name} ({event.name})")
-        return self._after_linked_change(month_id, "events", str(task.get("event_id")))
+        return self._after_linked_change(month_id, "events", str(task.get("event_id")), since)
 
     def delete_event_task(self, month_id: str, body: Json) -> Json:
         task = next((t for t in self.month(month_id).tasks if t.id == body.get("id")), None)
         if task is None or not task.event_id:
             raise ApiError(HTTPStatus.BAD_REQUEST, "Unknown task.")
         event = self._item(month_id, "events", task.event_id)
+        since = self.history.top(month_id)
         self._setup_change(month_id, lambda m: month_setup.delete_event_task(m, task.id),
                            label=lambda: f"Event task removed: {task.name} ({event.name})")
-        return self._after_linked_change(month_id, "events", task.event_id)
+        return self._after_linked_change(month_id, "events", task.event_id, since)
 
     def add_type_tasks(self, month_id: str, body: Json) -> Json:
         event_type = next((t for t in self.catalog.event_types if t.id == body.get("type_id")), None)
@@ -501,11 +525,12 @@ class App:
             raise ApiError(HTTPStatus.BAD_REQUEST, "Unknown type of event.")
         event_id = str(body.get("event_id"))
         added = []
+        since = self.history.top(month_id)
         self._setup_change(
             month_id, lambda m: added.append(month_setup.add_type_tasks(m, event_id, event_type)) or added[0] > 0,
             label=lambda: f"{_count(added[0], 'task')} of “{event_type.name}” added to "
                           f"{self._item(month_id, 'events', event_id).name}")
-        result = self._after_linked_change(month_id, "events", event_id)
+        result = self._after_linked_change(month_id, "events", event_id, since)
         result["added"] = added[0] if added else 0
         return result
 
@@ -524,9 +549,10 @@ class App:
             changed, event.type_id = event.type_id != event_type.id, event_type.id
             return changed
 
+        since = self.history.top(month_id)
         self._setup_change(month_id, mark, label=lambda: f"{self._item(month_id, 'events', event_id).name} "
                                                          f"set as a “{event_type.name}” event")
-        return self._after_linked_change(month_id, "events", event_id)
+        return self._after_linked_change(month_id, "events", event_id, since)
 
     # Event types, edited on their own (Tasks & Areas): they live in the catalog.
 
@@ -551,8 +577,14 @@ class App:
         editing.order_type_tasks(self.catalog, str(body.get("type_id")), [str(i) for i in body.get("ids") or []])
         return self._save_setup(catalog=True)
 
-    def _after_linked_change(self, month_id: str, kind: str, item_id: str) -> Json:
-        missing = self._spread(month_id, kind, item_id)
+    def _after_linked_change(self, month_id: str, kind: str, item_id: str, since: Any) -> Json:
+        """Spread a change to an event or closure; ``since`` is the step on top before
+        it: a new one on top is the change, and keeps what the spread took off elsewhere."""
+        removed: Dict[str, List[Json]] = {}
+        missing = self._spread(month_id, kind, item_id, removed)
+        step = self.history.top(month_id)
+        if removed and step is not None and step is not since:
+            self.history.keep_removed(month_id, step.id, removed)
         result = self.month_setup(month_id)
         result["missing_months"] = missing
         return result
@@ -772,7 +804,9 @@ class App:
     def _restore(self, month_id: str, direction: str, count: int) -> Json:
         """Cross ``count`` steps of a month's history at once, save once, and say what was done."""
         current = self.month(month_id)
-        first = self.history.top(month_id, redo=direction == "redo")
+        undo, redo = self.history.stacks(month_id)
+        crossed = list(reversed((undo if direction == "undo" else redo)[-count:]))  # in the order they are crossed
+        first = crossed[0] if crossed else None
         step = self.history.move(month_id, direction, count, current.to_dict(), self._waiting(month_id))
         restored = Month.from_dict(unpack(step.snapshot))
         restored.mailed = dict(current.mailed)  # an e-mail sent cannot be undone: who got one stays known
@@ -786,11 +820,9 @@ class App:
             else:
                 self._suggested.pop(month_id, None)
             suggestions_back = direction == "undo" and bool(proposals)
+        spread = self._settle_linked(current, restored, crossed)
         self.store.save_month(restored)
-        # Events and closures shared with other months follow the undo there too.
-        for kind in month_setup.LINKED_KINDS:
-            for item_id in self._linked_differences(current, restored, kind):
-                self._spread(month_id, kind, item_id)
+        self._spread_crossed(month_id, crossed, spread)
         result = self.month_view(month_id)
         if direction == "undo" and count == 1:
             text = f"Undone: {step.label}" + (". They are shown dashed again." if suggestions_back else "")
@@ -843,16 +875,78 @@ class App:
         }
 
     @staticmethod
-    def _linked_differences(before: Month, after: Month, kind: str) -> List[str]:
-        """Ids of the events (with their tasks) or closures that differ between two states of a month."""
-        def state(month: Month) -> Dict[str, Any]:
-            found = {}
+    def _linked_state(month: Month) -> Dict[Tuple[str, str], Any]:
+        """The events (with their tasks) and closures of a month, by ``(kind, id)``, to compare."""
+        found: Dict[Tuple[str, str], Any] = {}
+        for kind in month_setup.LINKED_KINDS:
             for item in getattr(month, kind):
                 tasks = [t.to_dict() for t in month_setup.event_tasks(month, item.id)] if kind == "events" else []
-                found[item.id] = (item.to_dict(), tasks)
-            return found
-        old, new = state(before), state(after)
-        return [i for i in set(old) | set(new) if old.get(i) != new.get(i)]
+                found[(kind, item.id)] = (item.to_dict(), tasks)
+        return found
+
+    @staticmethod
+    def _differing(old: Dict[Tuple[str, str], Any], new: Dict[Tuple[str, str], Any]) -> FrozenSet[Tuple[str, str]]:
+        return frozenset(key for key in set(old) | set(new) if old.get(key) != new.get(key))
+
+    def _settle_linked(self, current: Month, restored: Month, crossed: List[Step]) -> Dict[Tuple[str, str], Step]:
+        """After crossing steps, give each event and closure of the restored month its right form.
+
+        One that a crossed step changed takes the form the last of those steps (in
+        the order crossed) leaves it in. Any other keeps its current form: it was
+        changed from another month since, and undoing a step here must not undo
+        that silently (in the other month too). Placements of the restored month on
+        tasks the event no longer has go, as with any change of the event
+        (``sync_item``). Returns those to spread to the other months: the ones a
+        crossed step changed and that are no longer as they are now, each with the
+        last step that changed it.
+        """
+        changed_by: Dict[Tuple[str, str], Step] = {}
+        for step in crossed:
+            for key in step.linked:
+                changed_by[key] = step
+        now, then = self._linked_state(current), self._linked_state(restored)
+        states: Dict[int, Tuple[Month, Dict[Tuple[str, str], Any]]] = {}
+
+        def left_by(step: Step) -> Tuple[Month, Dict[Tuple[str, str], Any]]:
+            """The month as crossing ``step`` leaves it, and its linked items."""
+            if step is crossed[-1]:
+                return restored, then  # as restored, before anything is adjusted here
+            if step.id not in states:
+                month = Month.from_dict(unpack(step.snapshot))
+                states[step.id] = month, self._linked_state(month)
+            return states[step.id]
+
+        spread: Dict[Tuple[str, str], Step] = {}
+        for key in sorted(set(now) | set(then) | set(changed_by)):
+            source, forms = left_by(changed_by[key]) if key in changed_by else (current, now)
+            wanted = forms.get(key)
+            if then.get(key) != wanted:
+                kind, item_id = key
+                item = next((x for x in getattr(source, kind) if x.id == item_id), None)
+                tasks = month_setup.event_tasks(source, item_id) if kind == "events" else []
+                month_setup.sync_item(restored, kind, item_id, item, tasks, source.areas)
+            if key in changed_by and now.get(key) != wanted:
+                spread[key] = changed_by[key]
+        return spread
+
+    def _spread_crossed(self, month_id: str, crossed: List[Step], spread: Dict[Tuple[str, str], Step]) -> None:
+        """Take the events and closures the crossed steps changed to the other months,
+        and put back there the placements these steps took off the last time they
+        were crossed (or made). What this spread takes off is kept on the step that
+        changed the item, for the next crossing the other way. Nothing is recorded
+        in the other months' own histories."""
+        removed: Dict[int, Dict[str, List[Json]]] = {}
+        for (kind, item_id), step in spread.items():
+            self._spread(month_id, kind, item_id, removed.setdefault(step.id, {}))
+        existing = set(self.store.list_months())
+        for step in reversed(crossed):  # the step nearest to the state reached goes first
+            for other_id, placements in (step.removed or {}).items():
+                if other_id in existing and other_id != month_id:
+                    self._change(other_id, lambda m, back=placements: month_setup.put_back(m, back) > 0,
+                                 answer=lambda _: {}, record=False)
+        for step in crossed:
+            if step.removed or removed.get(step.id):
+                self.history.keep_removed(month_id, step.id, removed.get(step.id))
 
     # -- permanent set-up: people, skills, areas, tasks, regular week ---------
 

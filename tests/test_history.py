@@ -100,6 +100,22 @@ class HistoryTest(unittest.TestCase):
         step = self.history.move(M, "undo", 1, state(2), ("none left",))
         self.assertIsNone(step.proposals)  # a plain step leaves the suggestions alone
 
+    def test_a_step_keeps_what_it_changed_elsewhere_both_ways(self):
+        event = ("events", "event-1")
+        step = self.history.record(M, "Event removed", "change", state(0), linked={event})
+        self.assertEqual((step.linked, step.removed), (frozenset({event}), None))
+        taken = {"2027-01": [{"task_id": "desk", "date": "2027-01-01", "position": 0, "person_id": "ana"}]}
+        self.history.keep_removed(M, step.id, taken)
+        self.assertEqual(self.history.top(M).removed, taken)
+        crossed = self.history.move(M, "undo", 1, state(1), None)
+        self.assertEqual((crossed.linked, crossed.removed), (frozenset({event}), taken))
+        redo = self.history.top(M, redo=True)
+        self.assertEqual((redo.linked, redo.removed), (frozenset({event}), taken))  # the counterpart keeps both
+        self.history.keep_removed(M, step.id, {})  # in the redo list too; nothing: None
+        self.assertIsNone(self.history.top(M, redo=True).removed)
+        self.history.move(M, "redo", 1, state(0), None)
+        self.assertEqual(self.history.top(M).linked, frozenset({event}))
+
     def test_find(self):
         steps = self.made("A", "B", "C", "D")
         self.history.move(M, "undo", 1, state(4), None)

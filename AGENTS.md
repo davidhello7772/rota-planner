@@ -238,7 +238,12 @@ cost a bug report.
   does not see inside a packed snapshot. Undo covers a month's rota only:
   People, Regular week, Settings and the typical month have none, and the
   arrows say so there. A step that accepted suggestions keeps those waiting
-  (and what was said beside them), so undoing it shows them again.
+  (and what was said beside them), so undoing it shows them again. An
+  event or closure over two months: an undo spreads to the other months only
+  those its own steps changed (`Step.linked`; any other keeps its current
+  form, `App._settle_linked`), and puts back there the placements its spread
+  had taken off (`Step.removed`, `month_setup.put_back`), never recording a
+  step in the other month.
 - **Print pages take the token in the address** (`/print/<month>/<kind>?t=…`)
   because a new tab cannot send a header. API routes take it in the
   `X-Rota-Token` header only.
