@@ -92,14 +92,6 @@
 .cell.retimed { position: relative; box-shadow: inset 0 0 0 1.5px var(--accent-line); }
 .cell.retimed::before { content: "◷"; position: absolute; top: -1px; right: 1px; z-index: 1; font-size: 0.625rem; line-height: 1; color: var(--accent); }
 .retimed-note { display: block; font-size: var(--fs-xs); color: var(--accent); font-weight: 600; }
-/* A day that needs another number than usual: that number in the top-left corner (the clock keeps
-   the top-right one). The first place moves its text aside for it. Too narrow for a number at the
-   two smallest zooms: a thin line along the top of the cell instead (the cell's title says it). */
-.cell.own-need { position: relative; }
-.cell.own-need::after { content: attr(data-need); position: absolute; top: 0; left: 1px; z-index: 1; min-width: 0.5625rem; padding: 1px 2px; border-radius: var(--radius-sm); background: var(--accent-weak); color: var(--accent); font-size: 0.5625rem; font-weight: 700; line-height: 1; text-align: center; pointer-events: none; }
-.cell.own-need .stack > .chip:first-child { padding-left: 0.9375rem; }
-.grid[data-zoom="0"] .cell.own-need::after, .grid[data-zoom="1"] .cell.own-need::after { content: ""; left: 0; right: 0; min-width: 0; height: 2px; padding: 0; border-radius: 0; background: var(--accent); }
-.grid[data-zoom="0"] .cell.own-need .stack > .chip:first-child, .grid[data-zoom="1"] .cell.own-need .stack > .chip:first-child { padding-left: 0; }
 
 /* ---- Chips: one per position. Text shown depends on the zoom level. ---- */
 

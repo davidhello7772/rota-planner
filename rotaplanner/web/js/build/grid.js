@@ -144,15 +144,13 @@ function areaRows(area, month, visible, ui, session, people) {
           [task.time, task.hours ? `${task.hours} h` : null].filter(Boolean).join(' · '))));
     visible.forEach((day, i) => {
       const cell = month.cells[`${task.id}|${day.date}`];
-      const td = h('td', {
-        class: ['cell', day.weekend && 'weekend-col', cell?.closed && 'closed', cell?.time && 'retimed', cell?.need && 'own-need'],
-        dataset: cell?.need ? { need: cell.need.count } : {},
-      });
+      const td = h('td', { class: ['cell', day.weekend && 'weekend-col', cell?.closed && 'closed', cell?.time && 'retimed'] });
       const chips = cellChips(cell, {
         taskId: task.id, date: day.date, col: i, priority: task.priority, showEmpty: ui.showEmpty,
         people, eligible: session.eligible, highlight: session.person,
       });
       if (chips.length) td.append(h('div', { class: 'stack' }, chips));
+      // A day that needs another number than usual: no mark (its places show it), only the words on hover.
       const title = [cell?.closed, cell?.need?.title, cell?.time && `Other time this day: ${cell.time}`].filter(Boolean);
       if (title.length) td.title = title.join('\n');
       row.append(td);
