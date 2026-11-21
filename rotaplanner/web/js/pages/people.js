@@ -6,6 +6,7 @@ import { errorText, failed, fullName, saveSetup, WEEKDAYS } from '../setup.js';
 import { api } from '../api.js';
 import { setSession, state } from '../state.js';
 import { toast } from '../ui.js';
+import { newSkill } from './tasks.js';
 
 
 const FILTERS = [
@@ -361,7 +362,10 @@ export function mountPeople(container) {
         segmented(FILTERS, directory.filter, { label: 'Show', onchange: (filter) => setSession({ directory: { ...directory, filter } }) }),
         h('span', { class: 'spacer' }),
         segmented([{ value: 'list', label: 'List' }, { value: 'grid', label: 'Skills grid' }], directory.view,
-          { label: 'View', onchange: (view) => setSession({ directory: { ...directory, view } }) })),
+          { label: 'View', onchange: (view) => setSession({ directory: { ...directory, view } }) }),
+        directory.view === 'grid'
+          ? changes(h('button', { class: 'btn', type: 'button', onclick: () => newSkill(() => {}) }, icon('plus'), 'New skill'))
+          : null),
       people.length
         ? (directory.view === 'grid' ? gridView(setup, people) : listView(setup, people))
         : h('p', { class: 'empty' }, directory.query ? 'Nobody matches.' : 'Nobody here yet. Add people one by one, or import a list.'));

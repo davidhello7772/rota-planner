@@ -129,7 +129,8 @@ folder.
   also across the end of a month; suggestions never go over them). *Only the
   tasks of their skills*, under their skills, keeps the tasks anyone can do
   from someone who can do only a few things ("Assign anyway" still can).
-  *Skills grid* ticks skills for many people at once; *Import people* adds a pasted
+  *Skills grid* ticks skills for many people at once, adds a skill (*New skill*)
+  and renames or deletes one (click its name); *Import people* adds a pasted
   list or a file.
 - **Tasks & Areas**: each month has its own tasks. Pick the month at the top;
   *Use the configuration of…* takes another month's tasks or a template, *Save

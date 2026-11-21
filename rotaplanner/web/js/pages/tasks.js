@@ -33,9 +33,9 @@ async function saveConfig(path, body, message = null) {
 
 const configOf = () => state.session.config;
 
-// ---- A new skill, with "who can do this?" ---------------------------------
+// ---- A new skill, with "who can do this?" (also from People › Skills grid) ---
 
-function newSkill(onCreated) {
+export function newSkill(onCreated) {
   const setup = state.session.setup;
   const name = textInput('', { autofocus: true, placeholder: 'e.g. First aid' });
   const who = chipChoice(setup.people.filter((p) => p.active && !p.archived)
