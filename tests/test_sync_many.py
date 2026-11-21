@@ -642,6 +642,62 @@ class HandOverTest(Computers):
         self.b.release_pen()  # "OK"
         self.assertIsNone(self.b.pen()["notice"])
 
+    def own_note(self, one):
+        name = f"pen-{one.state['computer_id']}.rpsync"
+        return one._read_pen(self.server.files[name][0], one.state["computer_id"]) if name in self.server.files else None
+
+    def test_a_computer_in_use_keeps_the_editing(self):
+        self.b.ask_pen()
+        self.b.state["pen"]["asked_there"] -= 30  # Front desk asked half a minute ago…
+        self.b.state["pen"]["beat"] = 0
+        self.b.exchange()
+        asked = self.b.state["pen"]["asked_there"]
+        self.a.ensure_pen()  # … and someone has changed something on Office since
+        self.a._last_edit = time.time() - sy.GROUP_SECONDS - 1  # fully written
+        self.a.exchange()
+        self.assertTrue(self.a.pen()["mine"])  # Office keeps the editing
+        self.assertEqual(self.own_note(self.a)["declined"], {"id": self.b.state["computer_id"], "asked": asked})
+        self.a.exchange()  # declined once, and said once
+        kept = [line for line in self.a.state["log"] if line["text"].startswith("Kept the editing")]
+        self.assertEqual([line["text"] for line in kept],
+                         ["Kept the editing: Front desk asked while this computer was being used."])
+        self.b.exchange()
+        self.b.follow_up()
+        pen = self.b.pen()
+        self.assertFalse(pen["asking"] or pen["mine"])  # Front desk stops asking, and says why
+        self.assertIn("Office is being used: it kept the editing. Ask again when it has finished",
+                      pen["notice"]["text"])
+        self.b.exchange()  # its request goes from the place
+        self.assertIsNone(self.own_note(self.b))
+        self.a.exchange()
+        self.assertNotIn("declined", self.a.state["pen"])  # the request is no longer there
+        self.assertTrue(self.a.pen()["mine"])
+
+    def test_a_request_made_after_the_last_change_is_handed_over(self):
+        self.a._last_edit_there = self.a._now_there() - 30  # the last change on Office was a while ago
+        self.b.ask_pen()
+        self.a.exchange()
+        self.assertFalse(self.a.pen()["mine"])
+        self.b.exchange()
+        self.b.follow_up()
+        self.assertTrue(self.b.pen()["mine"])
+
+    def test_a_request_no_longer_said_lapses(self):
+        self.b.ask_pen()
+        self.server.skew = sy.ASK_LIVE_SECONDS + 10  # Front desk went to sleep just after asking
+        self.a.exchange()
+        self.assertTrue(self.a.pen()["mine"])  # nobody to hand over to
+        self.server.skew = 0
+        self.b.state["pen"]["beat"] = 0
+        self.b.exchange()  # awake again: the request is said again
+        self.a.exchange()
+        self.assertFalse(self.a.pen()["mine"])
+        self.assertTrue(self.a.pen()["handing"])
+        self.server.skew = sy.ASK_LIVE_SECONDS + 10  # and asleep before taking the pen
+        self.a.exchange()
+        self.assertFalse(self.a.pen().get("handing"))
+        self.assertTrue(self.a.take_pen()["mine"])  # Office need not wait for it
+
     def test_a_request_only_counts_from_a_real_recent_note(self):
         me, them = self.a.state["computer_id"], self.b.state["computer_id"]
         name = f"pen-{them}.rpsync"
@@ -941,6 +997,64 @@ class TakeOverTest(Computers):
         self.assertEqual(caught.exception.kind, "offline")
         self.assertTrue(self.b.take_pen(pressed=True)["mine"])  # a press: tried
 
+    def test_a_holder_back_from_sleep_checks_first(self):
+        self.office_gone()
+        self.b.take_pen(force=True, pressed=True)
+        self.assertTrue(self.b.pen()["mine"])
+        self.a.state["pen"]["there"] -= sy.PEN_STALE_SECONDS + 60  # Office slept: its last word is old
+        with self.assertRaises(PenError) as caught:  # a change on Office, on waking up
+            self.a.ensure_pen()
+        self.assertEqual((caught.exception.kind, caught.exception.info["name"]), ("held", "Front desk"))
+        self.assertFalse(self.a.pen()["mine"])
+        self.assertEqual(self.a.pen()["name"], "Front desk")
+        self.assertEqual(self.a.pen()["lost"], "Front desk took over the editing while this one was not connected.")
+        self.assertNotIn(self.own(self.a), self.server_files())
+        self.assertTrue(self.b.pen()["mine"])
+
+    def test_a_holder_back_from_sleep_without_connection_keeps_working(self):
+        self.a.ensure_pen()
+        self.a.state["pen"]["there"] -= sy.PEN_STALE_SECONDS + 60
+        self.unplug()
+        self.assertFalse(self.a.ensure_pen())
+        self.assertTrue(self.a.pen()["mine"])
+
+    def two_holders(self, later):
+        """Office holds the pen; Front desk says it holds it too, since a later (or earlier) moment."""
+        self.a.ensure_pen()
+        self.round(self.b)
+        since = float(self.a.state["pen"]["since"]) + (5 if later else -5)
+        self.b.state["pen"] = {"mine": True, "since": since, "beat": time.time(), "there": self.b._now_there()}
+        self.b._last_edit = time.time()
+        self.b._place.write(self.own(self.b), self.b._pen_note(holding=True))
+
+    def test_two_holders_the_later_one_keeps_it(self):
+        self.two_holders(later=True)
+        self.a.exchange()
+        self.assertFalse(self.a.pen()["mine"])  # the coordinator took over there later
+        self.assertEqual(self.a.pen()["lost"], "Front desk took over the editing.")
+        self.assertNotIn(self.own(self.a), self.server_files())
+        self.b.exchange()
+        self.assertTrue(self.b.pen()["mine"])
+        self.assertEqual(self.a.pen()["name"], "Front desk")
+
+    def test_two_holders_the_earlier_one_gives_way(self):
+        self.two_holders(later=False)
+        self.a.exchange()
+        self.assertTrue(self.a.pen()["mine"])
+        self.b.exchange()
+        self.assertFalse(self.b.pen()["mine"])
+        self.assertEqual(self.b.pen()["lost"], "Office took over the editing.")
+
+    def test_an_asking_note_is_not_a_take_over(self):
+        self.a.ensure_pen()
+        self.round(self.b)
+        self.b.ask_pen()
+        self.a.state["pen"]["there"] -= sy.PEN_STALE_SECONDS + 60  # Office was away a while
+        self.a.state["pen"]["beat"] = 0
+        with unittest.mock.patch.object(self.a, "_hand_over"):  # not answered in this round
+            self.a.exchange()
+        self.assertTrue(self.a.pen()["mine"])  # asked, not taken over
+
     def test_each_status_says_how_new_it_is(self):
         first, second = self.b.status()["snapshot"], self.b.status()["snapshot"]
         self.assertGreater(second, first)
@@ -1016,6 +1130,26 @@ class SomeoneWritesAtThePlaceTest(Computers):
         self.note(1, "still works")
         self.settle()
         self.assertEqual(self.stores[0].load_people()[0].note, "still works")
+
+    def test_a_forged_or_garbled_answer_changes_nothing(self):
+        self.a.ensure_pen()
+        self.round(self.b)
+        self.b.ask_pen()
+        asked = self.b.state["pen"]["asked_there"]
+        held = {"kind": "pen", "computer_id": self.id_a, "name": "Office", "holding": True, "since": 1.0}
+        garbled = ["yes", [self.id_b, asked], {"id": self.id_b}, {"id": self.id_b, "asked": "soon"},
+                   {"id": 7, "asked": asked}, {"id": "../" + self.id_b, "asked": asked},
+                   {"id": self.id_b, "asked": asked + 1}, {"id": self.id_b, "asked": 10 ** 400}]
+        for key, declined in [(self.a._key, d) for d in garbled] + [(sy.derive_key(sy.new_code()), {"id": self.id_b, "asked": asked})]:
+            note = dict(held, beat=self.server.now(), declined=declined)
+            self.put(f"pen-{self.id_a}.rpsync", sy.seal(key, self.id_a, json.dumps(note).encode()))
+            self.b.exchange()
+            self.b.follow_up()
+            notice = self.b.pen()["notice"] or {"text": ""}
+            self.assertNotIn("kept the editing", notice["text"], declined)
+            if key is self.a._key:
+                self.assertTrue(self.b.pen()["asking"], declined)
+        # Sealed with another code, Office's note is as if gone: Front desk simply takes the pen, as before.
 
     def test_a_cut_or_foreign_file_is_said_but_not_kept(self):
         cut = self.server.files[f"rota-{self.id_b}.rpsync"][0][:-50]
