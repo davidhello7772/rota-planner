@@ -146,8 +146,9 @@ class PrefillTest(unittest.TestCase):
         month = one_task(hours=5)
         proposals, _, _ = solver.prefill(month, [Person("ana", "Ana B.")], Settings(default_target_hours_per_week=2.75),
                                          dates={"2026-12-01"}, seconds=FAST)
-        # 5 h in December's 31 days: 1.1 h a week on average.
-        self.assertEqual(proposals[0].why, "1.1 of 2.75 h a week · 5 h in December · Would reach 5 h that day (usual max 4 h)"
+        # 5 h in December's 31 days: 1.1 h a week on average; all 5 in the week of the 1st.
+        self.assertEqual(proposals[0].why, "1.1 of 2.75 h a week · 5 h that week · 5 h in December"
+                                           " · Would reach 5 h that day (usual max 4 h)"
                                            " · has not replied to the availability form")
 
     def test_scope_by_days_and_areas(self):

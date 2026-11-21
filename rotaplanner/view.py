@@ -155,13 +155,17 @@ def month_view(
             }
     summary = checks.summarize(schedule, statuses).to_dict()
     summary["wanted"] = wanted_open
+    # The weeks (Monday to Sunday) the month touches; each day says which is its own.
+    calendar_weeks = workload.weeks(schedule)
+    week_index = {week["start"]: i for i, week in enumerate(calendar_weeks)}
 
     return {
         "id": month.id,
         "title": month.title(),
         "year": month.year,
         "month": month.month,
-        "days": [_day_json(month, iso, day_stats[iso]) for iso in schedule.dates],
+        "days": [_day_json(month, iso, day_stats[iso], week_index[schedule.week_of(iso)]) for iso in schedule.dates],
+        "calendar_weeks": calendar_weeks,
         "events": [e.to_dict() for e in month.events],
         "markers": [m.to_dict() for m in month.markers],
         "areas": [
@@ -185,11 +189,12 @@ def month_view(
     }
 
 
-def _day_json(month: Month, iso: str, stats: Counter) -> Json:
+def _day_json(month: Month, iso: str, stats: Counter, week: int) -> Json:
     day = parse_date(iso)
     day_type = month.day_type(iso)
     return {
         "date": iso,
+        "week": week,   # its index in "calendar_weeks"
         "day": day.day,
         "weekday": day.strftime("%a"),
         "weekend": day.weekday() >= 5,
@@ -204,6 +209,7 @@ def _person_json(
     schedule: Schedule, person: Person, labels: Dict[str, Json], skill_names: Dict[str, str]
 ) -> Json:
     label = labels[person.id]
+    by_week = workload.by_week(schedule, person.id)
     return {
         "id": person.id,
         "name": label["short"],
@@ -212,6 +218,8 @@ def _person_json(
         "active": person.active,
         "resident": person.resident,
         **workload.summary(schedule, person.id),   # hours, target, the average a week and their words
+        "by_week": by_week,   # aligned with "calendar_weeks"
+        "far_note": workload.far_note(schedule, person.id, by_week),   # what a marked week means, when there is one
         "presence": round(schedule.presence(person.id), 2),
         "replied": schedule.has_replied(person.id),
         "skills": [skill_names[s] for s in person.skills if s in skill_names],
@@ -255,6 +263,7 @@ def candidates_view(
                 "full": labels[person.id]["full"],
                 "group": candidate.group,
                 **workload.summary(schedule, person.id),
+                **workload.that_week(schedule, person.id, iso),   # their hours that week, as it stands
                 "preference": person.preferences.get(task.area_id),
                 "same_day": busy,
                 "findings": _findings_json(candidate.findings),

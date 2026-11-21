@@ -215,12 +215,32 @@ async function selectPerson(personId) {
   if (state.session.person === personId) setSession({ eligible });  // still the one highlighted
 }
 
-function personCard(person) {
+/**
+ * The person's hours in each week of the month (Monday to Sunday), one small box a week:
+ * the dates above, the hours below; a week far above their target is amber, and one line under the boxes says so.
+ */
+function weekBoxes(month, person) {
+  const weeks = month.calendar_weeks || [];
+  const mine = person.by_week || [];
+  if (!weeks.length) return null;
+  return [
+    h('div', { class: 'week-boxes' }, weeks.map((week, i) => {
+      const hours = mine[i]?.hours;
+      return h('div', { class: ['week-box', mine[i]?.far && 'far'], title: week.title },
+        h('span', { class: 'week-dates' }, week.short),
+        h('span', { class: 'week-hours' }, hours ? String(hours) : '–'));
+    })),
+    person.far_note ? h('span', { class: 'week-far' }, person.far_note) : null,  // what the amber means, from the program
+  ];
+}
+
+function personCard(person, month) {
   const away = Math.round((1 - person.presence) * 100);
   return h('section', { class: 'person-card' },
     h('div', { class: 'who' }, h('strong', {}, person.full), h('span', { class: 'muted' }, person.week_text)),
     loadBar(person),
     h('span', { class: 'muted' }, person.month_detail),
+    weekBoxes(month, person),
     h('span', { class: 'muted' }, [
       person.replied ? (away ? `Away ${away}% of the month` : 'Available all month') : 'No availability reply',
       person.resident ? 'Resident' : 'Non-resident',
@@ -256,7 +276,7 @@ function peopleTab(month) {
     oninput: (e) => { state.session.peopleQuery = e.target.value; setSession({}); } });
 
   return [
-    selected ? personCard(selected) : h('p', { class: 'faint' }, 'Click a name to see their shifts on the rota and where they could still help.'),
+    selected ? personCard(selected, month) : h('p', { class: 'faint' }, 'Click a name to see their shifts on the rota and where they could still help.'),
     h('div', { class: 'list-tools' },
       h('label', { class: 'search' }, icon('search'), search),
       h('select', { class: 'select', 'aria-label': 'Sort', onchange: (e) => setSession({ peopleSort: e.target.value }) },

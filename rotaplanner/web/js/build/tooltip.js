@@ -54,7 +54,12 @@ function chipLines(chip) {
   const person = people.get(slot.person);
   const lines = [h('strong', {}, person ? person.full : slot.unnamed ? `${slot.guest} — name to come` : `${slot.guest} (${slot.guest_kind})`), where];
   // The person as the month of this day has them (an event can show two months): words from the program.
-  if (person) lines.push(h('span', { class: 'tt-line' }, person.week_text), h('span', { class: 'tt-line' }, person.month_text));
+  if (person) {
+    const day = monthViewFor(date)?.days.find((d) => d.date === date);
+    const week = day ? person.by_week?.[day.week] : null;
+    lines.push(h('span', { class: 'tt-line' }, person.week_text),
+      h('span', { class: 'tt-line' }, week ? `${week.that_week_text} · ${person.month_text}` : person.month_text));
+  }
   if (slot.note) lines.push(h('span', { class: 'tt-line' }, `✎ ${slot.note}`));
   const source = SOURCE_WORDS[slot.source];
   if (source) lines.push(h('span', { class: 'tt-line' }, `↻ ${source}`));

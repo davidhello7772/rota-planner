@@ -117,7 +117,12 @@ ranking, the suggestions' ceiling, Rebalance and the hints compare through
 it. `workload.py` makes every figure and sentence about someone's hours
 against their target (`3.3 / 3.5 h a week`, `14 h in December`, the load
 bar's `ratio` and `bar`); the screens show them and never divide hours by a
-target. Nothing there may raise: `transfer.checked` runs `view.month_view`
+target. A week is Monday to Sunday and whole across two months
+(`Schedule.hours_in_week` counts the days of the month next door when it has
+a rota, as `shifts_in_week` does; `Schedule.calendar_weeks` lists the weeks
+the month touches and which of their days count); a week with more than twice
+the target in two shifts or more is pointed out (`workload.FAR_ABOVE`), never
+a rule. Nothing there may raise: `transfer.checked` runs `view.month_view`
 on every month imported or taken from another computer.
 
 ## Data format

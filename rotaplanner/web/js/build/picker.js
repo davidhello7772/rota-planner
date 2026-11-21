@@ -26,20 +26,30 @@ export function closePicker() {
   if (anchor?.isConnected) anchor.focus({ preventScroll: true });
 }
 
+/**
+ * Line 2 of a person: their hours that week (words from the program), then the reasons.
+ * Someone with no shift at all that week reads "Free that week", without "Free that day".
+ */
 function reasons(candidate) {
   const parts = [];
   for (const finding of candidate.findings) {
-    if (finding.severity !== 'note' || candidate.group === 'best') {
-      parts.push(h('span', { class: finding.severity }, finding.message));
-    }
+    if (finding.severity !== 'note' || candidate.group === 'best') parts.push([finding.severity, finding.message]);
   }
-  if (candidate.same_day.length) parts.push(h('span', {}, `Also that day: ${candidate.same_day.join(', ')}`));
-  if (!parts.length) parts.push(h('span', {}, 'Free that day'));
-  return parts.flatMap((part, i) => (i ? [' · ', part] : [part]));
+  if (candidate.same_day.length) parts.push(['', `Also that day: ${candidate.same_day.join(', ')}`]);
+  if (!parts.length && !candidate.free_week) parts.push(['', 'Free that day']);
+  parts.unshift(['', candidate.that_week_text]);
+  return {
+    text: parts.map(([, text]) => text).join(' · '),
+    nodes: parts.flatMap(([severity, text], i) => {
+      const part = h('span', { class: severity || null }, text);
+      return i ? [' · ', part] : [part];
+    }),
+  };
 }
 
 function candidateRow(candidate, onChoose) {
   const star = candidate.preference >= 4 ? h('span', { class: 'star', title: `Likes this area (${candidate.preference}/5)` }, '★') : null;
+  const why = reasons(candidate);
   const row = h('button', {
     class: ['cand', candidate.group === 'blocked' && 'blocked'], role: 'option', dataset: { id: candidate.id },
     title: candidate.note || undefined,
@@ -47,7 +57,7 @@ function candidateRow(candidate, onChoose) {
   },
   h('span', { class: 'cand-name' }, candidate.name, star),
   h('span', { class: 'cand-load' }, loadBar(candidate), candidate.week_text),  // hours a week against target, from the program
-  h('span', { class: 'cand-why' }, reasons(candidate)));
+  h('span', { class: 'cand-why', title: why.text }, why.nodes));  // cut with "…" when long: the whole of it on hover
   row.classList.add('quiet');  // still read while another computer edits: only choosing is off
   return changes(row);
 }

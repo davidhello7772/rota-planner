@@ -286,9 +286,14 @@ cost a bug report.
   Every figure and sentence about someone's hours against their target is
   made by `workload.py` (`summary`, `reason`, `over_target_text`…) and sent
   to the screen: a screen never divides hours by a target, and `3.3 / 3.5 h
-  a week` is written the same way everywhere. Nothing there may raise or
-  divide by zero (a target of 0, someone away all month): imports and sync
-  run `view.month_view` through `transfer.checked`.
+  a week` is written the same way everywhere. A week (Monday to Sunday) is
+  whole across two months: `Schedule.hours_in_week`, like `shifts_in_week`,
+  counts the days of the month next door when it has a rota
+  (`Schedule.calendar_weeks` says which days count). A week over twice the
+  target in two shifts or more is only pointed out (`workload.FAR_ABOVE`),
+  never a rule. Nothing there may raise or divide by zero (a target of 0,
+  someone away all month): imports and sync run `view.month_view` through
+  `transfer.checked`.
 - **One computer edits at a time (the pen).** Every POST that changes shared
   data passes `server._pen` first (`PEN_FREE` lists the exceptions): a new
   route that changes data needs nothing; one that only looks, or only

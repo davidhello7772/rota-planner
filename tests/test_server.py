@@ -213,6 +213,17 @@ class ServerTest(unittest.TestCase):
         self.assertTrue(all(p["week_text"].endswith(" h a week") and p["bar"] in ("", "over", "under") for p in people))
         candidates = self.json("GET", "/api/months/2026-12/candidates?task=lunch&date=2026-12-11&position=0")[1]["candidates"]
         self.assertTrue(candidates and all(words <= set(c) for c in candidates))
+        # The hours of each week: every person's weeks aligned with the month's, every day in its week;
+        # and each candidate's hours that week.
+        month = self.json("GET", "/api/months/2026-12")[1]
+        weeks = month["calendar_weeks"]
+        self.assertTrue(weeks and all({"start", "label", "short", "title", "cut"} <= set(w) for w in weeks))
+        self.assertTrue(all(len(p["by_week"]) == len(weeks) for p in month["people"]))
+        self.assertTrue(all({"hours", "level", "far", "that_week_text"} <= set(w) for p in month["people"] for w in p["by_week"]))
+        self.assertTrue(all(weeks[d["week"]]["start"] <= d["date"] for d in month["days"]))
+        self.assertEqual(sorted({d["week"] for d in month["days"]}), list(range(len(weeks))))
+        self.assertTrue(all({"that_week", "that_week_text", "free_week"} <= set(c) for c in candidates))
+        self.assertTrue(all(c["free_week"] == (c["that_week_text"] == "Free that week") for c in candidates))
 
     def test_the_example_message_is_written_by_the_program_and_saves_nothing(self):
         before = self.json("GET", "/api/setup")[1]["settings"]

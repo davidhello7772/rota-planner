@@ -9,8 +9,10 @@ the solver can try and undo placements cheaply. It never modifies the
 Rules also look a few days past the month: a night shift on the 31st, the
 shifts already in a week that started in the month before. ``around`` gives
 the months next door; their shifts on the nearby days are seen by
-``on_day``, ``shifts_in_week``, ``task_on``, ``hours_of`` and ``knows``,
-and never count in this month's own totals, slots or statuses.
+``on_day``, ``shifts_in_week``, ``hours_in_week``, ``task_on``, ``hours_of``
+and ``knows``, and never count in this month's own totals, slots or statuses.
+A week is always Monday to Sunday: one shared with the month next door counts
+whole when that month has a rota (``calendar_weeks`` says which days count).
 """
 
 from __future__ import annotations
@@ -50,6 +52,7 @@ class Schedule:
         self._on_day: Dict[Tuple[str, str], Task] = {}
         self._week_of: Dict[str, str] = {}                  # date -> its Monday
         self._weeks: Dict[Tuple[str, str], int] = defaultdict(int)  # shifts per (person, Monday)
+        self._week_hours: Dict[Tuple[str, str], float] = defaultdict(float)  # hours per (person, Monday)
         # The months next door, by id ("2026-11"), with their tasks; and their
         # shifts on the nearby days, which belong to them and not to this month.
         self._next_door: Dict[str, Month] = {}
@@ -79,6 +82,8 @@ class Schedule:
                 self._nearby[(assignment.person_id, iso)].append(assignment)
                 if self.knows(assignment):
                     self._weeks[(assignment.person_id, self.week_of(iso))] += 1
+                    self._week_hours[(assignment.person_id, self.week_of(iso))] += \
+                        self.task_on(assignment.task_id, iso).hours
 
     # -- changing ----------------------------------------------------------
 
@@ -99,7 +104,9 @@ class Schedule:
     def _count_kinds(self, assignment: Assignment, step: int) -> None:
         if assignment.task_id not in self.tasks:
             return
-        self._weeks[(assignment.person_id, self.week_of(assignment.date))] += step
+        week = (assignment.person_id, self.week_of(assignment.date))
+        self._weeks[week] += step
+        self._week_hours[week] += step * self.task_on(assignment.task_id, assignment.date).hours
         if parse_date(assignment.date).weekday() >= 5:
             self._weekends[assignment.person_id] += step
         if "evening" in self.task_on(assignment.task_id, assignment.date).periods:
@@ -189,6 +196,30 @@ class Schedule:
         """Shifts the person has in the week (Monday to Sunday) of ``iso``, counting
         those of the month next door on the nearby days."""
         return self._weeks.get((person_id, self.week_of(iso)), 0)
+
+    def hours_in_week(self, person_id: str, iso: str) -> float:
+        """Hours the person has in the week (Monday to Sunday) of ``iso``, counting
+        those of the month next door on the nearby days (when it has a rota), as
+        ``shifts_in_week`` counts shifts. A shift whose task its month no longer has
+        counts nothing."""
+        return self._week_hours.get((person_id, self.week_of(iso)), 0.0)
+
+    def calendar_weeks(self) -> List[List[str]]:
+        """The weeks (Monday to Sunday) the month touches, in order, each as the
+        list of its days that are counted: the month's own, and those of the month
+        next door when it was given in ``around`` (it has a rota). A week with
+        fewer than seven days is cut: the month next door has no rota yet.
+
+        Found from the month's own dates (the index of the nearby days can hold
+        a day of a week the month does not touch, the day before a Monday the 1st)."""
+        weeks: List[List[str]] = []
+        for iso in self.dates:
+            monday = self.week_of(iso)
+            if weeks and self.week_of(weeks[-1][0]) == monday:
+                continue
+            days = [shift_date(monday, step) for step in range(7)]
+            weeks.append([day for day in days if day in self._in_month or day[:7] in self._next_door])
+        return weeks
 
     def hours(self, person_id: str) -> float:
         return self._hours.get(person_id, 0.0)
