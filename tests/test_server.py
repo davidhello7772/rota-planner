@@ -231,8 +231,17 @@ class ServerTest(unittest.TestCase):
         self.assertTrue(all({"hours", "level", "far", "that_week_text"} <= set(w) for p in month["people"] for w in p["by_week"]))
         self.assertTrue(all(weeks[d["week"]]["start"] <= d["date"] for d in month["days"]))
         self.assertEqual(sorted({d["week"] for d in month["days"]}), list(range(len(weeks))))
-        self.assertTrue(all({"that_week", "that_week_text", "free_week"} <= set(c) for c in candidates))
-        self.assertTrue(all(c["free_week"] == (c["that_week_text"] == "Free that week") for c in candidates))
+        # The list for a shift: the shift's week and the month, drawn as the program says; time away in words;
+        # going over the target is on the bars, not among the reasons.
+        for c in candidates:
+            load = c["load"]
+            self.assertEqual((load["week"]["label"], load["month"]["label"]), ("Week", "Dec"))
+            self.assertTrue(all({"segments", "target_at", "figures"} <= set(load[line]) for line in ("week", "month")))
+            self.assertTrue(load["title"].startswith("Week of ") and " December: " in load["title"])
+            self.assertEqual(set(c["away"]), {"level", "text", "title"})
+            self.assertIn(c["away"]["level"], ("", "some", "all"))
+            self.assertFalse(any(f["message"].startswith("Over target") for f in c["findings"]))
+            self.assertFalse({"that_week", "that_week_text", "free_week"} & set(c))
 
     def test_the_example_message_is_written_by_the_program_and_saves_nothing(self):
         before = self.json("GET", "/api/setup")[1]["settings"]
@@ -468,6 +477,33 @@ class MonthsNextDoorTest(TwoMonthsServed, unittest.TestCase):
                                     {"task_id": "night", "date": "2026-11-30", "position": 0, "person_id": "ben"})
         self.assertEqual(status, 409)
         self.assertTrue(any(f["message"].startswith("Overlaps Breakfast") for f in refused["findings"]))
+
+
+class ListForAShiftTest(TwoMonthsServed, unittest.TestCase):
+    """The list for a shift: the week across two months, the month, time away; no "Over target" among the reasons."""
+
+    def setUp(self):
+        november = create_month(h.catalog(), 2026, 11)
+        november.assignments.append(Assignment("lunch", "2026-11-30", 0, person_id="ana"))
+        december = h.month()
+        december.assignments += [Assignment("lunch", f"2026-12-0{d}", 0, person_id="ana") for d in (1, 2, 3)]
+        h.away(december, "ana", "2026-12-20/morning", "2026-12-20/afternoon", "2026-12-20/evening")
+        self.serve(h.people(), november, december)
+
+    def test_the_candidates_carry_the_bars_and_the_time_away(self):
+        status, body = self.json("GET", "/api/months/2026-12/candidates?task=lunch&date=2026-12-04&position=0")
+        self.assertEqual(status, 200)
+        ana = next(c for c in body["candidates"] if c["id"] == "ana")
+        # 16 h in the week of Monday 30 November (4 of them in November), 12 h in December; 4 h more with this lunch.
+        self.assertEqual(ana["load"]["week"]["figures"], [["was", "16 → "], ["after-over", "20"], ["of", " of 2.75 h"]])
+        self.assertEqual(ana["load"]["month"]["figures"], [["was", "12 → "], ["after-over", "16"], ["of", " of 11.8 h"]])
+        self.assertEqual(ana["load"]["week"]["segments"], [["now", 0.0, 66.67], ["now-over", 66.67, 100.0]])
+        self.assertTrue(ana["load"]["title"].startswith("Week of Monday 30 November to Sunday 6 December: 16 h so far, "
+                                                        "20 h with this shift"))
+        self.assertEqual(ana["away"], {"level": "all", "text": "Away 20 Dec", "title": "Away all day 20 December"})
+        self.assertEqual(ana["group"], "best")   # the over-target note would have shown there
+        self.assertFalse(any(f["message"].startswith("Over target") for c in body["candidates"] for f in c["findings"]))
+        self.assertEqual(next(c for c in body["candidates"] if c["id"] == "ben")["away"]["level"], "")
 
 
 class WeeklyLimitNextDoorTest(TwoMonthsServed, unittest.TestCase):

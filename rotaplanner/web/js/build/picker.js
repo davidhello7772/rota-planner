@@ -2,7 +2,7 @@
 import {
   acceptProposals, assign, clearSlot, discardProposals, monthOf, parseSlotKey, reportError, setHeadcount, setNote, setTime, setWanted, swap,
 } from '../actions.js';
-import { changes, field, formError, loadBar, numberInput, openDialog, segmented, textInput } from '../components.js';
+import { changes, field, formError, numberInput, openDialog, segmented, textInput } from '../components.js';
 import { api, monthPath } from '../api.js';
 import { formatDate, h, placeNear } from '../dom.js';
 import { icon } from '../icons.js';
@@ -27,8 +27,38 @@ export function closePicker() {
 }
 
 /**
- * Line 2 of a person: their hours that week (words from the program), then the reasons.
- * Someone with no shift at all that week reads "Free that week", without "Free that day".
+ * A bar of hours as the program drew it: `segments` are [kind, from %, to %]
+ * (kinds now, now-over, add, add-over), `target_at` the % of the target's
+ * upright line (null: no target). Nothing is worked out here.
+ */
+function hoursBar({ segments, target_at: targetAt }) {
+  return h('span', { class: 'hbar', 'aria-hidden': 'true' },
+    h('span', { class: 'hbar-fill' }, segments.map(([kind, from, to]) => h('i', { class: kind,
+      style: { left: `${from}%`, width: `calc(${to}% - ${from}%)` } }))),
+    targetAt == null ? null : h('i', { class: 'hbar-target', style: { left: `${targetAt}%` } }));
+}
+
+/** The hatched mark of time away: darker with a whole day away ("all"), lighter with parts of days ("some"). */
+function awayMark(level, title) {
+  return h('span', { class: ['away-mark', level], 'aria-hidden': 'true', title });
+}
+
+/**
+ * One line of the right column: its label, its bar, its figures ("3 → 6 of 4 h";
+ * every part and its kind from the program).
+ */
+function loadLine(line) {
+  return [
+    h('span', { class: 'cand-label' }, line.label),
+    hoursBar(line),
+    h('span', { class: 'cand-figures' }, line.figures.map(([kind, text]) => h('span', { class: kind }, text))),
+  ];
+}
+
+/**
+ * Line 2 of a person: their time away this month (only when there is some: the
+ * hatched mark and the dates, words from the program), then the reasons. The
+ * hours that week and going over the target are on the bars.
  */
 function reasons(candidate) {
   const parts = [];
@@ -36,14 +66,23 @@ function reasons(candidate) {
     if (finding.severity !== 'note' || candidate.group === 'best') parts.push([finding.severity, finding.message]);
   }
   if (candidate.same_day.length) parts.push(['', `Also that day: ${candidate.same_day.join(', ')}`]);
-  if (!parts.length && !candidate.free_week) parts.push(['', 'Free that day']);
-  parts.unshift(['', candidate.that_week_text]);
+  const away = candidate.away.level ? candidate.away : null;
+  const listed = parts.flatMap(([severity, text], i) => {
+    const part = h('span', { class: severity || null }, text);
+    return i ? [' · ', part] : [part];
+  });
+  const awayText = away ? h('span', { class: 'cand-away-text', title: away.title }, away.text) : null;
+  const reasonsNode = listed.length ? h('span', { class: 'cand-reasons' }, listed) : null;
+  // The hatched mark always leads; then, for the best matches, the dates away, and for a warning
+  // or a block, what explains it. The second is cut first when the line is short.
+  const best = candidate.group === 'best';
+  const [lead, tail] = (best ? [awayText, reasonsNode] : [reasonsNode, awayText]).filter(Boolean);
+  if (lead) lead.classList.add('lead');
+  if (tail) tail.classList.add('tail');
+  const texts = best ? [away?.text, ...parts.map(([, text]) => text)] : [...parts.map(([, text]) => text), away?.text];
   return {
-    text: parts.map(([, text]) => text).join(' · '),
-    nodes: parts.flatMap(([severity, text], i) => {
-      const part = h('span', { class: severity || null }, text);
-      return i ? [' · ', part] : [part];
-    }),
+    text: texts.filter(Boolean).join(' · '),
+    nodes: [away ? awayMark(away.level, away.title) : null, lead, tail ? h('span', { class: 'cand-sep' }, '·') : null, tail],
   };
 }
 
@@ -56,10 +95,19 @@ function candidateRow(candidate, onChoose) {
     onclick: () => onChoose(candidate, row),
   },
   h('span', { class: 'cand-name' }, candidate.name, star),
-  h('span', { class: 'cand-load' }, loadBar(candidate), candidate.week_text),  // hours a week against target, from the program
-  h('span', { class: 'cand-why', title: why.text }, why.nodes));  // cut with "…" when long: the whole of it on hover
+  h('span', { class: 'cand-why', title: why.text || null }, why.nodes),  // cut with "…" when long: the whole of it on hover
+  // The shift's week and the month: hours so far, what this shift adds, the target; all from the program.
+  h('span', { class: 'cand-load', title: candidate.load.title }, loadLine(candidate.load.week), loadLine(candidate.load.month)));
   row.classList.add('quiet');  // still read while another computer edits: only choosing is off
   return changes(row);
+}
+
+/** What the bars and the hatching mean, once at the top of the list (the figures and words say it to a screen reader). */
+function legend() {
+  return h('div', { class: 'picker-legend', 'aria-hidden': 'true' },
+    h('span', {}, hoursBar({ segments: [['now', 0, 45], ['add', 45, 66.67], ['add-over', 66.67, 76]], target_at: 66.67 }),
+      'so far · light: this shift · line: target'),
+    h('span', {}, awayMark('all'), 'away'));
 }
 
 function forceForm(candidate, row, key, query) {
@@ -107,6 +155,7 @@ function render(data, key) {
     const text = query.value.trim().toLowerCase();
     const matches = data.candidates.filter((c) => !text || c.name.toLowerCase().includes(text) || c.full.toLowerCase().includes(text));
     list.replaceChildren();
+    if (matches.length) list.append(legend());
     if (!text && data.ideas.length) list.append(ideasBlock(data.ideas, key));
     for (const group of GROUPS) {
       let members = matches.filter((c) => c.group === group.id);

@@ -30,7 +30,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from .model import parse_date, shift_date
+from .model import PERIODS, parse_date, shift_date
 from .schedule import Schedule
 
 BAR_OVER, BAR_UNDER = 1.0, 0.5
@@ -154,16 +154,18 @@ def _week_words(schedule: Schedule, days: List[str]) -> Dict[str, Any]:
         label = f"{one}–{two}"
     else:
         label = f"{one} {MONTH_SHORT[int(first[5:7]) - 1]}–{two} {MONTH_SHORT[int(last[5:7]) - 1]}"
-    title = _span(days)
     cut = len(days) < 7
-    if cut:
-        monday = schedule.week_of(first)
-        if first != monday:   # it began in the month before, which has no rota yet
-            title += f". The week began in {_day_month(monday)}, which has no rota yet: those days are not counted."
-        else:                 # it goes on in the month after
-            title += (f". The week goes on in {_day_month(shift_date(monday, 6))}, which has no rota yet: "
-                      "those days are not counted.")
+    title = _span(days) + (f". {_cut_words(schedule, days)}" if cut else "")
     return {"label": label, "short": f"{one}–{two}", "title": title, "cut": cut}
+
+
+def _cut_words(schedule: Schedule, days: List[str]) -> str:
+    """Why a week has fewer than seven days that count: the month next door has no rota yet."""
+    monday = schedule.week_of(days[0])
+    if days[0] != monday:   # it began in the month before
+        return f"The week began in {_day_month(monday)}, which has no rota yet: those days are not counted."
+    return (f"The week goes on in {_day_month(shift_date(monday, 6))}, which has no rota yet: "   # in the month after
+            "those days are not counted.")
 
 
 def weeks(schedule: Schedule) -> List[Dict[str, Any]]:
@@ -242,3 +244,161 @@ def far_note(schedule: Schedule, person_id: str, weeks_of_theirs: Optional[List[
     if not any(week["far"] for week in weeks_of_theirs):
         return ""
     return f"Marked: more than twice their target ({number(schedule.week_target(person_id))} h a week)."
+
+
+# -- the list for a shift: the week and the month, with this shift ---------------
+
+BAR_SCALE = 1.5
+"""The bars of the list for a shift run from 0 to this many times the target (the target two thirds along)."""
+
+
+def _position(hours: float, scale: float) -> float:
+    """Where some hours fall on a bar from 0 to ``scale`` hours, in percent, cut at the end."""
+    return round(min(100.0, max(0.0, hours) / scale * 100), 2) + 0.0   # never -0
+
+
+def _bar(now: float, added: float, target: float) -> Dict[str, Any]:
+    """A bar from 0 to 1.5 × the target, in ready-made percentages: the hours so
+    far (``now``), then what this shift adds (``add``); past the target, the
+    ``-over`` kinds. With a target of 0, from 0 to the hours with the shift (at
+    least 1 h), every part past the target and no line for it."""
+    now, after, target = max(0.0, now), max(0.0, now) + max(0.0, added), max(0.0, target)
+    if target > 0:
+        scale, target_at = BAR_SCALE * target, round(100 / BAR_SCALE, 2)
+    else:
+        scale, target_at = max(after, 1.0), None
+    pieces = (("now", 0.0, min(now, target)), ("now-over", target, now),
+              ("add", now, min(after, target)), ("add-over", max(now, target), after))
+    segments = []
+    for kind, start, end in pieces:
+        left, right = _position(start, scale), _position(end, scale)
+        if right > left:
+            segments.append([kind, left, right])
+    return {"segments": segments, "target_at": target_at}
+
+
+def _figures(now: float, added: float, target: float, target_text: str) -> List[List[str]]:
+    """"3 → 6 of 4 h", in parts with their kind: the hours so far and the arrow
+    (``was``, only when the shift adds hours), the hours with this shift
+    (``after``, or ``after-over`` past the target), then "of" the target."""
+    after = now + added
+    parts = [["was", f"{number(now)} → "]] if added > TOLERANCE else []
+    parts.append(["after-over" if after > target + TOLERANCE else "after", number(after)])
+    parts.append(["of", f" of {target_text} h" if target > 0 else " h"])
+    return parts
+
+
+def _so_far(now: float, added: float) -> str:
+    """"3 h so far, 6 h with this shift" (the second part only when the shift adds hours)."""
+    text = f"{number(now)} h so far"
+    if added > TOLERANCE:
+        text += f", {number(now + added)} h with this shift"
+    return text
+
+
+def choice(schedule: Schedule, person_id: str, iso: str, added: float) -> Dict[str, Any]:
+    """Two lines of the list for a shift on ``iso``, for one person: their hours in
+    the shift's week (Monday to Sunday, whole across two months when the month
+    next door has a rota) against their weekly target, and their hours this month
+    against the month's figure; each with what this shift would add (``added``:
+    its hours that day, 0 when the person already holds it).
+
+    Each line: ``label``, the bar's ``segments`` (``[kind, from %, to %]``),
+    ``target_at`` (% of the target's line, ``None`` with a target of 0) and the
+    ``figures`` in parts; ``title`` says all of it in words."""
+    added = max(0.0, added)
+    monday = schedule.week_of(iso)
+    days = next((days for days in schedule.calendar_weeks() if schedule.week_of(days[0]) == monday), [iso])
+    week_now, week_target = schedule.hours_in_week(person_id, iso), schedule.week_target(person_id)
+    month_now, month_target = schedule.hours(person_id), schedule.target(person_id)
+    month = _month_name(schedule)
+
+    week_title = f"Week of {_span(days)}: {_so_far(week_now, added)}, for a target of {number(week_target)} h a week."
+    if len(days) < 7:
+        week_title += f" {_cut_words(schedule, days)}"
+    month_title = f"{month}: {_so_far(month_now, added)}"
+    if month_target > 0:
+        month_title += f", of {number(month_target, 1)} h."
+    elif week_target > 0:   # away all month, when Settings does not count the time away
+        month_title += "; away all month, so no target."
+    else:
+        month_title += ", for a target of 0 h."
+    return {
+        "week": {"label": "Week", **_bar(week_now, added, week_target),
+                 "figures": _figures(week_now, added, week_target, number(week_target))},
+        "month": {"label": MONTH_SHORT[schedule.month.month - 1], **_bar(month_now, added, month_target),
+                  "figures": _figures(month_now, added, month_target, number(month_target, 1))},
+        "title": f"{week_title} {month_title}",
+    }
+
+
+def _runs(days: List[int]) -> List[List[int]]:
+    """Days of the month in runs of consecutive days: [1, 2, 3, 9] → [[1, 3], [9, 9]]."""
+    runs: List[List[int]] = []
+    for day in days:
+        if runs and runs[-1][1] == day - 1:
+            runs[-1][1] = day
+        else:
+            runs.append([day, day])
+    return runs
+
+
+def _run_text(run: List[int]) -> str:
+    return f"{run[0]}–{run[1]}" if run[1] != run[0] else str(run[0])
+
+
+def _listed(texts: List[str]) -> str:
+    """"9", "9 and 12", "1–4, 9 and 12"."""
+    return texts[0] if len(texts) == 1 else f"{', '.join(texts[:-1])} and {texts[-1]}"
+
+
+def _days(count: int) -> str:
+    return f"{count} day" if count == 1 else f"{count} days"
+
+
+def away(schedule: Schedule, person_id: str) -> Dict[str, str]:
+    """A person's time away this month, as their reply to the availability form
+    gives it (not the "never" rules of their card), for the list for a shift:
+    ``{"level": "all", "text": "Away 1–4 Dec, part of 9 Dec", "title": "Away all
+    day 1–4 December; away the evening of 9 December"}``.
+
+    ``level``: "all" with at least one whole day away, "some" with only parts of
+    days, "" when never away (then no words). The words stay short (they share a
+    line with the reasons): one or two runs of whole days by their dates, more
+    counted ("Away 9 days"); parts of days by their dates when they are one run,
+    else counted ("part of 2 days"; after counted whole days, "part of 3 more").
+    The ``title`` says every day."""
+    whole: List[int] = []
+    part: Dict[int, List[str]] = {}
+    for iso in schedule.dates:
+        parts = [period for period in PERIODS if schedule.is_unavailable(person_id, iso, period)]
+        if len(parts) == len(PERIODS):
+            whole.append(int(iso[8:]))
+        elif parts:
+            part[int(iso[8:])] = parts
+    if not whole and not part:
+        return {"level": "", "text": "", "title": ""}
+    short, month = MONTH_SHORT[schedule.month.month - 1], _month_name(schedule)
+    whole_runs, part_runs = _runs(whole), _runs(sorted(part))
+    pieces = []
+    if len(whole_runs) > 2:
+        pieces.append(_days(len(whole)))
+    elif whole_runs:
+        pieces.append(f"{_listed([_run_text(run) for run in whole_runs])} {short}")
+    if len(part_runs) == 1:
+        pieces.append(f"part of {_run_text(part_runs[0])} {short}")
+    elif part_runs:
+        pieces.append(f"part of {len(part)} more" if len(whole_runs) > 2 else f"part of {_days(len(part))}")
+    text = "Away " + ", ".join(pieces)
+    # The title, in date order: whole days in runs, parts of days in runs of the same parts.
+    said = [(run[0], f"away all day {_run_text(run)} {month}") for run in whole_runs]
+    same: List[List[Any]] = []   # [first, last, parts]
+    for day in sorted(part):
+        if same and same[-1][1] == day - 1 and same[-1][2] == part[day]:
+            same[-1][1] = day
+        else:
+            same.append([day, day, part[day]])
+    said += [(first, f"away the {' and '.join(parts)} of {_run_text([first, last])} {month}")
+             for first, last, parts in same]
+    title = "; ".join(words for _, words in sorted(said))
+    return {"level": "all" if whole else "some", "text": text, "title": title[0].upper() + title[1:]}

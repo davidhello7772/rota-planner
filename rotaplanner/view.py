@@ -248,6 +248,7 @@ def candidates_view(
     current: Optional[Assignment] = schedule.at((task_id, iso, position))
     labels = person_labels(people)
 
+    on_day = schedule.task_on(task.id, iso)
     ranked = []
     for candidate in rules.candidates(schedule, task, iso, ignore=current):
         person = candidate.person
@@ -256,6 +257,7 @@ def candidates_view(
             for a in schedule.on_day(person.id, iso)
             if a is not current and a.task_id in schedule.tasks
         ]
+        holds = current is not None and current.person_id == person.id   # this place is already theirs
         ranked.append(
             {
                 "id": person.id,
@@ -263,14 +265,16 @@ def candidates_view(
                 "full": labels[person.id]["full"],
                 "group": candidate.group,
                 **workload.summary(schedule, person.id),
-                **workload.that_week(schedule, person.id, iso),   # their hours that week, as it stands
+                # Their hours in the shift's week and in the month, with what this shift would add.
+                "load": workload.choice(schedule, person.id, iso, 0.0 if holds else on_day.hours),
+                "away": workload.away(schedule, person.id),   # their time away this month, from their reply
                 "preference": person.preferences.get(task.area_id),
                 "same_day": busy,
-                "findings": _findings_json(candidate.findings),
+                # Going over the target is shown by the bars ("load"); it stays a rule everywhere else.
+                "findings": _findings_json(f for f in candidate.findings if f.rule != "over_target"),
                 "note": person.note,
             }
         )
-    on_day = schedule.task_on(task.id, iso)
     return {
         "task": {"id": task.id, "name": task.name, "time": on_day.time_text(), "hours": on_day.hours,
                  "start": on_day.start, "end": on_day.end, "label": on_day.time_label,

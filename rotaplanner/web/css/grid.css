@@ -278,7 +278,7 @@ button.tile:hover { border-color: var(--line-strong); }
 
 /* ---- Candidate picker --------------------------------------------------- */
 
-.picker { width: 23rem; max-height: min(34rem, calc(100vh - 2rem)); display: flex; flex-direction: column; }
+.picker { width: 28rem; max-width: calc(100vw - 1rem); max-height: min(34rem, calc(100vh - 2rem)); display: flex; flex-direction: column; }
 .picker-head { padding: var(--space-3) var(--space-3) var(--space-2); border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: var(--space-2); }
 .picker-title { display: flex; align-items: flex-start; gap: var(--space-2); }
 .picker-title strong { display: block; font-size: var(--fs-md); }
@@ -291,18 +291,52 @@ button.tile:hover { border-color: var(--line-strong); }
 .picker-actions .btn[aria-pressed="true"] { background: var(--wanted); border-color: var(--wanted-line); color: var(--wanted-text); }
 .picker-list { overflow: auto; padding: var(--space-1) var(--space-2) var(--space-2); }
 .picker-group { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-3); font-weight: 600; padding: var(--space-2) var(--space-2) var(--space-1); display: flex; justify-content: space-between; }
-.cand { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 1px var(--space-2); width: 100%; padding: var(--space-2); border: 0; border-radius: var(--radius); background: none; text-align: left; }
+/* Each person on two lines: the name, then time away and the reasons; on the right, the shift's
+   week and the month, each [label] [bar] [figures] in fixed widths so that the bars line up. */
+.cand { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto; gap: 3px var(--space-2); align-items: center; width: 100%; padding: var(--space-2); border: 0; border-radius: var(--radius); background: none; text-align: left; }
 .cand:hover, .cand.active { background: var(--surface-2); }
 .cand.active { box-shadow: inset 0 0 0 1.5px var(--accent-line); }
-.cand-name { font-weight: 600; font-size: var(--fs-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cand-name { grid-column: 1; grid-row: 1; font-weight: 600; font-size: var(--fs-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cand-name .star { color: var(--warn); font-weight: 400; margin-left: 4px; }
-.cand-load { display: flex; align-items: center; gap: var(--space-2); font-size: var(--fs-xs); color: var(--text-2); white-space: nowrap; }
-.cand-load .load { width: 3.5rem; }
-.cand-why { grid-column: 1 / -1; font-size: var(--fs-xs); color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cand-why { grid-column: 1; grid-row: 2; display: flex; align-items: center; gap: var(--space-1); min-width: 0; min-height: 1rem; font-size: var(--fs-xs); color: var(--text-3); white-space: nowrap; overflow: hidden; }
+/* The hatched mark of time away, then two pieces sharing the line: the first keeps its words, the
+   second ("tail") is cut first when the line is short; the whole of it is in the line's title. */
+.cand-why > * { min-width: 0; }
+.cand-why > .away-mark, .cand-why > .cand-sep { flex: none; }
+.cand-why > .lead { flex: 0 1 auto; }
+.cand-why > .tail { flex: 0 1000 auto; }
+.cand-away-text { color: var(--text-2); }
+.cand-away-text, .cand-reasons { overflow: hidden; text-overflow: ellipsis; }
 .cand-why .block { color: var(--bad); }
 .cand-why .warn { color: var(--warn); }
 .cand.blocked .cand-name { color: var(--text-2); font-weight: 500; }
-.force { grid-column: 1 / -1; display: flex; gap: var(--space-2); margin-top: var(--space-1); }
+.cand-load { grid-column: 2; grid-row: 1 / 3; display: grid; grid-template-columns: 1.75rem 62px 7.5rem; gap: 3px 7px; align-items: center; font-size: var(--fs-xs); color: var(--text-2); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.cand-label { color: var(--text-3); font-size: var(--fs-xs); }
+.cand-figures .was, .cand-figures .of { color: var(--text-3); }
+.cand-figures .after, .cand-figures .after-over { color: var(--text); font-weight: 600; }
+.cand-figures .after-over { color: var(--warn); }
+
+/* A bar of hours, from 0 to 1.5 × the target (the upright line, two thirds along): so far solid,
+   what this shift adds lighter, amber past the target. The program gives every position. */
+.hbar { position: relative; display: inline-block; width: 62px; height: 6px; border-radius: 3px; background: var(--chip); }
+.hbar-fill { position: absolute; inset: 0; border-radius: inherit; overflow: hidden; }
+.hbar-fill > i { position: absolute; top: 0; bottom: 0; }
+.hbar .now { background: var(--accent); }
+.hbar .now-over { background: var(--warn); }
+.hbar .add { background: color-mix(in srgb, var(--accent) 38%, transparent); }
+.hbar .add-over { background: color-mix(in srgb, var(--warn) 45%, transparent); }
+.hbar-target { position: absolute; top: -2px; bottom: -2px; width: 1.5px; border-radius: 1px; background: var(--text-2); transform: translateX(-50%); }
+
+/* Time away in the month: the hatching of Check › Balance, lighter when only part of some days. */
+.away-mark { display: inline-block; flex: none; width: 12px; height: 9px; border-radius: 2px; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--bad) 40%, transparent); }
+.away-mark.all { background-image: repeating-linear-gradient(135deg, color-mix(in srgb, var(--bad) 55%, transparent) 0 2px, transparent 2px 4px); }
+.away-mark.some { background-image: repeating-linear-gradient(135deg, color-mix(in srgb, var(--bad) 28%, transparent) 0 2px, transparent 2px 4px); }
+
+/* What the bars and the hatching mean: one faint line at the top of the list. */
+.picker-legend { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-3); padding: var(--space-2) var(--space-2) 2px; font-size: var(--fs-xs); color: var(--text-3); }
+.picker-legend > span { display: inline-flex; align-items: center; gap: 5px; }
+.picker-legend .hbar { width: 22px; }
+.force { grid-column: 1 / -1; grid-row: 3; display: flex; gap: var(--space-2); margin-top: var(--space-1); }
 .force .input { flex: 1; height: 1.75rem; }
 .picker-foot { display: flex; gap: var(--space-2); padding: var(--space-2) var(--space-3); border-top: 1px solid var(--line); flex-wrap: wrap; }
 .picker-foot .input { flex: 1; }

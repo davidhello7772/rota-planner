@@ -9,7 +9,8 @@ from pathlib import Path
 from unittest import mock
 
 from rotaplanner import demo, solver, transfer, view, workload
-from rotaplanner.model import WEEKS_A_MONTH, Assignment, Person, Settings, Task, week_start, weekly_from_monthly
+from rotaplanner import eligibility as rules
+from rotaplanner.model import WEEKS_A_MONTH, Assignment, NeverRule, Person, Settings, Task, week_start, weekly_from_monthly
 from rotaplanner.months import apply_regulars, create_month
 from rotaplanner.schedule import Schedule
 from rotaplanner.store import Store
@@ -369,9 +370,208 @@ class WeekHoursTest(unittest.TestCase):
         candidates = view.candidates_view(self.december, h.people(), self.settings, "lunch", "2026-12-15", 0,
                                           around=[self.november])["candidates"]
         by_id = {c["id"]: c for c in candidates}
-        self.assertEqual((by_id["ben"]["that_week_text"], by_id["ben"]["free_week"], by_id["ben"]["that_week"]),
-                         ("2 h that week", False, 2.0))
-        self.assertEqual((by_id["ana"]["that_week_text"], by_id["ana"]["free_week"]), ("Free that week", True))
+        # The list for a shift: the hours of the shift's week, and of the month, with this shift's 4 h.
+        self.assertEqual(by_id["ben"]["load"]["week"]["figures"], [["was", "2 → "], ["after-over", "6"], ["of", " of 3.5 h"]])
+        self.assertEqual(by_id["ana"]["load"]["week"]["figures"], [["was", "0 → "], ["after-over", "4"], ["of", " of 3.5 h"]])
+        self.assertEqual(by_id["ana"]["load"]["month"]["figures"], [["was", "3 → "], ["after", "7"], ["of", " of 15.5 h"]])
+        self.assertTrue(all(not {"that_week", "that_week_text", "free_week"} & set(c) for c in candidates))
+        # On the first week, shared with November: whole, and Ana already holds the supper of the 1st.
+        first = view.candidates_view(self.december, h.people(), self.settings, "supper", "2026-12-01", 0,
+                                     around=[self.november])["candidates"]
+        ana = next(c for c in first if c["id"] == "ana")["load"]
+        self.assertEqual((ana["week"]["figures"], ana["month"]["figures"]),
+                         ([["after-over", "7"], ["of", " of 3.5 h"]], [["after", "3"], ["of", " of 15.5 h"]]))
+        self.assertEqual(ana["title"], "Week of Monday 30 November to Sunday 6 December: 7 h so far, for a target of "
+                                       "3.5 h a week. December: 3 h so far, of 15.5 h.")
+
+
+class ChoiceTest(unittest.TestCase):
+    """The list for a shift: the shift's week and the month, so far and with this shift, against the target."""
+
+    def setUp(self):
+        self.settings = Settings(default_target_hours_per_week=3.5)
+        self.month = h.month()
+        # Ana: 4 h the week before, 2 h in the week of the shift (Monday 7 to Sunday 13), 3 h the week after.
+        self.month.assignments = [lunch("2026-12-01"), Assignment("breakfast", "2026-12-08", 0, person_id="ana"),
+                                  Assignment("supper", "2026-12-15", 0, person_id="ana")]
+
+    def schedule(self, people=None, around=()):
+        return Schedule(self.month, people or h.people(), self.settings, around)
+
+    def test_the_two_lines(self):
+        load = workload.choice(self.schedule(), "ana", "2026-12-10", 4)   # a lunch on Thursday 10: 4 h
+        self.assertEqual(load["week"], {
+            "label": "Week",
+            "segments": [["now", 0.0, 38.1], ["add", 38.1, 66.67], ["add-over", 66.67, 100.0]],   # 6 h is cut at 5.25 h
+            "target_at": 66.67,
+            "figures": [["was", "2 → "], ["after-over", "6"], ["of", " of 3.5 h"]],
+        })
+        self.assertEqual(load["month"], {
+            "label": "Dec",
+            "segments": [["now", 0.0, 38.71], ["add", 38.71, 55.91]],   # 9 → 13 of 15.5 h: below the target
+            "target_at": 66.67,
+            "figures": [["was", "9 → "], ["after", "13"], ["of", " of 15.5 h"]],
+        })
+        self.assertEqual(load["title"], "Week of Monday 7 to Sunday 13 December: 2 h so far, 6 h with this shift, for a "
+                                        "target of 3.5 h a week. December: 9 h so far, 13 h with this shift, of 15.5 h.")
+
+    def test_a_shift_that_adds_nothing(self):
+        # Already theirs (the list passes 0), or a task counted 0 h (the night): no arrow, nothing light.
+        s = self.schedule()
+        for added in (0, 0.0):
+            load = workload.choice(s, "ana", "2026-12-08", added)
+            self.assertEqual(load["week"]["figures"], [["after", "2"], ["of", " of 3.5 h"]])
+            self.assertEqual(load["week"]["segments"], [["now", 0.0, 38.1]])
+            self.assertEqual(load["month"]["figures"], [["after", "9"], ["of", " of 15.5 h"]])
+            self.assertFalse(any(kind.startswith("add") for line in ("week", "month")
+                                 for kind, _, _ in load[line]["segments"]))
+            self.assertEqual(load["title"], "Week of Monday 7 to Sunday 13 December: 2 h so far, for a target of 3.5 h "
+                                            "a week. December: 9 h so far, of 15.5 h.")
+        # In the list: the holder of the place adds nothing; the night guard's 0 h add nothing to anyone.
+        self.month.assignments.append(Assignment("night", "2026-12-09", 0, person_id="ben"))
+        holder = view.candidates_view(self.month, h.people(), self.settings, "breakfast", "2026-12-08", 0)["candidates"]
+        self.assertEqual(next(c for c in holder if c["id"] == "ana")["load"]["week"]["figures"],
+                         [["after", "2"], ["of", " of 3.5 h"]])
+        self.assertEqual(next(c for c in holder if c["id"] == "ben")["load"]["week"]["figures"],
+                         [["was", "0 → "], ["after", "2"], ["of", " of 3.5 h"]])
+        night = view.candidates_view(self.month, h.people(), self.settings, "night", "2026-12-10", 0)["candidates"]
+        self.assertTrue(all(c["load"]["week"]["figures"][0][0] != "was" for c in night))
+
+    def test_past_the_target(self):
+        self.month.assignments.append(lunch("2026-12-09"))   # 6 h in the week: already past 3.5 h
+        load = workload.choice(self.schedule(), "ana", "2026-12-11", 2)
+        self.assertEqual(load["week"]["segments"], [["now", 0.0, 66.67], ["now-over", 66.67, 100.0]])   # 8 h: cut
+        self.assertEqual(load["week"]["figures"], [["was", "6 → "], ["after-over", "8"], ["of", " of 3.5 h"]])
+        self.month.assignments[-1] = Assignment("breakfast", "2026-12-09", 0, person_id="ana")   # 4 h in the week
+        self.month.assignments += [lunch("2026-12-02"), lunch("2026-12-03")]                       # 19 h in December
+        load = workload.choice(self.schedule(), "ana", "2026-12-10", 3)   # 4 → 7 of 3.5 h a week
+        self.assertEqual(load["week"]["segments"], [["now", 0.0, 66.67], ["now-over", 66.67, 76.19],
+                                                    ["add-over", 76.19, 100.0]])
+        self.assertEqual(load["week"]["figures"], [["was", "4 → "], ["after-over", "7"], ["of", " of 3.5 h"]])
+        # The month: 19 h, past 15.5 h; with 3 h more, 22 h.
+        self.assertEqual(load["month"]["segments"], [["now", 0.0, 66.67], ["now-over", 66.67, 81.72],
+                                                     ["add-over", 81.72, 94.62]])
+        self.assertEqual(load["month"]["figures"], [["was", "19 → "], ["after-over", "22"], ["of", " of 15.5 h"]])
+        # Exactly on the target is not past it.
+        on = workload.choice(self.schedule(), "cleo", "2026-12-10", 3.5)
+        self.assertEqual(on["week"]["segments"], [["add", 0.0, 66.67]])
+        self.assertEqual(on["week"]["figures"], [["was", "0 → "], ["after", "3.5"], ["of", " of 3.5 h"]])
+
+    def test_far_past_the_target_is_cut_at_the_end(self):
+        self.month.assignments += [lunch(f"2026-12-{d:02d}") for d in (2, 3, 4, 5, 6)]   # 24 h in the first week
+        load = workload.choice(self.schedule(), "ana", "2026-12-04", 4)
+        self.assertEqual(load["week"]["segments"], [["now", 0.0, 66.67], ["now-over", 66.67, 100.0]])
+        self.assertTrue(all(0 <= start < end <= 100 for line in ("week", "month")
+                            for _, start, end in load[line]["segments"]))
+
+    def test_a_target_of_zero(self):
+        people = h.people()
+        people[0].target_hours_per_week = 0
+        load = workload.choice(self.schedule(people), "ana", "2026-12-10", 4)
+        # No line; from 0 to the hours with the shift; all of it past the target.
+        self.assertEqual(load["week"], {"label": "Week", "segments": [["now-over", 0.0, 33.33], ["add-over", 33.33, 100.0]],
+                                        "target_at": None,
+                                        "figures": [["was", "2 → "], ["after-over", "6"], ["of", " h"]]})
+        self.assertEqual(load["month"]["figures"], [["was", "9 → "], ["after-over", "13"], ["of", " h"]])
+        self.assertTrue(load["title"].endswith("for a target of 0 h a week. December: 9 h so far, 13 h with this shift, "
+                                               "for a target of 0 h."))
+        # Nobody's hours, nothing added: an empty bar, nothing divided by zero.
+        cleo = workload.choice(Schedule(self.month, [Person("cleo", "Cleo D.", target_hours_per_week=0)], self.settings),
+                               "cleo", "2026-12-10", 0)
+        self.assertEqual((cleo["week"]["segments"], cleo["week"]["figures"]), ([], [["after", "0"], ["of", " h"]]))
+
+    def test_away_all_month_and_a_cut_week(self):
+        all_month(self.month, "ana")
+        for around in ((), [create_month(h.catalog(), 2026, 11)]):
+            load = workload.choice(self.schedule(around=around), "ana", "2026-12-01", 4)
+            self.assertEqual(load["month"]["target_at"], None)   # the month's figure: 0 when away all month
+            self.assertEqual(load["week"]["target_at"], 66.67)   # the weekly target is never lowered
+            self.assertIn("December: 9 h so far, 13 h with this shift; away all month, so no target.", load["title"])
+        cut = workload.choice(self.schedule(), "ana", "2026-12-01", 4)["title"]
+        self.assertTrue(cut.startswith("Week of Tuesday 1 to Sunday 6 December: 4 h so far, 8 h with this shift, for "
+                                       "a target of 3.5 h a week. The week began in November, which has no rota yet: "
+                                       "those days are not counted. December:"))
+        candidates = view.candidates_view(self.month, h.people(), self.settings, "lunch", "2026-12-09", 0)["candidates"]
+        self.assertEqual(next(c for c in candidates if c["id"] == "ana")["away"]["text"], "Away 1–31 Dec")
+
+    def test_the_list_leaves_the_over_target_note_to_the_bars(self):
+        self.month.assignments += [lunch(f"2026-12-{d:02d}") for d in (2, 3, 4)]   # 21 h: past 15.5 h
+        candidates = view.candidates_view(self.month, h.people(), self.settings, "lunch", "2026-12-21", 0)["candidates"]
+        ana = next(c for c in candidates if c["id"] == "ana")
+        self.assertFalse(any("Over target" in f["message"] for c in candidates for f in c["findings"]))
+        self.assertEqual(ana["load"]["month"]["figures"][1], ["after-over", "25"])
+        s = self.schedule()   # it stays a rule everywhere else
+        self.assertIn("over_target", [f.rule for f in rules.evaluate(rules.Placement(s, s.people["ana"],
+                                                                                         s.task_on("lunch", "2026-12-21"),
+                                                                                         "2026-12-21"))])
+
+
+class AwayTest(unittest.TestCase):
+    """Time away in the month, from the reply to the availability form, for the list for a shift."""
+
+    def away(self, *keys):
+        month = h.month()
+        h.away(month, "ana", *keys)
+        return workload.away(h.schedule(month), "ana")
+
+    @staticmethod
+    def days(first, last, parts=("morning", "afternoon", "evening")):
+        return [f"2026-12-{d:02d}/{p}" for d in range(first, last + 1) for p in parts]
+
+    def test_whole_days(self):
+        self.assertEqual(self.away(*self.days(14, 20)),
+                         {"level": "all", "text": "Away 14–20 Dec", "title": "Away all day 14–20 December"})
+        self.assertEqual(self.away(*self.days(5, 5)),
+                         {"level": "all", "text": "Away 5 Dec", "title": "Away all day 5 December"})
+        self.assertEqual(self.away(*self.days(1, 4), *self.days(14, 20))["text"], "Away 1–4 and 14–20 Dec")
+
+    def test_parts_of_days(self):
+        self.assertEqual(self.away("2026-12-09/evening"),
+                         {"level": "some", "text": "Away part of 9 Dec", "title": "Away the evening of 9 December"})
+        self.assertEqual(self.away("2026-12-09/evening", "2026-12-12/morning", "2026-12-12/afternoon"),
+                         {"level": "some", "text": "Away part of 2 days",   # several runs: counted, the title says which
+                          "title": "Away the evening of 9 December; away the morning and afternoon of 12 December"})
+        self.assertEqual(self.away(*self.days(9, 11, ("evening",))),
+                         {"level": "some", "text": "Away part of 9–11 Dec", "title": "Away the evening of 9–11 December"})
+
+    def test_both(self):
+        self.assertEqual(self.away(*self.days(1, 4), "2026-12-09/evening"),
+                         {"level": "all", "text": "Away 1–4 Dec, part of 9 Dec",
+                          "title": "Away all day 1–4 December; away the evening of 9 December"})
+        self.assertEqual(self.away(*self.days(1, 4), "2026-12-09/evening", "2026-12-17/evening")["text"],
+                         "Away 1–4 Dec, part of 2 days")
+
+    def test_many_days_are_counted(self):
+        away = self.away(*self.days(1, 4), *self.days(10, 11), *self.days(20, 22), "2026-12-15/evening",
+                         "2026-12-17/morning", "2026-12-28/morning")
+        self.assertEqual((away["level"], away["text"]), ("all", "Away 9 days, part of 3 more"))
+        self.assertEqual(away["title"], "Away all day 1–4 December; away all day 10–11 December; away the evening of "
+                                        "15 December; away the morning of 17 December; away all day 20–22 December; "
+                                        "away the morning of 28 December")
+        only_parts = self.away(*[f"2026-12-{d:02d}/evening" for d in (1, 3, 5, 7, 9, 11)])
+        self.assertEqual((only_parts["level"], only_parts["text"]), ("some", "Away part of 6 days"))
+        self.assertEqual(self.away(*[f"2026-12-{d:02d}/{p}" for d in (1, 3, 5, 7) for p in ("morning", "afternoon",
+                                                                                           "evening")])["text"],
+                         "Away 4 days")
+
+    def test_never_away(self):
+        self.assertEqual(workload.away(h.schedule(h.month()), "ana"), {"level": "", "text": "", "title": ""})
+        self.assertEqual(workload.away(h.schedule(h.month()), "nobody"), {"level": "", "text": "", "title": ""})
+        # A "never" rule of the card is not time away in the month: the list says it as a reason.
+        people = h.people()
+        people[0].never = [NeverRule("mon", "any")]
+        self.assertEqual(workload.away(h.schedule(h.month(), people), "ana")["level"], "")
+
+    def test_away_all_month(self):
+        month = h.month()
+        all_month(month, "ana")
+        for settings in (Settings(), Settings(prorate_target=False), Settings(default_target_hours_per_week=0)):
+            s = Schedule(month, h.people(), settings)
+            self.assertEqual(workload.away(s, "ana"),
+                             {"level": "all", "text": "Away 1–31 Dec", "title": "Away all day 1–31 December"})
+            for added in (0, 4):
+                load = workload.choice(s, "ana", "2026-12-31", added)
+                self.assertEqual(len(load["week"]["figures"]) + (0 if added else 1), 3)
 
 
 if __name__ == "__main__":
