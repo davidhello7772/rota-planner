@@ -1646,7 +1646,7 @@ class App:
         action = body.get("action")
         try:
             if action == "take":
-                self.sync.take_pen(force=bool(body.get("force")))
+                self.sync.take_pen(force=bool(body.get("force")), pressed=True)
             elif action == "ask":
                 self.sync.ask_pen()
             elif action in ("release", "cancel"):

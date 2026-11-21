@@ -8,6 +8,7 @@ import threading
 import unittest
 from pathlib import Path
 
+from rotaplanner import sync
 from rotaplanner.app import App
 from rotaplanner.server import PEN_FREE, TOKEN_HEADER, create_server
 from rotaplanner.store import Store
@@ -146,6 +147,32 @@ class TwoPrograms(unittest.TestCase):
         notice = self.call("a", "GET", "/api/sync/status")[1]["pen"]["notice"]
         self.assertIn("Front desk took over", notice["text"])
         self.assertIsNone(self.call("a", "POST", "/api/sync/pen", {"action": "release"})[1]["pen"]["notice"])
+
+    def test_take_over_pressed_twice_at_once(self):
+        self.rounds()
+        self.call("a", "POST", "/api/people/save", {"person": {"id": "ana", "first_name": "Ana", "last_name": "Berg", "note": "x"}})
+        self.rounds()
+        office = self.a.sync  # holds the pen, then is switched off: its last word gets old
+        clock = office.state["clock"]
+        office.state["clock"] = clock - sync.PEN_STALE_SECONDS - 60
+        office._place.write(f"pen-{office.state['computer_id']}.rpsync", office._pen_note(holding=True))
+        office.state["clock"] = clock
+        self.b.sync.exchange()
+        self.assertTrue(self.call("b", "GET", "/api/sync/status")[1]["pen"]["stale"])
+        answers = [None, None]
+
+        def press(index):
+            answers[index] = self.call("b", "POST", "/api/sync/pen", {"action": "take", "force": True})
+        presses = [threading.Thread(target=press, args=(index,), daemon=True) for index in range(2)]
+        for one in presses:
+            one.start()
+        for one in presses:
+            one.join(30)
+            self.assertFalse(one.is_alive())
+        for status, answer in answers:
+            self.assertEqual(status, 200, answer)
+            self.assertTrue(answer["pen"]["mine"])
+        self.assertTrue(self.call("b", "GET", "/api/sync/status")[1]["pen"]["mine"])
 
     def test_which_requests_need_the_pen(self):
         for path in ("/api/sync/apply", "/api/sync/pen", "/api/mail/test", "/api/data/export",

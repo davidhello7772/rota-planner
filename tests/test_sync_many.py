@@ -5,6 +5,7 @@ import json
 import random
 import shutil
 import tempfile
+import threading
 import time
 import unittest
 import unittest.mock
@@ -657,6 +658,294 @@ class HandOverTest(Computers):
         self.assertTrue(self.a.pen()["mine"])
 
 
+class TakeOverTest(Computers):
+    """"Take over" while a take is still running: a second press, a change, the
+    courier. Nothing undoes the take, and nothing waits for ever."""
+    kind = "webdav"
+
+    def setUp(self):
+        super().setUp()
+        self.settle()
+        self.stopped, self.go = threading.Semaphore(0), threading.Semaphore(0)
+        self.addCleanup(lambda: [self.go.release() for _ in range(5)])  # never leave a thread stopped
+
+    def own(self, one):
+        return f"pen-{one.state['computer_id']}.rpsync"
+
+    def gone_quiet(self, one):
+        """``one`` holds the pen, but its last word at the place is old (switched off)."""
+        clock = one.state["clock"]
+        one.state["clock"] = clock - sy.PEN_STALE_SECONDS - 60
+        one._place.write(self.own(one), one._pen_note(holding=True))
+        one.state["clock"] = clock
+
+    def office_gone(self):
+        self.a.ensure_pen()
+        self.gone_quiet(self.a)
+        self.b.exchange()
+        self.assertTrue(self.b.pen()["stale"])
+
+    def office_back(self, changed=False):
+        """Office says again that it holds the pen (it was asleep)."""
+        self.a.state["pen"]["beat"] = 0
+        if changed:
+            self.a._last_edit = time.time()  # and is being used: it does not hand over at once
+        self.a.exchange()
+
+    def note_at_place(self, one):
+        return one._read_pen(one._place.read(self.own(one), sy.PEN_BYTES), one.state["computer_id"])
+
+    def watch(self, one, before_claim=None, before_list=None):
+        """Calls ``before_claim`` just before ``one`` writes a claim (its note while
+        taking), ``before_list`` just before the listing after it. Returns the
+        notes ``one`` writes: "claim", "held" or "asking"."""
+        place, own, me = one._place, self.own(one), one.state["computer_id"]
+        write, listing = place.write, place.list
+        written, claimed = [], []
+
+        def write_(name, data):
+            if name == own:
+                note = one._read_pen(data, me)
+                kind = "held" if note["holding"] else "asking" if note["asking"] else "claim"
+                if kind == "claim" and before_claim:
+                    before_claim()
+                written.append(kind)
+                claimed[:] = [kind == "claim"]
+            write(name, data)
+
+        def list_():
+            if claimed and claimed[0]:
+                claimed[:] = []
+                if before_list:
+                    before_list()
+            return listing()
+
+        for attribute, replacement in (("write", write_), ("list", list_)):
+            patcher = unittest.mock.patch.object(place, attribute, replacement)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        return written
+
+    def stop_here(self):
+        self.stopped.release()
+        self.go.acquire(timeout=10)
+
+    def run_aside(self, function, *args, **kwargs):
+        """``function`` in a thread of its own; its outcome goes in the dict returned."""
+        outcome = {}
+
+        def run():
+            try:
+                outcome["result"] = function(*args, **kwargs)
+            except Exception as error:  # noqa: BLE001
+                outcome["error"] = error
+        outcome["thread"] = threading.Thread(target=run, daemon=True)
+        outcome["thread"].start()
+        return outcome
+
+    def finish(self, outcome):
+        outcome["thread"].join(15)
+        self.assertFalse(outcome["thread"].is_alive(), "still waiting: two locks waiting for each other?")
+        if "error" in outcome:
+            raise outcome["error"]
+        return outcome.get("result")
+
+    def unplug(self, unplugged=True):
+        if self.kind == "webdav":
+            self.server.mode = "down" if unplugged else "ok"
+        else:
+            shared, away = Path(self.place), Path(self.place).with_name("unplugged")
+            (shared.rename(away) if unplugged else away.rename(shared))
+
+    def test_take_over_pressed_twice(self):
+        self.office_gone()
+        written = self.watch(self.b, before_list=self.stop_here)
+        first = self.run_aside(self.b.take_pen, force=True)
+        self.assertTrue(self.stopped.acquire(timeout=10))
+        second = self.run_aside(self.b.take_pen, force=True)
+        time.sleep(0.2)  # the second press arrives while the first is still taking
+        self.go.release()
+        self.finish(first)
+        again = False  # does the second one claim the pen all over again?
+        while second["thread"].is_alive() and not again:
+            again = self.stopped.acquire(timeout=0.05)
+        pen = self.b.status()["pen"]  # what the screen shows meanwhile
+        if again:
+            self.go.release()
+        self.assertTrue(self.finish(second)["mine"])
+        self.assertTrue(pen["mine"])
+        self.assertFalse(pen["read_only"])
+        self.assertNotIn("was editing", pen["text"])
+        self.assertEqual(written, ["claim", "held"])  # one take only
+        self.assertTrue(self.note_at_place(self.b)["holding"])
+
+    def test_a_change_made_while_taking_waits_and_passes(self):
+        self.office_gone()
+        written = self.watch(self.b, before_list=self.stop_here)
+        take = self.run_aside(self.b.take_pen, force=True)
+        self.assertTrue(self.stopped.acquire(timeout=10))
+        change = self.run_aside(self.b.ensure_pen)
+        time.sleep(0.2)
+        self.go.release()
+        self.finish(take)
+        while change["thread"].is_alive():
+            if self.stopped.acquire(timeout=0.05):
+                self.go.release()  # today: a second claim
+        self.assertFalse(self.finish(change))
+        self.assertTrue(self.b.pen()["mine"])
+        self.assertEqual(written, ["claim", "held"])
+
+    def test_a_round_of_the_courier_while_taking_keeps_the_note(self):
+        self.office_gone()
+        self.watch(self.b, before_list=self.stop_here)
+        take = self.run_aside(self.b.take_pen, force=True)
+        self.assertTrue(self.stopped.acquire(timeout=10))
+        courier = self.run_aside(self.b.exchange)
+        time.sleep(0.2)
+        self.go.release()
+        self.finish(take)
+        self.finish(courier)
+        self.assertTrue(self.b.pen()["mine"])
+        self.assertTrue(self.note_at_place(self.b)["holding"])
+        self.b.exchange()
+        self.assertTrue(self.note_at_place(self.b)["holding"])
+
+    def test_the_courier_leaves_a_pen_taken_on_the_screen(self):
+        self.a.ensure_pen()
+        self.a._last_edit = time.time() - sy.GROUP_SECONDS - 1
+        self.round(self.b)
+        self.b.ask_pen()
+        self.a.exchange()  # hands over
+        self.b.exchange()
+        for kind in ("held", "offline"):
+            def screen_first(**_):
+                # Meanwhile the coordinator pressed "Take over" on the screen, and it worked.
+                self.b.state["pen"] = {"mine": True, "since": self.b._now_there(), "beat": time.time(),
+                                       "there": self.b._now_there()}
+                raise PenError("Kitchen asked for the editing first.", kind)
+            self.b.state["pen"] = {"asking": self.a.state["computer_id"], "name": "Office", "asked": time.time(),
+                                   "asked_there": self.b._now_there()}
+            with unittest.mock.patch.object(self.b, "take_pen", screen_first):
+                self.b.follow_up()
+            self.assertTrue(self.b.pen()["mine"], kind)
+            self.assertIsNone(self.b.pen()["notice"], kind)
+
+    def test_a_note_given_back_while_it_is_read(self):
+        phantom = f"pen-{self.c.state['computer_id']}.rpsync"
+        place = self.b._place
+        real_list = place.list
+        claimed = []
+
+        def list_():
+            # While taking, Kitchen's note is in the listing, and gone when it is read.
+            listing = real_list()
+            if any(n == self.own(self.b) for n in listing.files) and not claimed:
+                claimed.append(True)
+                return places.Listing(dict(listing.files, **{phantom: places.Entry("gone", listing.now, 200)}), listing.now)
+            return listing
+        with unittest.mock.patch.object(place, "list", list_):
+            self.assertFalse(self.b.ensure_pen())
+        self.assertTrue(self.b.pen()["mine"])
+        self.assertTrue(self.note_at_place(self.b)["holding"])
+
+    def test_no_connection_while_reading_the_notes(self):
+        self.a.ensure_pen()
+        self.a._last_edit = time.time() - sy.GROUP_SECONDS - 1
+        self.round(self.b)
+        self.b.ask_pen()
+        request = dict(self.b.state["pen"])
+        self.a.exchange()  # hands over
+        self.b.exchange()
+        phantom = f"pen-{self.c.state['computer_id']}.rpsync"
+        claimed = []
+        self.watch(self.b, before_list=lambda: claimed.append(True))
+        place, real_list, real_read = self.b._place, self.b._place.list, self.b._place.read
+
+        def list_():
+            listing = real_list()
+            if claimed:  # while taking: Kitchen's note is listed, and cannot be read
+                return places.Listing(dict(listing.files, **{phantom: places.Entry("x", listing.now, 200)}), listing.now)
+            return listing
+
+        def read(name, limit=places.MAX_FILE_BYTES):
+            if name == phantom:
+                raise places.PlaceError("offline", "The connection was lost.")
+            return real_read(name, limit)
+        with unittest.mock.patch.object(place, "list", list_), unittest.mock.patch.object(place, "read", read):
+            self.b.follow_up()
+        pen = self.b.state["pen"]
+        self.assertEqual((pen.get("asking"), pen.get("asked")), (request["asking"], request["asked"]))  # still asking
+        self.assertNotIn(self.own(self.b), self.server_files())  # its claim is not left there
+        self.b.exchange()  # the request is said again…
+        note = self.note_at_place(self.b)
+        self.assertEqual((note["holding"], note["asking"]), (False, self.a.state["computer_id"]))
+        self.b.follow_up()  # … and the pen taken
+        self.assertTrue(self.b.pen()["mine"])
+
+    def server_files(self):
+        return list(self.b._place.list().files)
+
+    def test_a_holder_found_there_after_all_is_asked(self):
+        self.office_gone()
+        written = self.watch(self.b, before_claim=self.office_back)
+        status = self.b.take_pen(force=True)  # Office wakes up just then
+        self.assertTrue(status["asking"])
+        self.assertFalse(status["mine"])
+        self.assertTrue(status["read_only"])
+        self.assertIn("Office is there after all", status["text"])
+        self.assertEqual(written, ["claim", "asking"])  # the request replaces the claim
+        self.a._last_edit = time.time() - sy.GROUP_SECONDS - 1
+        self.a.exchange()  # at its next round, Office sends its changes and hands over
+        self.assertFalse(self.a.pen()["mine"])
+        self.b.exchange()
+        self.b.follow_up()
+        self.assertTrue(self.b.pen()["mine"])
+
+    def test_asking_again_keeps_its_place_in_line(self):
+        self.a.ensure_pen()
+        self.round(self.b)
+        self.b.ask_pen()
+        asked = (self.b.state["pen"]["asked"], self.b.state["pen"]["asked_there"])
+        self.gone_quiet(self.a)
+        self.b.exchange()
+        self.assertTrue(self.b.pen()["stale"])
+        self.watch(self.b, before_claim=lambda: self.office_back(changed=True))
+        status = self.b.take_pen(force=True)
+        self.assertTrue(status["asking"])
+        self.assertEqual((self.b.state["pen"]["asked"], self.b.state["pen"]["asked_there"]), asked)
+        self.assertEqual(self.note_at_place(self.b)["asked"], asked[1])
+
+    def test_a_change_never_asks_by_itself(self):
+        self.a.ensure_pen()
+        self.round(self.b)
+        with self.assertRaises(PenError) as caught:
+            self.b.ensure_pen()
+        self.assertEqual(caught.exception.kind, "held")
+        self.assertFalse(self.b.pen()["asking"])
+        self.assertNotIn(self.own(self.b), self.server_files())
+        self.a._last_edit = time.time()
+        self.b.ask_pen()
+        with self.assertRaises(PenError) as caught:  # asking: a change still waits for the hand-over
+            self.b.ensure_pen()
+        self.assertEqual(caught.exception.kind, "held")
+        self.assertTrue(self.b.pen()["asking"])
+
+    def test_a_take_pressed_on_the_screen_always_tries(self):
+        self.unplug()
+        with self.assertRaises(PenError) as caught:
+            self.b.ensure_pen()
+        self.assertEqual(caught.exception.kind, "offline")
+        self.unplug(False)
+        with self.assertRaises(PenError) as caught:  # a change: said at once, not tried again so soon
+            self.b.ensure_pen()
+        self.assertEqual(caught.exception.kind, "offline")
+        self.assertTrue(self.b.take_pen(pressed=True)["mine"])  # a press: tried
+
+    def test_each_status_says_how_new_it_is(self):
+        first, second = self.b.status()["snapshot"], self.b.status()["snapshot"]
+        self.assertGreater(second, first)
+
+
 class SomeoneWritesAtThePlaceTest(Computers):
     """Someone who can write files on the server, but does not have the pairing
     code, must not be able to stop the computers working, nor fill them up."""
@@ -771,6 +1060,11 @@ class FolderPenTest(PenTest):
 
     def test_alone_no_pen_is_needed(self):
         self.skipTest("tried with the server")
+
+
+class FolderTakeOverTest(TakeOverTest):
+    """The same, through a shared folder."""
+    kind = "folder"
 
 
 del Computers  # only its children are test cases
