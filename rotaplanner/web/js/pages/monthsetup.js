@@ -180,13 +180,11 @@ export function editEvent(event, { justAdded = false, newTask = false } = {}) {
       const saved = event && state.session.monthSetup.events.find((e) => e.id === event.id);
       if (saved) fields.tasks_on_main_rota = saved.tasks_on_main_rota;
       else fields.tasks_on_main_rota = typeOf(typeId) ? typeOf(typeId).tasks_on_main_rota : !big.input.checked;
+      // A type chosen (or changed): the program gives the event the type's tasks
+      // it does not have yet, in the same step (one Undo takes back both).
       const result = await changeMonth('events/save', { event: fields }, event ? undefined : null);
       dialog.close();
       const added = result.events.find((e) => !before.has(e.id));
-      // A type chosen (or changed): the event gets the type's tasks it does not have yet.
-      if (typeId && typeId !== event?.type_id && typeOf(typeId).tasks.length) {
-        await changeMonth('events/tasks/add-type', { event_id: added?.id || event.id, type_id: typeId }, null);
-      }
       offerMissingMonths(result.missing_months, name.value.trim());
       // A new event opens again, now with its tasks.
       if (added) editEvent(state.session.monthSetup.events.find((e) => e.id === added.id), { justAdded: true });

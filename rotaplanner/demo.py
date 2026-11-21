@@ -406,7 +406,7 @@ def demo_month(catalog: Catalog, people: List[Person], settings: Settings, rng: 
     for event in month.events:
         event_type = next(t for t in EVENT_TYPES if t.id == event.type_id)
         event.tasks_on_main_rota = event_type.tasks_on_main_rota
-        month_setup.add_type_tasks(month, event.id, event_type)
+        month_setup.add_type_tasks(month, event.id, event_type, catalog.areas)
     month.markers = [
         Marker(id="marker-volunteers", kind="offrota", label="Volunteers’ day",
                start="2026-12-07", end="2026-12-07"),

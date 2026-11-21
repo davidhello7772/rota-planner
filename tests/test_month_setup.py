@@ -1,7 +1,7 @@
 import unittest
 
 from rotaplanner import availability, demand, editing, month_setup, months
-from rotaplanner.model import Assignment, Regular, Settings, Task
+from rotaplanner.model import Area, Assignment, EventType, Regular, Settings, Task
 
 from . import helpers as h
 
@@ -249,10 +249,31 @@ class EventTasksTest(unittest.TestCase):
         other = month_setup.save_event(self.month, {"name": "Weekend course", "start": "2026-12-18", "end": "2026-12-19",
                                                     "type_id": retreat.id})
         self.assertEqual(other.type_id, retreat.id)
-        self.assertEqual(month_setup.add_type_tasks(self.month, other.id, retreat), 2)
-        self.assertEqual(month_setup.add_type_tasks(self.month, other.id, retreat), 0)  # already there
+        self.assertEqual(month_setup.add_type_tasks(self.month, other.id, retreat), (2, 0))
+        self.assertEqual(month_setup.add_type_tasks(self.month, other.id, retreat), (0, 0))  # already there
         copies = month_setup.event_tasks(self.month, other.id)
         self.assertEqual([(t.event_days, t.on_month_rota) for t in copies], [("first", None), ("all", False)])
+
+    def test_a_type_brings_the_area_its_tasks_need(self):
+        garden = Area("garden", "Garden", color="green", archived=True)  # in the typical month (no longer used there), not in this one
+        retreat = EventType("type-retreat", "Retreat", tasks=[
+            Task("t1", "garden", "Weeding"), Task("t2", "garden", "Watering"), Task("t3", "kitchen", "Tea"),
+            Task("t4", "nowhere", "Lost"), Task("t5", "nowhere", "Also lost")])
+        self.assertEqual(month_setup.add_type_tasks(self.month, self.retreat.id, retreat, [garden]), (3, 2))
+        self.assertEqual([a.id for a in self.month.areas].count("garden"), 1)  # copied once, for both tasks
+        self.assertFalse(next(a for a in self.month.areas if a.id == "garden").archived)  # the event needs it
+        self.assertEqual(sorted(t.name for t in month_setup.event_tasks(self.month, self.retreat.id)),
+                         ["Tea", "Watering", "Weeding"])
+        garden.name = "Changed"
+        self.assertEqual(next(a for a in self.month.areas if a.id == "garden").name, "Garden")  # a copy
+        # Again: nothing more to add, and those without an area are still left out.
+        self.assertEqual(month_setup.add_type_tasks(self.month, self.retreat.id, retreat, [garden]), (0, 2))
+
+    def test_whether_a_task_of_an_event_comes_from_its_type(self):
+        retreat = EventType("type-retreat", "Retreat", tasks=[Task("t1", "kitchen", "Hot chocolate")])
+        self.assertTrue(month_setup.from_type(self.add(name="hot Chocolate"), retreat))  # whatever the case
+        self.assertFalse(month_setup.from_type(self.add(name="Registration"), retreat))  # only this event's
+        self.assertFalse(month_setup.from_type(self.add(name="Hot chocolate"), None))  # its type is gone
 
     def test_new_months_and_other_configurations_leave_event_tasks_alone(self):
         task = self.add()

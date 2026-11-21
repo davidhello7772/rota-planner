@@ -47,6 +47,24 @@ class TwoMonthEventsTest(unittest.TestCase):
         self.app.save_event("2027-01", {"event": {"id": self.event_id, "name": "New Year!", "start": "2026-12-30", "end": "2027-01-02"}})
         self.assertEqual(len(month_setup.event_tasks(self.app.month("2026-12"), self.event_id)), 2)
 
+    def test_an_event_added_with_a_type_brings_its_tasks_to_both_months_in_one_step(self):
+        self.app.catalog.areas.append(Area("garden", "Garden"))  # an area added since the months were made
+        self.app.save_event_type({"type": {"name": "Retreat"}})
+        type_id = self.app.catalog.event_types[0].id
+        for name, area in (("Weeding", "garden"), ("Tea", "kitchen")):
+            self.app.save_type_task({"task": {"type_id": type_id, "name": name, "area_id": area}})
+        result = self.app.save_event("2026-12", {"event": {"name": "Winter retreat", "start": "2026-12-31",
+                                                           "end": "2027-01-03", "type_id": type_id}})
+        event_id = next(e["id"] for e in result["events"] if e["name"] == "Winter retreat")
+        for month_id in ("2026-12", "2027-01"):
+            month = self.app.month(month_id)
+            self.assertEqual(sorted(t.name for t in month_setup.event_tasks(month, event_id)), ["Tea", "Weeding"])
+            self.assertIn("garden", [a.id for a in month.areas])
+        self.app.undo("2026-12", {})  # one Undo: the event and its tasks, in both months
+        for month_id in ("2026-12", "2027-01"):
+            self.assertNotIn(event_id, [e.id for e in self.app.month(month_id).events])
+            self.assertEqual(month_setup.event_tasks(self.app.month(month_id), event_id), [])
+
     def test_undo_reaches_the_other_month_and_is_not_an_undo_step_there(self):
         self.app.save_event("2027-01", {"event": {"id": self.event_id, "name": "Renamed", "start": "2026-12-30", "end": "2027-01-02"}})
         self.assertEqual(self.app.month("2026-12").events[0].name, "Renamed")

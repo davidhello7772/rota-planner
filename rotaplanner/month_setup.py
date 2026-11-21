@@ -11,7 +11,7 @@ from __future__ import annotations
 import copy
 import math
 from collections import defaultdict
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Set
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 from . import demand, editing
 from .editing import TaskConfig
@@ -180,20 +180,44 @@ def delete_event_task(month: Month, task_id: str) -> bool:
     return True
 
 
-def add_type_tasks(month: Month, event_id: str, event_type: EventType) -> int:
-    """Give an event the tasks of an event type (those it does not have yet). Returns how many were added."""
+def add_type_tasks(month: Month, event_id: str, event_type: EventType, areas: Sequence[Any] = ()) -> Tuple[int, int]:
+    """Give an event the tasks of an event type (those it does not have yet, by name).
+
+    A task whose area this month does not have brings that area from ``areas``
+    (the typical month's), as for an event over two months; one whose area
+    exists nowhere is left out. Returns ``(added, left_out)``.
+    """
     event = _event(month, event_id)
-    have = {t.name.lower() for t in event_tasks(month, event.id)}
-    areas = {a.id for a in month.areas}
-    added = 0
+    have = [t.name for t in event_tasks(month, event.id)]
+    known = {a.id for a in month.areas}
+    added = left_out = 0
     for model in event_type.tasks:
-        if model.name.lower() in have or model.area_id not in areas:
+        if any(_same_name(model.name, name) for name in have):
             continue
+        if model.area_id not in known:
+            area = next((a for a in areas if a.id == model.area_id), None)
+            if area is None:
+                left_out += 1
+                continue
+            area = copy.deepcopy(area)
+            area.archived = False  # the event needs it, even if the typical month no longer uses it
+            month.areas.append(area)
+            known.add(area.id)
         task = copy.deepcopy(model)
         task.id, task.event_id = new_id("task"), event.id
         month.tasks.append(task)
         added += 1
-    return added
+    return added, left_out
+
+
+def from_type(task: Task, event_type: Optional[EventType]) -> bool:
+    """Whether a task of an event is one of its type's (by name), not only that event's."""
+    return event_type is not None and any(_same_name(task.name, model.name) for model in event_type.tasks)
+
+
+def _same_name(a: str, b: str) -> bool:
+    """Two tasks are the same for an event and its type when their names match, whatever the case."""
+    return a.lower() == b.lower()
 
 
 def type_from_event(month: Month, event_id: str, name: str, type_id: Optional[str] = None) -> EventType:

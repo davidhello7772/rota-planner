@@ -220,6 +220,103 @@ class UndoTest(unittest.TestCase):
         app.save_event(M, {"event": {**event}})
         self.assertEqual(len(app.history.stacks(M)[0]), steps)
 
+    def retreat_and_festival(self):
+        """Two event types: a Retreat (Tea, Desk) and a Festival (Tea, Stage)."""
+        types = {}
+        for name, tasks in (("Retreat", ("Tea", "Desk")), ("Festival", ("Tea", "Stage"))):
+            self.app.save_event_type({"type": {"name": name}})
+            types[name] = next(t.id for t in self.app.catalog.event_types if t.name == name)
+            for task in tasks:
+                self.app.save_type_task({"task": {"type_id": types[name], "name": task, "area_id": "kitchen"}})
+        return types
+
+    def event_tasks(self, event_id):
+        return sorted(t.name for t in self.app.month(M).tasks if t.event_id == event_id)
+
+    def test_an_event_added_with_a_type_gets_its_tasks_in_the_same_step(self):
+        types = self.retreat_and_festival()
+        steps = len(self.app.history.stacks(M)[0])
+        result = self.app.save_event(M, {"event": {"name": "Weekend retreat", "start": "2026-12-11", "end": "2026-12-13",
+                                                   "type_id": types["Retreat"]}})
+        event = result["events"][0]
+        self.assertEqual(sorted(t["name"] for t in event["tasks"]), ["Desk", "Tea"])
+        self.assertEqual(len(self.app.history.stacks(M)[0]), steps + 1)  # one step
+        self.assertEqual(self.label(), "Event added: Weekend retreat, with 2 tasks of “Retreat”")
+        self.app.undo(M, {})  # one Undo takes back the event and its tasks together
+        self.assertEqual(self.app.month(M).events, [])
+        self.assertEqual([t for t in self.app.month(M).tasks if t.event_id], [])
+        self.app.redo(M, {})
+        self.assertEqual(self.event_tasks(event["id"]), ["Desk", "Tea"])
+
+    def test_another_type_keeps_the_event_tasks_and_adds_the_missing_ones(self):
+        types = self.retreat_and_festival()
+        event = self.app.save_event(M, {"event": {"name": "Summer festival", "start": "2026-12-11", "end": "2026-12-13",
+                                                  "type_id": types["Retreat"]}})["events"][0]
+        steps = len(self.app.history.stacks(M)[0])
+        result = self.app.save_event(M, {"event": {**event, "type_id": types["Festival"]}})
+        self.assertEqual(self.event_tasks(event["id"]), ["Desk", "Stage", "Tea"])  # Tea once, Desk kept
+        self.assertEqual(len(self.app.history.stacks(M)[0]), steps + 1)
+        self.assertEqual(self.label(), "Event changed: Summer festival; 1 task of “Festival” added")
+        # Saved again with the same type: no task added, nothing recorded.
+        self.app.save_event(M, {"event": {**event, "type_id": types["Festival"]}})
+        self.assertEqual(len(self.app.history.stacks(M)[0]), steps + 1)
+        # A type that no longer exists: kept as it is said, nothing added.
+        self.app.save_event(M, {"event": {**event, "name": "Renamed", "type_id": "type-gone"}})
+        self.assertEqual(self.label(), "Event changed: Renamed")
+        self.assertEqual(self.event_tasks(event["id"]), ["Desk", "Stage", "Tea"])
+        for step in self.app.history.stacks(M)[0]:
+            self.assertNotEqual(step.label, "Change")
+
+    def test_a_type_task_whose_area_is_missing(self):
+        types = self.retreat_and_festival()
+        retreat = next(t for t in self.app.catalog.event_types if t.id == types["Retreat"])
+        retreat.tasks[0].area_id = "nowhere"  # its area exists in no month and not in the typical month
+        self.app.save_event(M, {"event": {"name": "Weekend retreat", "start": "2026-12-11", "end": "2026-12-13",
+                                          "type_id": types["Retreat"]}})
+        self.assertEqual(self.label(),
+                         "Event added: Weekend retreat, with 1 task of “Retreat” (1 left out: its area no longer exists)")
+        retreat.tasks[1].area_id = "nowhere"
+        quiet = self.app.save_event(M, {"event": {"name": "Quiet retreat", "start": "2026-12-18", "end": "2026-12-19",
+                                                  "type_id": types["Retreat"]}})
+        self.assertEqual(self.label(),
+                         "Event added: Quiet retreat; 2 tasks of “Retreat” left out: their area no longer exists")
+        quiet_id = next(e["id"] for e in quiet["events"] if e["name"] == "Quiet retreat")
+        self.assertEqual(self.event_tasks(quiet_id), [])
+        # Asked again for those tasks: nothing can change, so it says why instead of doing nothing.
+        steps = len(self.app.history.stacks(M)[0])
+        with self.assertRaises(ApiError) as caught:
+            self.app.add_type_tasks(M, {"event_id": quiet_id, "type_id": types["Retreat"]})
+        self.assertIn("their area no longer exists", str(caught.exception))
+        self.assertEqual(len(self.app.history.stacks(M)[0]), steps)
+
+    def test_adding_the_tasks_of_a_type_gives_the_event_that_type(self):
+        types = self.retreat_and_festival()
+        event = self.app.save_event(M, {"event": {"name": "Open day", "start": "2026-12-11", "end": "2026-12-11"}})["events"][0]
+        result = self.app.add_type_tasks(M, {"event_id": event["id"], "type_id": types["Retreat"]})
+        self.assertEqual((result["added"], result["left_out"]), (2, 0))
+        self.assertEqual(self.app.month(M).events[0].type_id, types["Retreat"])
+        self.assertEqual(self.label(), "2 tasks of “Retreat” added to Open day")
+        self.app.undo(M, {})  # one step: the tasks and the type
+        self.assertIsNone(self.app.month(M).events[0].type_id)
+        self.assertEqual(self.event_tasks(event["id"]), [])
+        self.app.redo(M, {})
+        # Another type's tasks: added, and the event keeps the type it has.
+        self.app.add_type_tasks(M, {"event_id": event["id"], "type_id": types["Festival"]})
+        self.assertEqual(self.app.month(M).events[0].type_id, types["Retreat"])
+        self.assertEqual(self.label(), "1 task of “Festival” added to Open day")
+        # Nothing to add and a type already set: nothing recorded.
+        steps = len(self.app.history.stacks(M)[0])
+        self.app.add_type_tasks(M, {"event_id": event["id"], "type_id": types["Festival"]})
+        self.assertEqual(len(self.app.history.stacks(M)[0]), steps)
+        # An event with no type, already with all the type's tasks: only its type is set.
+        other = self.app.save_event(M, {"event": {"name": "Fair", "start": "2026-12-18", "end": "2026-12-18"}})["events"]
+        other_id = next(e["id"] for e in other if e["name"] == "Fair")
+        for name in ("Tea", "Desk"):
+            self.app.save_event_task(M, {"task": {"event_id": other_id, "name": name, "area_id": "kitchen"}})
+        result = self.app.add_type_tasks(M, {"event_id": other_id, "type_id": types["Retreat"]})
+        self.assertEqual(result["added"], 0)
+        self.assertEqual(self.label(), "Fair set as a “Retreat” event")
+
     # -- undo, redo, going back ---------------------------------------------------
 
     def five_changes(self):

@@ -466,12 +466,35 @@ class App:
         return next((x for x in getattr(self.month(month_id), kind) if x.id == item_id), None)
 
     def save_event(self, month_id: str, body: Json) -> Json:
-        saved = []
+        """Add or change an event. A new event with a type, or one given another type,
+        gets the type's tasks it does not have yet, in the same step (one undo)."""
+        saved, given = [], []
         data = body.get("event") or {}
-        verb = "changed" if self._item(month_id, "events", data.get("id")) else "added"
+        before = self._item(month_id, "events", data.get("id"))
+        verb = "changed" if before else "added"
+        type_before = before.type_id if before else None
+
+        def change(month: Month) -> None:
+            event = month_setup.save_event(month, data)
+            saved.append(event)
+            event_type = next((t for t in self.catalog.event_types if t.id == event.type_id), None)
+            if event_type is not None and event.type_id != type_before:
+                added, left_out = month_setup.add_type_tasks(month, event.id, event_type, self.catalog.areas)
+                given.append((event_type.name, added, left_out))
+
+        def label() -> str:
+            text = f"Event {verb}: {saved[0].name}"
+            if not given:
+                return text
+            name, added, left_out = given[0]
+            if added and verb == "added":
+                text += f", with {_count(added, 'task')} of “{name}”"
+            elif added:
+                text += f"; {_count(added, 'task')} of “{name}” added"
+            return text + _left_out_text(left_out, name, added)
+
         since = self.history.top(month_id)
-        self._setup_change(month_id, lambda m: saved.append(month_setup.save_event(m, data)),
-                           label=lambda: f"Event {verb}: {saved[0].name}")
+        self._setup_change(month_id, change, label=label)
         return self._after_linked_change(month_id, "events", saved[0].id, since)
 
     def delete_event(self, month_id: str, body: Json) -> Json:
@@ -520,18 +543,40 @@ class App:
         return self._after_linked_change(month_id, "events", task.event_id, since)
 
     def add_type_tasks(self, month_id: str, body: Json) -> Json:
+        """Give an event the tasks of a type it does not have yet; an event with no
+        type yet becomes of that type, in the same step."""
         event_type = next((t for t in self.catalog.event_types if t.id == body.get("type_id")), None)
         if event_type is None:
             raise ApiError(HTTPStatus.BAD_REQUEST, "Unknown type of event.")
         event_id = str(body.get("event_id"))
-        added = []
+        counts, typed = [], []
+
+        def change(month: Month) -> bool:
+            counts.append(month_setup.add_type_tasks(month, event_id, event_type, self.catalog.areas))
+            event = next(e for e in month.events if e.id == event_id)
+            if not event.type_id:
+                event.type_id = event_type.id
+                typed.append(True)
+            return counts[0][0] > 0 or bool(typed)
+
+        def label() -> str:
+            added, left_out = counts[0]
+            name = self._item(month_id, "events", event_id).name
+            if added:
+                text = f"{_count(added, 'task')} of “{event_type.name}” added to {name}"
+            else:
+                text = f"{name} set as a “{event_type.name}” event"
+            return text + _left_out_text(left_out, event_type.name, added)
+
         since = self.history.top(month_id)
-        self._setup_change(
-            month_id, lambda m: added.append(month_setup.add_type_tasks(m, event_id, event_type)) or added[0] > 0,
-            label=lambda: f"{_count(added[0], 'task')} of “{event_type.name}” added to "
-                          f"{self._item(month_id, 'events', event_id).name}")
+        self._setup_change(month_id, change, label=label)
+        added, left_out = counts[0]
+        if left_out and not added and not typed:
+            # Nothing changed, so no step to say it: the coordinator is told why here.
+            raise ApiError(HTTPStatus.BAD_REQUEST, f"The tasks of “{event_type.name}” it does not have yet "
+                                                   f"could not be added: {_left_out_why(left_out)}.")
         result = self._after_linked_change(month_id, "events", event_id, since)
-        result["added"] = added[0] if added else 0
+        result["added"], result["left_out"] = added, left_out
         return result
 
     def save_event_as_type(self, month_id: str, body: Json) -> Json:
@@ -1652,6 +1697,20 @@ def _decode_file(body: Json) -> bytes:
 def _count(n: int, one: str, many: str = "") -> str:
     """"1 shift", "3 shifts", "2 replies"."""
     return f"{n} {one if n == 1 else (many or one + 's')}"
+
+
+def _left_out_text(left_out: int, type_name: str, added: int) -> str:
+    """The tasks of an event type an event could not get, their area existing nowhere:
+    " (1 left out: its area no longer exists)", said in full when none came."""
+    if not left_out:
+        return ""
+    if added:
+        return f" ({left_out} left out: {_left_out_why(left_out)})"
+    return f"; {_count(left_out, 'task')} of “{type_name}” left out: {_left_out_why(left_out)}"
+
+
+def _left_out_why(left_out: int) -> str:
+    return f"{'its' if left_out == 1 else 'their'} area no longer exists"
 
 
 def month_in_preparation(ids: List[str], today: date) -> Optional[str]:

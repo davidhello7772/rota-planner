@@ -305,6 +305,31 @@ class ServerTest(unittest.TestCase):
                          ["Car park", "Welcome desk", "Tea table"])
         self.json("POST", "/api/event-types/delete", {"id": type_id})
 
+    def test_an_event_gets_the_tasks_of_its_type(self):
+        made = self.json("POST", "/api/event-types/save", {"type": {"name": "Garden day"}})[1]
+        type_id = next(t["id"] for t in made["event_types"] if t["name"] == "Garden day")
+        for name in ("Weeding", "Lemonade"):
+            self.json("POST", "/api/event-types/tasks/save",
+                      {"task": {"type_id": type_id, "name": name, "area_id": "kitchen", "people": 1}})
+        status, setup = self.json("POST", "/api/months/2026-12/events/save", {"event": {
+            "name": "Garden day", "start": "2026-12-05", "end": "2026-12-05", "type_id": type_id}})
+        self.assertEqual(status, 200)
+        event = next(e for e in setup["events"] if e["name"] == "Garden day")
+        self.assertEqual((event["type_id"], sorted(t["name"] for t in event["tasks"])), (type_id, ["Lemonade", "Weeding"]))
+        # "Add the tasks of a type…" on an event with no type: it becomes of that type.
+        status, setup = self.json("POST", "/api/months/2026-12/events/save", {"event": {
+            "name": "Plain day", "start": "2026-12-06", "end": "2026-12-06"}})
+        plain = next(e for e in setup["events"] if e["name"] == "Plain day")
+        self.assertIsNone(plain["type_id"])
+        status, setup = self.json("POST", "/api/months/2026-12/events/tasks/add-type",
+                                  {"event_id": plain["id"], "type_id": type_id})
+        self.assertEqual((status, setup["added"], setup["left_out"]), (200, 2, 0))
+        plain = next(e for e in setup["events"] if e["id"] == plain["id"])
+        self.assertEqual((plain["type_id"], len(plain["tasks"])), (type_id, 2))
+        for each in (event, plain):
+            self.json("POST", "/api/months/2026-12/events/delete", {"id": each["id"]})
+        self.json("POST", "/api/event-types/delete", {"id": type_id})
+
     def test_templates_and_using_a_configuration(self):
         status, body = self.json("POST", "/api/templates/save", {"scope": "typical", "name": "Quiet month"})
         template = body["templates"][-1]
