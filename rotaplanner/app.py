@@ -22,8 +22,8 @@ from . import availability, editing, emails, mail, month_setup, months, people_i
 from .exporters import documents, pdf, personal, sheet, versions, xlsx_rota
 from .history import AUTO, VERSION, History, Step, unpack
 from .model import (
-    EVENT_TASK_DAYS, EVENT_TASKS_PRINTED, FREQUENCIES, PRINT_SIZES, WEEKDAY_KEYS, Assignment, ConfigTemplate, Month,
-    PrintTemplate, Task, day_text, new_id,
+    EVENT_TASK_DAYS, EVENT_TASKS_PRINTED, FREQUENCIES, PRINT_SIZES, WEEKDAY_KEYS, Assignment, ConfigTemplate, Event,
+    Month, PrintTemplate, Task, day_text, new_id,
 )
 from .schedule import Schedule
 from .store import Store
@@ -434,8 +434,7 @@ class App:
             "weeks": days_overview["weeks"],
             "totals": {k: days_overview[k] for k in ("hours_needed", "hours_available", "balance", "hours_short",
                                                      "people", "replied")},
-            "events": [{**e.to_dict(), "tasks": [self._event_task_json(t, month) for t in month_setup.event_tasks(month, e.id)]}
-                       for e in month.events],
+            "events": [self._event_json(e, month) for e in month.events],
             "markers": [m.to_dict() for m in month.markers],
             "areas": [{"id": a.id, "name": a.name, "color": a.color} for a in month.areas if not a.archived],
             "tasks": [{"id": t.id, "name": t.name, "area_id": t.area_id} for t in month.tasks if not t.archived],
@@ -444,6 +443,14 @@ class App:
             "event_days": EVENT_TASK_DAYS,
             "history": self._history_json(month_id),
         }
+
+    def _event_json(self, event: Event, month: Month) -> Json:
+        """An event of a month with its tasks, each saying whether it came from the event's type
+        (``type_name`` is None when it has none, or its type no longer exists)."""
+        event_type = next((t for t in self.catalog.event_types if t.id == event.type_id), None)
+        return {**event.to_dict(), "type_name": event_type.name if event_type else None,
+                "tasks": [{**self._event_task_json(t, month), "from_type": month_setup.from_type(t, event_type)}
+                          for t in month_setup.event_tasks(month, event.id)]}
 
     def _event_task_json(self, task: Task, config: editing.TaskConfig) -> Json:
         """A task of an event (in a month) or of an event type (in the catalog), with what the screens show."""

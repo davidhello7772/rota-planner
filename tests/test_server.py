@@ -330,6 +330,30 @@ class ServerTest(unittest.TestCase):
             self.json("POST", "/api/months/2026-12/events/delete", {"id": each["id"]})
         self.json("POST", "/api/event-types/delete", {"id": type_id})
 
+    def test_the_set_up_shows_which_tasks_came_from_the_type(self):
+        made = self.json("POST", "/api/event-types/save", {"type": {"name": "Kite day"}})[1]
+        type_id = next(t["id"] for t in made["event_types"] if t["name"] == "Kite day")
+        self.json("POST", "/api/event-types/tasks/save",
+                  {"task": {"type_id": type_id, "name": "String table", "area_id": "kitchen", "people": 1}})
+        setup = self.json("POST", "/api/months/2026-12/events/save", {"event": {
+            "name": "Kite day", "start": "2026-12-12", "end": "2026-12-12", "type_id": type_id}})[1]
+        event = next(e for e in setup["events"] if e["name"] == "Kite day")
+        # A task added for this event only.
+        status, setup = self.json("POST", "/api/months/2026-12/events/tasks/save", {"task": {
+            "event_id": event["id"], "name": "Tail repairs", "area_id": "kitchen", "people": 1}})
+        self.assertEqual(status, 200)
+        event = next(e for e in setup["events"] if e["id"] == event["id"])
+        self.assertEqual(event["type_name"], "Kite day")
+        self.assertEqual(sorted((t["name"], t["from_type"]) for t in event["tasks"]),
+                         [("String table", True), ("Tail repairs", False)])
+        # Its type deleted: no type name, and no task comes from a type any more.
+        self.json("POST", "/api/event-types/delete", {"id": type_id})
+        setup = self.json("GET", "/api/months/2026-12/setup")[1]
+        event = next(e for e in setup["events"] if e["id"] == event["id"])
+        self.assertIsNone(event["type_name"])
+        self.assertEqual([t["from_type"] for t in event["tasks"]], [False, False])
+        self.json("POST", "/api/months/2026-12/events/delete", {"id": event["id"]})
+
     def test_templates_and_using_a_configuration(self):
         status, body = self.json("POST", "/api/templates/save", {"scope": "typical", "name": "Quiet month"})
         template = body["templates"][-1]

@@ -150,11 +150,23 @@ export async function openEvent(eventId, { newTask = false } = {}) {
   if (event) editEvent(event, { newTask });
 }
 
+/** What choosing a type brings, from the type's tasks as the server sent them (`added`: the event exists already). */
+function bringsText(type, added) {
+  const n = type.tasks.length;
+  if (!n) return 'This type has no task yet.';
+  const names = type.tasks.map((t) => t.name).join(', ');
+  const what = n === 1 ? `Brings its task: ${names}.` : `Brings its ${n} tasks: ${names}.`;
+  if (added) return `${what} ${n === 1 ? 'It is' : 'They are'} added when you save.`;
+  return `${what} Once the event is added you can change ${n === 1 ? 'it, remove it' : 'them, remove some'} or add others.`;
+}
+
 export function editEvent(event, { justAdded = false, newTask = false } = {}) {
   const setup = state.session.monthSetup;
   const first = setup.days[0].date;
   const types = setup.event_types;
   const typeOf = (id) => types.find((t) => t.id === id);
+  // The event as saved now (a type may have been given to it since the dialog opened).
+  const current = () => (event ? state.session.monthSetup.events.find((e) => e.id === event.id) : null);
   const name = textInput(event?.name, { autofocus: !event, placeholder: 'e.g. Weekend retreat' });
   const { min, max } = dateBounds(setup);
   const start = h('input', { class: 'input', type: 'date', value: event?.start || first, min, max });
@@ -162,22 +174,63 @@ export function editEvent(event, { justAdded = false, newTask = false } = {}) {
   start.addEventListener('change', () => { if (end.value < start.value) end.value = start.value; });
   const big = toggle('Big event (shown first in the Event view; its tasks start off the printed main rota)', event?.big);
   // The type of event (Retreat, Festival…) brings the tasks such events need.
-  const kind = types.length ? select([{ value: '', label: 'No type' },
-    ...types.map((t) => ({ value: t.id, label: t.tasks.length ? `${t.name} · ${t.tasks.map((x) => x.name).join(', ')}` : t.name }))],
-  event?.type_id || '') : null;
-  kind?.addEventListener('change', () => { if (typeOf(kind.value)) big.input.checked = typeOf(kind.value).big; });
+  const kind = types.length ? select([{ value: '', label: 'No type' }, ...types.map((t) => ({ value: t.id, label: t.name }))],
+    event?.type_id || '', { 'aria-describedby': 'event-type-hint' }) : null;
+  const typeHint = h('p', { class: 'field-hint', id: 'event-type-hint', 'aria-live': 'polite' });
+  let savedType = event?.type_id || '';  // the event's type when the list was last set to it…
+  let listed = kind?.value ?? '';        // …and what the list showed then
+  const describeType = () => {
+    if (!kind) return;
+    const chosen = typeOf(kind.value);
+    const hasTasks = Boolean(current()?.tasks.length);
+    let text = '';
+    if (!event) text = chosen ? bringsText(chosen, false) : 'You add its tasks yourself once it is added.';
+    else if (kind.value === listed) text = '';
+    else if (!chosen) text = 'Its tasks stay.';
+    else if (!hasTasks) text = bringsText(chosen, true);
+    else if (!chosen.tasks.length) text = 'Its tasks stay. This type has no task yet.';
+    else text = `Its tasks stay; the ${chosen.name} tasks it does not have yet are added when you save.`;
+    typeHint.textContent = text;  // never hidden: a live region that appears is often not read out
+  };
+  /** After each change below: the list shows the event's type if that changed (e.g. "Add the tasks of a type…"). */
+  const follow = (fresh) => {
+    if (kind && (fresh.type_id || '') !== savedType) {
+      savedType = fresh.type_id || '';
+      kind.value = savedType;
+      listed = kind.value;
+    }
+    describeType();
+  };
+  kind?.addEventListener('change', () => {
+    if (typeOf(kind.value)) big.input.checked = typeOf(kind.value).big;
+    describeType();
+  });
+  const typeField = kind ? field('Event type', kind) : null;
+  typeField?.append(typeHint);
+  describeType();
+  // No type to choose yet: say what a type is, and where to make one.
+  const noTypes = kind ? null : h('div', { class: 'field' },
+    h('span', { class: 'field-label' }, 'Event type'),
+    h('p', { class: 'field-hint' }, 'No event type yet. A type (Retreat, Festival…) keeps the tasks such events need, so each new one gets them at once.'),
+    h('div', {}, h('button', { class: 'btn small', type: 'button', onclick: () => {
+      dialog.close();
+      setSession({ tasksTab: 'types' });
+      window.location.hash = '#/tasks';
+    } }, 'Set up event types')),
+    h('p', { class: 'field-hint' }, event ? 'Or give this event its tasks below, then choose ' : 'Or add this event, give it its tasks, then choose ',
+      h('strong', {}, 'Save as an event type'), '.'));
   const tasksBox = h('section', { class: 'event-tasks' });
 
   const save = async () => {
     try {
       const before = new Set(setup.events.map((e) => e.id));
-      // The type chosen here, else the event's own (it may have been set since the dialog opened).
-      const savedType = (event && state.session.monthSetup.events.find((e) => e.id === event.id)?.type_id) || '';
-      const typeId = kind && kind.value !== (event?.type_id || '') ? kind.value : savedType;
+      const saved = current();
+      // The type chosen in the list; the list left as it was, or no list: the event keeps its own
+      // (also a type deleted since, which the list cannot show).
+      const typeId = kind && kind.value !== listed ? kind.value : saved?.type_id || '';
       const fields = { id: event?.id, name: name.value, start: start.value, end: end.value, big: big.input.checked, type_id: typeId || null };
-      // A new event starts as its type says; an existing one keeps its own choice.
+      // A new event starts as its type says; an existing one keeps its own choice
       // (read again: the switch below may have changed it since the dialog opened).
-      const saved = event && state.session.monthSetup.events.find((e) => e.id === event.id);
       if (saved) fields.tasks_on_main_rota = saved.tasks_on_main_rota;
       else fields.tasks_on_main_rota = typeOf(typeId) ? typeOf(typeId).tasks_on_main_rota : !big.input.checked;
       // A type chosen (or changed): the program gives the event the type's tasks
@@ -198,14 +251,15 @@ export function editEvent(event, { justAdded = false, newTask = false } = {}) {
   };
   const dialog = openDialog({ changes: true,
     title: event ? event.name : 'Add an event', wide: Boolean(event),
-    subtitle: justAdded ? 'Event added. Its tasks are below: adjust them, or close.' : event ? '' : 'Choose its type to give it the tasks such events need.',
+    subtitle: justAdded ? 'Event added. Its tasks are below: adjust them, or close.'
+      : event || !kind ? '' : 'Choose its type to give it the tasks such events need.',
     body: [
-      h('div', { class: 'form-grid' }, field('Name', name), kind ? field('Event type', kind) : null),
+      kind ? h('div', { class: 'form-grid' }, field('Name', name), typeField) : [field('Name', name), noTypes],
       h('div', { class: 'form-grid' }, field('First day', start), field('Last day', end)),
       big,
       h('p', { class: 'field-hint' }, 'It can run into the month before or after: those days are planned with their own month, and the event is printed whole. During the event, usual tasks use their “Event day” numbers.'),
       event ? h('div', { class: 'block-actions' },
-        h('button', { class: 'btn small primary', type: 'button', onclick: save }, 'Save name and dates')) : null,
+        h('button', { class: 'btn small primary', type: 'button', onclick: save }, 'Save')) : null,
       event ? tasksBox : null],
     actions: [event ? h('button', { class: 'btn ghost danger', type: 'button', onclick: remove }, 'Remove the event') : null,
       h('span', { class: 'spacer' }),
@@ -213,18 +267,19 @@ export function editEvent(event, { justAdded = false, newTask = false } = {}) {
       event ? null : h('button', { class: 'btn primary', type: 'button', onclick: save }, 'Add event')],
   });
   if (event) {
-    const addTask = drawEventTasks(tasksBox, event.id);
+    const addTask = drawEventTasks(tasksBox, event.id, follow);
     if (newTask) addTask();
   }
 }
 
-/** The tasks only this event has: each on one line, changed in place and saved at once.
-    Returns a function opening the form for a new task. */
-function drawEventTasks(box, eventId) {
+/** An event's tasks: each on one line, changed in place and saved at once; with a type,
+    those that came from it apart from those only this event has. `onDraw(event)` follows
+    each drawing. Returns a function opening the form for a new task. */
+function drawEventTasks(box, eventId, onDraw) {
   const setup = state.session.monthSetup;
   const event = setup.events.find((e) => e.id === eventId);
   if (!event) return;
-  const redraw = () => drawEventTasks(box, eventId);
+  const redraw = () => drawEventTasks(box, eventId, onDraw);
   const change = async (path, body, message) => {  // true when it was saved (otherwise it said why)
     try {
       await changeMonth(path, body, message);
@@ -253,28 +308,41 @@ function drawEventTasks(box, eventId) {
   const chooseType = (anchor) => openMenu(anchor,
     types.map((t) => ({ value: t.id, label: `${t.name} — ${t.tasks.map((x) => x.name).join(', ')}` })),
     (typeId) => change('events/tasks/add-type', { event_id: eventId, type_id: typeId }, undefined));
+  const list = (tasks, empty) => (tasks.length
+    ? h('ul', { class: 'event-task-list' }, tasks.map((task) => eventTaskRow(task, {
+      ...common,
+      save: (fields) => saveTask(fields, null).catch(failed).finally(redraw),  // also after a refusal: shows it as it still is
+      open: () => open(task),
+      remove: () => change('events/tasks/delete', { id: task.id }, undefined),
+    })))
+    : h('p', { class: 'faint' }, empty));
+  // Which tasks came from the event's type is said by the program (`from_type`).
+  const fromType = event.tasks.filter((t) => t.from_type);
+  const onlyHere = event.tasks.filter((t) => !t.from_type);
+  const typeName = event.type_name;
 
   fill(box,
     h('div', { class: 'event-tasks-head' },
-      h('h3', {}, `Its own tasks · ${event.tasks.length}`),
+      h('h3', {}, `${typeName ? 'Its tasks' : 'Its own tasks'} · ${event.tasks.length}`),
       h('span', { class: 'faint' }, 'Needed only on its days. Changes here are saved at once.')),
     h('div', { class: 'main-rota-choice' }, onMain,
       h('span', { class: 'faint' }, 'They are always on the rota to fill (Build) and on the event’s own printout.')),
-    event.tasks.length
-      ? h('ul', { class: 'event-task-list' }, event.tasks.map((task) => eventTaskRow(task, {
-        ...common,
-        save: (fields) => saveTask(fields, null).catch(failed).finally(redraw),  // also after a refusal: shows it as it still is
-        open: () => open(task),
-        remove: () => change('events/tasks/delete', { id: task.id }, undefined),
-      })))
-      : h('p', { class: 'faint' }, 'None yet: anything this event needs that the usual tasks do not cover.'),
+    typeName
+      ? [fromType.length ? [h('h4', { class: 'event-task-group' }, `From the ${typeName} type · ${fromType.length}`), list(fromType, '')] : null,
+        h('h4', { class: 'event-task-group' }, `Only for this event · ${onlyHere.length}`),
+        list(onlyHere, 'None: add a task this event needs that the type doesn’t have.')]
+      : list(event.tasks, 'None yet: anything this event needs that the usual tasks do not cover.'),
     h('div', { class: 'card-actions' },
       h('button', { class: 'btn small', type: 'button', onclick: () => open(null) }, icon('plus'), 'Add a task'),
       types.length ? h('button', { class: 'btn small', type: 'button', onclick: (e) => chooseType(e.currentTarget) }, 'Add the tasks of a type…') : null,
       h('span', { class: 'spacer' }),
+      typeName && onlyHere.length ? h('span', { class: 'faint' }, onlyHere.length === 1
+        ? `1 task is only on this event: update the type to give it to every new ${typeName}.`
+        : `${onlyHere.length} tasks are only on this event: update the type to give them to every new ${typeName}.`) : null,
       event.tasks.length ? h('button', { class: 'btn small ghost', type: 'button', title: 'So the next event of this type gets these tasks',
         onclick: () => saveAsType(event, ownType, redraw) },
       ownType ? `Update the ${ownType.name} type…` : 'Save as an event type…') : null));
+  onDraw?.(event);
   return () => open(null);
 }
 
@@ -456,9 +524,9 @@ export function mountMonthSetup(container) {
           listSection('Events and retreats', setup.events, 'No event this month.',
             (e) => h('li', {}, h('button', { class: 'item', type: 'button', onclick: () => editEvent(e) },
               h('strong', {}, e.name), h('span', { class: 'muted' }, range(e)), e.big ? badge('Big event', 'warn') : null,
-              setup.event_types.find((t) => t.id === e.type_id) ? badge(setup.event_types.find((t) => t.id === e.type_id).name, 'info') : null,
-              e.tasks.length ? h('span', { class: 'faint' }, `${e.tasks.length} task${e.tasks.length > 1 ? 's' : ''} of its own`) : null)),
-            'Add', () => editEvent(null)),
+              e.type_name ? badge(e.type_name, 'info') : null,
+              e.tasks.length ? h('span', { class: 'faint' }, `${e.tasks.length} task${e.tasks.length > 1 ? 's' : ''}`) : null)),
+            'Add an event', () => editEvent(null)),
           listSection('Closures and notes', setup.markers, 'Nothing closed, no note.',
             (m) => h('li', {}, h('button', { class: 'item', type: 'button', onclick: () => editMarker(m) },
               h('strong', {}, m.label), h('span', { class: 'muted' }, range(m)), badge(KINDS.find((k) => k.value === m.kind).label))),
