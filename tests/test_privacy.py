@@ -5,6 +5,7 @@ from datetime import date
 from pathlib import Path
 
 from rotaplanner.app import App
+from rotaplanner.history import unpack
 from rotaplanner.model import PersonAvailability
 from rotaplanner.store import Store
 
@@ -37,10 +38,17 @@ class CommentsAreNotKeptTest(unittest.TestCase):
         app = App(self.store, today=date(2026, 12, 10))
         self.assertIn(COMMENT, self.everything_on_disk())
         app.availability_comment("2026-12", {"person_id": "ana", "done": True})  # an undo step holding the comment
+        app.availability_comment("2026-12", {"person_id": "ana", "done": False})
+        app.undo("2026-12", {})  # one step undone (redo list), one still to undo: both must be scrubbed
         result = app.forget_comments("2026-12")
         self.assertEqual(result["forgotten"], 1)
         self.assertNotIn(COMMENT, self.everything_on_disk())
-        self.assertNotIn(COMMENT, json.dumps(app._undo.get("2026-12", [])))
+        undo, redo = app.history.stacks("2026-12")
+        self.assertTrue(undo and redo)
+        # Snapshots are packed: a plain search would not see the comment, so look inside each.
+        for step in undo + redo:
+            self.assertNotIn(COMMENT, json.dumps(unpack(step.snapshot)))
+            self.assertNotIn(COMMENT, step.label)
         self.assertEqual(app.month("2026-12").availability["ana"].unavailable, ["2026-12-03/morning"])  # days away stay
 
     def test_comments_go_once_the_month_is_over(self):

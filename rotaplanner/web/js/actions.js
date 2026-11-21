@@ -1,11 +1,12 @@
 // Every change to the rota goes through here, so feedback (toast with Undo,
-// error messages, "assign anyway" confirmation) is the same everywhere.
+// error messages, "assign anyway" confirmation) is the same everywhere. So do
+// undo, redo and going back several steps (Recent changes, history.js): the
+// words they show all come from the program.
 //
 // A shift belongs to the month of its date. The Event view can show days of
 // the next (or previous) month: changes to those go to that month, and its
 // refreshed view is kept in `state.session.otherMonths`.
 import { api, ApiError, monthPath } from './api.js';
-import { formatDate } from './dom.js';
 import { monthViewFor, peopleById, setMonth, setSession, state } from './state.js';
 import { mayChange } from './sync.js';
 import { confirmForce, toast } from './ui.js';
@@ -34,9 +35,14 @@ export class LookingOnly extends ApiError {
   constructor() { super(423, { error: 'Another computer is editing: you can look, not change.', kind: 'looking' }); }
 }
 
-/** Throws LookingOnly (after saying why, and what to do) while another computer edits. */
+/**
+ * Throws LookingOnly (after saying why, and what to do) while another computer edits.
+ * Called before every change: it also notes which step each month on screen has on
+ * top, so that the message after the change offers Undo only for a new step.
+ */
 export function needPen() {
   if (!mayChange()) throw new LookingOnly();
+  rememberTops();
 }
 
 /** Refused because of the editing (another computer, no connection): a window already says so, with the way out. */
@@ -93,27 +99,157 @@ async function refreshNextDoor(changedId) {
   });
 }
 
-let lastChanged = null;  // month of the last change made here (an event can show two months)
+// ---- Undo, redo, and going back several steps ------------------------------
 
 const viewOf = (monthId) => (monthId === state.month?.id ? state.month : state.session.otherMonths[monthId]);
-/** The month Ctrl+Z / Ctrl+Y act on: the one last changed, if it is still on screen. */
-const defaultMonth = () => (lastChanged && viewOf(lastChanged) ? lastChanged : state.month?.id);
 
-/** Undo the last change of a month (the one last changed, by default). */
-export async function undo(monthId = defaultMonth()) {
-  if (!viewOf(monthId)?.history.undo) return;
-  try { await post('/undo', {}, monthId); } catch (error) { reportError(error); }
+const MAC = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || '');
+/** The shortcuts as tooltips name them (Cmd on a Mac; the keys themselves are handled in main.js). */
+export const KEYS = MAC ? { undo: '⌘Z', redo: '⇧⌘Z' } : { undo: 'Ctrl Z', redo: 'Ctrl Y' };
+
+/** Why the arrows do nothing on People, Regular week, Settings and the typical month's tasks. */
+export const NO_UNDO_HERE = 'Undo works on a month’s rota. Changes on this screen are saved as you make them.';
+
+/** Months whose rota is on screen: the month, and in the Event view the other month(s) of the event. */
+export function monthsOnScreen() {
+  if (!state.month) return [];
+  const others = state.route === 'build' && state.ui.view === 'event' ? Object.keys(state.session.otherMonths) : [];
+  return [state.month.id, ...others];
 }
 
-export async function redo(monthId = defaultMonth()) {
-  if (!viewOf(monthId)?.history.redo) return;
-  try { await post('/redo', {}, monthId); } catch (error) { reportError(error); }
+/**
+ * The month the arrows, Ctrl+Z and Recent changes act on: { monthId, title, history },
+ * or { monthId: null, reason } on a screen whose changes cannot be undone (no reason:
+ * no month yet). In the Event view over two months: the one changed last (step ids
+ * grow across the program), or for redo the one undone last.
+ */
+export function undoTarget(redo = false) {
+  const { route, session } = state;
+  if (['people', 'regular', 'settings'].includes(route)) return { monthId: null, reason: NO_UNDO_HERE };
+  if (route === 'tasks') {
+    const config = session.config;
+    if (!config || !config.history) return { monthId: null, reason: NO_UNDO_HERE };  // the typical month
+    const fresher = config.scope === state.month?.id ? state.month.history : config.history;
+    return { monthId: config.scope, title: config.title, history: fresher };
+  }
+  const ids = monthsOnScreen();
+  if (!ids.length) return { monthId: null };
+  const top = (id) => viewOf(id)?.history?.[redo ? 'redo' : 'undo']?.id;
+  const ready = ids.filter((id) => top(id) != null);
+  const chosen = ready.length ? ready.reduce((a, b) => ((redo ? top(b) < top(a) : top(b) > top(a)) ? b : a)) : ids[0];
+  return { monthId: chosen, title: viewOf(chosen).title, history: viewOf(chosen).history };
 }
 
-/** Toast after a change to `monthId`, whose Undo undoes that month's change. */
-function done(message, monthId) {
-  lastChanged = monthId;
-  toast(message, { actionLabel: 'Undo', onAction: () => undo(monthId) });
+export const redoTarget = () => undoTarget(true);
+
+/** Undo the last change (of `monthId`, else of the month the arrows act on). With `expect`, only that step. */
+export async function undo(monthId = null, expect = null) {
+  const target = monthId ? { monthId } : undoTarget();
+  if (!target.monthId) {
+    if (target.reason) toast(target.reason);
+    return;
+  }
+  if (!monthId && !target.history?.undo) return;
+  await restore(target.monthId, '/undo', expect != null ? { expect } : {});
+}
+
+export async function redo(monthId = null) {
+  const target = monthId ? { monthId } : redoTarget();
+  if (!target.monthId) {
+    if (target.reason) toast(target.reason);
+    return;
+  }
+  if (!monthId && !target.history?.redo) return;
+  await restore(target.monthId, '/redo', {});
+}
+
+/** Recent changes: back to before step `id` (in the undo list), or redo up to it (in the redo list). */
+export function goTo(monthId, id) {
+  return restore(monthId, '/history/go', { to: id });
+}
+
+/** Undo, redo or go, then say what was done, with the way back. */
+async function restore(monthId, path, body) {
+  try {
+    needPen();
+    changesSent += 1;
+    const view = await api.post(monthPath(monthId, path), body);
+    await afterRestore(monthId, view);
+    const { did } = view;
+    toast(did.text, { actionLabel: did.back_label, onAction: () => goTo(monthId, did.back) });
+  } catch (error) {
+    reportError(error);
+  }
+}
+
+/**
+ * The one refresh after undo, redo or going back, for the month restored (not
+ * necessarily the one on screen): its view, the Set up, Availability and Tasks &
+ * Areas data loaded for it, and the other months on screen (an event shared with
+ * them follows the undo there). Everything is swapped in at once: no flash.
+ */
+export async function afterRestore(monthId, view) {
+  const { session } = state;
+  const asked = changesSent;
+  const quiet = (promise) => (promise ? promise.catch(() => null) : null);
+  const others = [state.month?.id, ...Object.keys(session.otherMonths)].filter((id) => id && id !== monthId);
+  const [setup, availability, config, ...views] = await Promise.all([
+    quiet(session.monthSetup?.id === monthId ? api.get(monthPath(monthId, '/setup')) : null),
+    quiet(session.availability?.id === monthId ? api.get(monthPath(monthId, '/availability')) : null),
+    quiet(session.config?.scope === monthId ? api.get(`/api/config?scope=${encodeURIComponent(monthId)}`) : null),
+    ...others.map((id) => quiet(api.get(monthPath(id)))),
+  ]);
+  if (asked !== changesSent) return;  // something else was changed meanwhile: its own answer is newer
+  const patch = { otherMonths: { ...state.session.otherMonths } };
+  if (setup) patch.monthSetup = setup;
+  if (availability) patch.availability = availability;
+  if (config) patch.config = config;  // the same scope, with its tasks as they are now
+  let main = monthId === state.month?.id ? view : null;
+  if (!main && patch.otherMonths[monthId]) patch.otherMonths[monthId] = view;
+  others.forEach((id, i) => {
+    if (!views[i]) return;
+    if (id === state.month?.id) main = views[i];
+    else if (patch.otherMonths[id]) patch.otherMonths[id] = views[i];
+  });
+  const person = state.session.person;
+  if (person) patch.eligible = null;
+  setSession(patch);
+  if (main) setMonth(main);
+  if (person) {
+    const eligible = await loadEligible(person);
+    if (state.session.person === person) setSession({ eligible });
+  }
+}
+
+let topsBefore = new Map();  // month id -> id of its last step, as shown before the change being sent
+
+function rememberTops() {
+  const tops = new Map();
+  const add = (id, history) => { if (id && history) tops.set(id, history.undo?.id ?? null); };
+  const { session } = state;
+  add(session.availability?.id, session.availability?.history);
+  add(session.monthSetup?.id, session.monthSetup?.history);
+  add(session.config?.scope, session.config?.history);
+  for (const [id, view] of Object.entries(session.otherMonths)) add(id, view.history);
+  add(state.month?.id, state.month?.history);  // refreshed after every change: trusted last
+  topsBefore = tops;
+}
+
+/**
+ * After a change to `monthId`, with the month's `history` as the program answered:
+ * says what was done, with Undo when the change made a new step (that Undo sends
+ * the step's id, so it never undoes something else). `message`: the words to show,
+ * by default the step's own name; a function is given the new step (or null);
+ * null: nothing.
+ */
+export function changed(history, monthId, message) {
+  const step = history?.undo;
+  const made = Boolean(step) && step.id !== topsBefore.get(monthId);
+  if (made) topsBefore.set(monthId, step.id);
+  const words = message === undefined ? (made ? step.label : null)
+    : typeof message === 'function' ? message(made ? step : null) : message;
+  if (!words) return;
+  toast(words, made ? { actionLabel: 'Undo', onAction: () => undo(monthId, step.id) } : {});
 }
 
 /**
@@ -124,8 +260,9 @@ function done(message, monthId) {
 export async function assign(key, who, { force = false, reason = null } = {}) {
   const { taskId, date, position } = parseSlotKey(key);
   const body = { task_id: taskId, date, position, person_id: who.personId || '', guest: who.guest || '', guest_kind: who.guestKind || '', force, reason };
+  let month;
   try {
-    await post('/assign', body, monthOf(date));
+    month = await post('/assign', body, monthOf(date));
   } catch (error) {
     if (error instanceof ApiError && error.status === 409 && error.payload.findings) {
       const name = peopleById().get(who.personId)?.name || 'This person';
@@ -136,9 +273,7 @@ export async function assign(key, who, { force = false, reason = null } = {}) {
     reportError(error);
     return false;
   }
-  const label = who.guest || peopleById().get(who.personId)?.name || (who.guestKind === 'guest' ? 'A guest' : who.guestKind ? 'A volunteer' : 'Someone');
-  const task = taskById(taskId, date);
-  done(`${label} → ${task ? task.name : 'task'}, ${formatDate(date)}`, monthOf(date));
+  changed(month.history, monthOf(date));
   return true;
 }
 
@@ -230,7 +365,8 @@ const monthOfKeys = (keys) => (keys?.length ? monthOf(parseSlotKey(keys[0]).date
 export async function acceptProposals(keys = null, monthId = monthOfKeys(keys)) {
   try {
     const month = await post('/proposals/accept', keys ? { keys } : {}, monthId);
-    done(`${month.accepted} accepted${month.skipped ? ` · ${month.skipped} no longer fitted` : ''}`, monthId);
+    const late = month.skipped ? ` · ${month.skipped} no longer fitted` : '';
+    changed(month.history, monthId, (step) => (step ? `${step.label}${late}` : late && `Nothing accepted${late}`));
   } catch (error) {
     reportError(error);
   }
@@ -248,8 +384,8 @@ export async function discardProposals(keys = null, monthId = monthOfKeys(keys))
 export async function swap(key, personId, from, replacement) {
   const monthId = monthOf(parseSlotKey(key).date);
   try {
-    await post('/swap', { key, person_id: personId, from, replacement }, monthId);
-    done('Exchange done', monthId);
+    const month = await post('/swap', { key, person_id: personId, from, replacement }, monthId);
+    changed(month.history, monthId);
   } catch (error) {
     reportError(error);
   }
@@ -261,8 +397,8 @@ export async function swap(key, personId, from, replacement) {
 export async function setWanted(key, on) {
   const { taskId, date, position } = parseSlotKey(key);
   try {
-    await post('/highlight', { task_id: taskId, date, position, on }, monthOf(date));
-    done(on ? 'Highlighted: to fill when possible' : 'Highlight removed', monthOf(date));
+    const month = await post('/highlight', { task_id: taskId, date, position, on }, monthOf(date));
+    changed(month.history, monthOf(date));
   } catch (error) {
     reportError(error);
   }
@@ -271,8 +407,8 @@ export async function setWanted(key, on) {
 /** People needed for a task on one day; `count` null goes back to the usual number. */
 export async function setHeadcount(taskId, date, count) {
   try {
-    await post('/headcount', { task_id: taskId, date, count }, monthOf(date));
-    done(count === 0 ? 'Not needed that day' : count === null ? 'Back to the usual number' : `${count} needed that day`, monthOf(date));
+    const month = await post('/headcount', { task_id: taskId, date, count }, monthOf(date));
+    changed(month.history, monthOf(date));
   } catch (error) {
     reportError(error);
   }
@@ -280,16 +416,16 @@ export async function setHeadcount(taskId, date, count) {
 
 /** Other times for a task on one day (`times` null: back to the usual times). */
 export async function setTime(taskId, date, times) {
-  await post('/time', times ? { task_id: taskId, date, ...times } : { task_id: taskId, date, clear: true }, monthOf(date));
-  done(times ? 'Time changed for that day' : 'Back to the usual time', monthOf(date));
+  const month = await post('/time', times ? { task_id: taskId, date, ...times } : { task_id: taskId, date, clear: true }, monthOf(date));
+  changed(month.history, monthOf(date));
 }  // errors go back to the form that called it
 
 /** A short practical note on someone's place (empty: remove it). */
 export async function setNote(key, note) {
   const { taskId, date, position } = parseSlotKey(key);
   try {
-    await post('/note', { task_id: taskId, date, position, note }, monthOf(date));
-    done(note ? 'Note saved' : 'Note removed', monthOf(date));
+    const month = await post('/note', { task_id: taskId, date, position, note }, monthOf(date));
+    changed(month.history, monthOf(date));
   } catch (error) {
     reportError(error);
   }
@@ -298,8 +434,8 @@ export async function setNote(key, note) {
 export async function clearSlot(key) {
   const { taskId, date, position } = parseSlotKey(key);
   try {
-    await post('/clear', { task_id: taskId, date, position }, monthOf(date));
-    done('Shift left open', monthOf(date));
+    const month = await post('/clear', { task_id: taskId, date, position }, monthOf(date));
+    changed(month.history, monthOf(date));
   } catch (error) {
     reportError(error);
   }

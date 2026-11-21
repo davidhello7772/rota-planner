@@ -98,12 +98,12 @@ def month_view(
     catalog: Catalog,
     people: List[Person],
     settings: Settings,
-    can_undo: bool = False,
-    can_redo: bool = False,
+    history: Optional[Json] = None,
     proposals: Iterable[Proposal] = (),
     around: Iterable[Month] = (),
 ) -> Json:
     """``proposals`` are suggestions not yet accepted; they are shown on their slots.
+    ``history``: what can be undone and redone (``App._history_json``).
     ``around``: the months next door, which the rules look into (see ``Schedule``)."""
     schedule = Schedule(month, people, settings, around)
     statuses = checks.all_statuses(schedule)
@@ -180,7 +180,7 @@ def month_view(
         "people": [_person_json(schedule, person, labels, skill_names) for person in people if not person.archived],
         "summary": summary,
         "tips": tips.month_tips(schedule, statuses, labels),
-        "history": {"undo": can_undo, "redo": can_redo},
+        "history": history or {"undo": None, "redo": None, "auto": None},
         "proposals": [p.to_dict() for p in proposals],
     }
 

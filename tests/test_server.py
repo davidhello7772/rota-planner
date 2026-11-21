@@ -143,12 +143,25 @@ class ServerTest(unittest.TestCase):
         status, body = self.json("POST", "/api/months/2026-12/assign", {**slot, "person_id": "cleo", "force": True, "reason": "ok"})
         self.assertEqual(status, 200)
         self.assertEqual(body["cells"]["lunch|2026-12-10"]["slots"][0]["state"], "forced")
-        self.assertTrue(body["history"]["undo"])
+        step = body["history"]["undo"]
+        self.assertEqual(step["label"], "Cleo D. → Lunch cook, Thu 10 Dec (assigned anyway)")
+        self.assertEqual(set(body["history"]), {"undo", "redo", "auto"})
 
-        status, body = self.json("POST", "/api/months/2026-12/undo")
+        status, body = self.json("POST", "/api/months/2026-12/undo", {"expect": step["id"]})
         self.assertTrue(body["cells"]["lunch|2026-12-10"]["slots"][0]["open"])
+        self.assertEqual(body["did"], {"text": f"Undone: {step['label']}", "back": step["id"], "back_label": "Redo"})
+        self.assertEqual(body["history"]["redo"], step)
         status, body = self.json("POST", "/api/months/2026-12/redo")
         self.assertEqual(body["cells"]["lunch|2026-12-10"]["slots"][0]["person"], "cleo")
+        status, listed = self.json("GET", "/api/months/2026-12/history")
+        self.assertEqual((status, listed["steps"][0]["id"], listed["steps"][0]["count"]), (200, step["id"], 1))
+        self.assertEqual(set(listed["steps"][0]), {"id", "label", "kind", "when", "count"})
+        status, body = self.json("POST", "/api/months/2026-12/history/go", {"to": step["id"]})
+        self.assertTrue(body["cells"]["lunch|2026-12-10"]["slots"][0]["open"])
+        status, body = self.json("POST", "/api/months/2026-12/history/go", {"to": step["id"]})
+        self.assertEqual(body["cells"]["lunch|2026-12-10"]["slots"][0]["person"], "cleo")
+        status, body = self.json("POST", "/api/months/2026-12/undo", {"expect": -1})
+        self.assertEqual(status, 409)
         self.json("POST", "/api/months/2026-12/clear", slot)
 
     def test_highlight_and_headcount(self):

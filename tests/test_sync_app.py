@@ -85,9 +85,14 @@ class TwoPrograms(unittest.TestCase):
 
     def test_only_the_month_replaced_loses_its_undo(self):
         self.rounds()
-        self.b._undo = {"2026-12": [{"x": 1}], "2026-11": [{"y": 1}]}
+        self.b.history.record("2026-12", "One", "change", {"x": 1})
+        self.b.history.record("2026-11", "Two", "change", {"y": 1})
         self.b._after_taking({"replaced": ["months/2026-12.json"], "replaced_months": ["2026-12"]})
-        self.assertEqual(self.b._undo, {"2026-11": [{"y": 1}]})
+        self.assertEqual(self.b.history.stacks("2026-12"), ([], []))
+        self.assertEqual([s.label for s in self.b.history.stacks("2026-11")[0]], ["Two"])
+        # The list of recent changes says why it is shorter.
+        self.assertIn("updated from another computer", self.b.history.note("2026-12"))
+        self.assertEqual(self.b.history.note("2026-11"), "Kept until Rota Planner is closed.")
 
     def test_no_change_without_the_pen(self):
         change = {"person": {"id": "ben", "first_name": "Ben", "last_name": "Cole", "note": "x"}}
@@ -148,6 +153,7 @@ class TwoPrograms(unittest.TestCase):
                      "/api/months/2026-12/availability/preview", "/api/months/2026-12/export"):
             self.assertIsNotNone(PEN_FREE.fullmatch(path), path)
         for path in ("/api/people/save", "/api/months/2026-12/assign", "/api/months/2026-12/undo",
+                     "/api/months/2026-12/redo", "/api/months/2026-12/history/go",
                      "/api/data/import/apply", "/api/months/create", "/api/months/2026-12/mail/send"):
             self.assertIsNone(PEN_FREE.fullmatch(path), path)
 

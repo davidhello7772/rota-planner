@@ -1,6 +1,6 @@
 // Side panel: the Assistant (where the rota stands, hints) and People
 // (everyone's hours, highlight someone, paint their shifts).
-import { acceptProposals, discardProposals, loadEligible, prefill, prefillBeyond, rebalance } from '../actions.js';
+import { acceptProposals, discardProposals, goTo, loadEligible, prefill, prefillBeyond, rebalance } from '../actions.js';
 import { api, monthPath } from '../api.js';
 import { formatDate, formatHours, h } from '../dom.js';
 import { icon } from '../icons.js';
@@ -70,7 +70,8 @@ function assistant(month) {
       suggestButton('prefill', 'Suggest someone for open shifts', 'wand', 'Prefill the rota…',
         (e) => prefillMenu(e.currentTarget, month)),
       suggestButton('rebalance', 'Suggest moves from the busiest people to the least busy', 'scale', 'Rebalance hours',
-        () => rebalance())),
+        () => rebalance()),
+      autoLine(month)),
     otherMonthsProposals(),
     shortagesBox(month),
     tips.length ? h('section', {},
@@ -87,6 +88,17 @@ function assistant(month) {
 }
 
 // ---- Suggestions: prefill and rebalance ---------------------------------
+
+/**
+ * Once suggestions were accepted (and the message saying so has gone): a quiet
+ * way back, while only a few changes were made after (the words are the program's).
+ */
+function autoLine(month) {
+  const auto = month.history.auto;
+  if (!auto) return null;
+  return h('p', { class: 'auto-line' }, h('span', {}, auto.text), ' ',
+    changes(h('button', { class: 'btn small', type: 'button', onclick: () => goTo(month.id, auto.id) }, auto.button)));
+}
 
 /** A button that asks for suggestions: while one is looking, all wait, and the one at work says so. */
 function suggestButton(kind, title, iconName, label, onclick) {

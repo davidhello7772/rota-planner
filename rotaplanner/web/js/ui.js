@@ -65,18 +65,36 @@ export function confirmForce({ title, findings }) {
   });
 }
 
+/**
+ * Something small anchored to a button (a menu, the list of recent changes).
+ * Closes on Esc and on a click outside; the focus goes back to the anchor.
+ * Returns { el, close }.
+ */
+export function openPopover(anchor, { label, className = '', role = 'dialog', onClose } = {}, content = []) {
+  let closed = false;
+  const close = ({ refocus = true } = {}) => {
+    if (closed) return;
+    closed = true;
+    el.remove();
+    document.removeEventListener('mousedown', outside, true);
+    if (refocus && anchor.isConnected) anchor.focus({ preventScroll: true });
+    onClose?.();
+  };
+  const outside = (e) => { if (!el.contains(e.target)) close({ refocus: false }); };
+  const el = h('div', { class: ['popover', className], role, 'aria-label': label,
+    onkeydown: (e) => { if (e.key === 'Escape') { e.stopPropagation(); e.preventDefault(); close(); } } }, content);
+  document.body.append(el);
+  placeNear(el, anchor.getBoundingClientRect());
+  document.addEventListener('mousedown', outside, true);
+  return { el, close };
+}
+
 /** A small menu of choices anchored to a button. */
 export function openMenu(anchor, items, onPick) {
-  const close = () => { menu.remove(); document.removeEventListener('mousedown', outside, true); };
-  const outside = (e) => { if (!menu.contains(e.target)) close(); };
-  const menu = h('div', { class: 'popover menu', role: 'menu',
-    onkeydown: (e) => { if (e.key === 'Escape') { e.stopPropagation(); close(); anchor.focus(); } } },
+  const { el, close } = openPopover(anchor, { className: 'menu', role: 'menu' },
     items.map((item) => h('button', { role: 'menuitemradio', 'aria-checked': item.checked ? 'true' : 'false',
       onclick: () => { close(); onPick(item.value); } }, item.label)));
-  document.body.append(menu);
-  placeNear(menu, anchor.getBoundingClientRect());
-  document.addEventListener('mousedown', outside, true);
-  (menu.querySelector('[aria-checked="true"]') || menu.querySelector('button'))?.focus();
+  (el.querySelector('[aria-checked="true"]') || el.querySelector('button'))?.focus();
 }
 
 /**

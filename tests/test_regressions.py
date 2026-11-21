@@ -52,9 +52,9 @@ class TwoMonthEventsTest(unittest.TestCase):
         self.assertEqual(self.app.month("2026-12").events[0].name, "Renamed")
         self.app.undo("2027-01", {})
         self.assertEqual(self.app.month("2026-12").events[0].name, "New Year")
-        december_steps = len(self.app._undo.get("2026-12", []))
+        december_steps = len(self.app.history.stacks("2026-12")[0])
         self.app.save_event("2027-01", {"event": {"id": self.event_id, "name": "Again", "start": "2026-12-30", "end": "2027-01-02"}})
-        self.assertEqual(len(self.app._undo.get("2026-12", [])), december_steps)
+        self.assertEqual(len(self.app.history.stacks("2026-12")[0]), december_steps)
 
     def test_a_closure_saved_from_the_other_month_keeps_its_areas(self):
         result = self.app.save_marker("2026-12", {"marker": {"kind": "closed", "label": "Tent down", "start": "2026-12-30",

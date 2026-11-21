@@ -45,6 +45,12 @@ def parse_date(iso: str) -> date:
     return date.fromisoformat(iso)
 
 
+def day_text(iso: str) -> str:
+    """A day as people read it: "Tue 1 Dec" (schedules, and the names of changes)."""
+    day = parse_date(iso)
+    return f"{day.strftime('%a')} {day.day} {day.strftime('%b')}"
+
+
 def shift_date(iso: str, days: int) -> str:
     return (parse_date(iso) + timedelta(days=days)).isoformat()
 

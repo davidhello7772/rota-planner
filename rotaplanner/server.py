@@ -202,6 +202,9 @@ def build_routes(app: App) -> List[Route]:
         ("GET", rf"/api/months/{month}/versions", lambda q, b, month: app.versions_info(month)),
         ("POST", rf"/api/months/{month}/versions/publish", lambda q, b, month: app.publish_version(month, b)),
         ("POST", rf"/api/months/{month}/redo", lambda q, b, month: app.redo(month, b)),
+        # Recent changes: the list, and going back (or forward) several steps at once.
+        ("GET", rf"/api/months/{month}/history", lambda q, b, month: app.history_list(month)),
+        ("POST", rf"/api/months/{month}/history/go", lambda q, b, month: app.history_go(month, b)),
     ]
     return [(verb, re.compile(f"^{pattern}$"), handler) for verb, pattern, handler in table]
 

@@ -211,6 +211,31 @@ a.btn { text-decoration: none; }
 .menu button:hover, .menu button[aria-checked="true"] { background: var(--surface-2); }
 .menu button[aria-checked="true"]::after { content: "✓"; color: var(--accent); }
 
+/* A control that cannot act here but still takes the focus and explains itself (the arrows on People…). */
+.btn[aria-disabled="true"] { opacity: 0.5; cursor: default; }
+.btn.ghost[aria-disabled="true"]:hover { background: none; color: var(--text-2); }
+
+/* ---- Recent changes (history.js) ---------------------------------------- */
+
+.history { width: min(24rem, calc(100vw - 1rem)); max-height: min(28rem, 70vh); display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3); }
+.history-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.history-head h2 { margin: 0; font-size: var(--fs-md); }
+.history-hint, .history-empty, .history-note { margin: 0; font-size: var(--fs-sm); }
+.history-note { padding-top: var(--space-2); border-top: 1px solid var(--line); font-size: var(--fs-xs); }
+.history-list { display: flex; flex-direction: column; gap: 1px; min-height: 0; overflow-y: auto; }
+.history-sub { margin: 0 0 var(--space-1); font-size: var(--fs-xs); color: var(--text-3); }
+.history-row { display: flex; align-items: baseline; gap: var(--space-3); width: 100%; padding: var(--space-1) var(--space-2); border: 0; border-radius: var(--radius); background: none; text-align: left; font-size: var(--fs-sm); }
+.history-row:hover { background: var(--surface-2); }
+.history-row.redo { color: var(--text-3); }
+.history-label { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.history-when { flex: none; font-size: var(--fs-xs); color: var(--text-3); white-space: nowrap; }
+/* What a click would undo (the row and every newer one) or redo (the row down to Now). */
+.history-row.marked { background: var(--accent-weak); color: var(--accent); }
+.history-row.undo.marked .history-label { text-decoration: line-through; text-decoration-color: var(--accent-line); }
+.history-now { display: flex; align-items: center; gap: var(--space-2); margin: var(--space-1) 0; font-size: var(--fs-xs); font-weight: 600; color: var(--accent); }
+.history-now::before, .history-now::after { content: ""; flex: 1; height: 1px; background: var(--accent-line); }
+.history-now::before { flex: 0 0 var(--space-2); }
+
 /* ---- Toasts and dialogs ------------------------------------------------- */
 
 .toasts { position: fixed; left: 50%; bottom: var(--space-6); transform: translateX(-50%); display: flex; flex-direction: column; gap: var(--space-2); z-index: 80; }

@@ -213,9 +213,17 @@ one event, planned and printed whole.
   the task is not usually needed.
 - **People panel**: click a name to see their shifts, their limits and where
   they could still help; *Paint shifts* gives them shifts in a few clicks.
+- **Undo**: the arrows at the top (or Ctrl+Z, and Ctrl+Y or Ctrl+Shift+Z to
+  redo; ⌘ on a Mac) say which change they undo. *Recent changes* (the clock
+  next to them, or R) lists the month's changes, newest first: click one to go
+  back to before it, several at once. Undoing accepted suggestions shows them
+  dashed again, and the Assistant offers it for a while under *Suggestions*.
+  Undo covers a month's rota (with its set-up, availability and own tasks);
+  People, Regular week, Settings and the typical month are saved as you go.
+  The list is kept until Rota Planner is closed.
 - **Keyboard**: arrows move between shifts, Enter opens the choice, Delete empties
-  a shift, H highlights an empty one, Ctrl+Z / Ctrl+Y undo and redo, F gives the
-  whole screen to the rota.
+  a shift, H highlights an empty one, Ctrl+Z / Ctrl+Y undo and redo, R opens
+  Recent changes, F gives the whole screen to the rota.
 
 Every change is saved immediately. Previous versions of each file are kept in
 `data/backups/`.

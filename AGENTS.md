@@ -120,6 +120,7 @@ rotaplanner/
   exporters/        printed documents, versions, personal rotas, .ics, .xlsx, PDF
   people_import.py xlsx_read.py   a list of people from a spreadsheet; reading .xlsx safely
   app.py            every action of the program (state in memory, undo, saving)
+  history.py        each month's undo and redo: named steps, packed, in memory only
   server.py         HTTP: static files, JSON API, print pages
   demo.py           demonstration data
   instance.py       one Rota Planner per data folder: the lock, the wake-up door
@@ -133,7 +134,9 @@ install-rota-planner.sh   Mac/Linux installer and updater (one file, outside the
 Front end (`rotaplanner/web/js`): `main.js` (shell, routes, shortcuts),
 `state.js` (the single state object; `setUi` = remembered preferences,
 `setSession` = this visit, `setMonth`), `actions.js` (every change to the
-rota goes through here: toast with Undo, "assign anyway"), `api.js`,
+rota goes through here: toast with Undo, "assign anyway"; undo, redo and
+going back, `undoTarget`, `changed`, `afterRestore`), `history.js` (Recent
+changes: the list of a month's steps), `api.js`,
 `components.js` (inputs, dialog, drawer), `build/` (the rota grid and its
 side panel), `pages/` (one module per screen), `eventtask.js`,
 `schedules.js`, `mailer.js` / `syncsetup.js` / `backup.js` / `updates.js` (the
@@ -147,8 +150,12 @@ pen, the banners, choosing between versions), `ui.js` (toast, menu, copy,
 
 1. Domain function in the right module (pure, no I/O), with a test.
 2. A method on `App` (`app.py`): changes to a month go through
-   `self._change(month_id, fn)` so they are undoable, saved, and rolled back
-   if `fn` raises. Catalog/settings changes save with `_save_setup`.
+   `self._change(month_id, fn, label=…)` so they are undoable, saved, and
+   rolled back if `fn` raises. Every step has a name in plain words (`label`:
+   a string, or a function called after the change; never a comment, a note
+   or an address); `tests/test_undo.py` fails on a step still called
+   "Change". Nothing is recorded or saved when the month did not really
+   change. Catalog/settings changes save with `_save_setup`.
 3. A route in `server.py` (`MONTH_ACTIONS`, `SETUP_ACTIONS` or `build_routes`).
 4. The screen: call it from `actions.js` (rota) or the page module, then
    re-render from state. Reuse `components.js`; colours, sizes and spacing
@@ -224,9 +231,14 @@ cost a bug report.
   spends at least half an hour in it (14:00–17:15 is not an evening task).
   The task form asks the program (`/api/tasks/times`); it does not work this
   out itself. A task can cover several, or be "any time".
-- **Undo snapshots are whole months** (`App._undo`). Anything that must
-  really disappear (comments) has to be scrubbed from them and from
-  `backups/` too.
+- **Undo snapshots are whole months**, packed (zlib of JSON) in
+  `App.history` (`history.py`), in memory only. Anything that must really
+  disappear (comments) has to be scrubbed from them, through
+  `History.scrub` (both lists), and from `backups/` too; a plain text search
+  does not see inside a packed snapshot. Undo covers a month's rota only:
+  People, Regular week, Settings and the typical month have none, and the
+  arrows say so there. A step that accepted suggestions keeps those waiting
+  (and what was said beside them), so undoing it shows them again.
 - **Print pages take the token in the address** (`/print/<month>/<kind>?t=…`)
   because a new tab cannot send a header. API routes take it in the
   `X-Rota-Token` header only.

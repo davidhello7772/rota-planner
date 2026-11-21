@@ -5,10 +5,9 @@ import { icon } from '../icons.js';
 import { errorText, failed, headcountSummary, partsText, PERIOD_LABELS, PRIORITY_LABELS, saveSetup, skillName, timeText, WEEKDAYS } from '../setup.js';
 import { api, monthPath } from '../api.js';
 import { readOnly, setMonth, setSession, state } from '../state.js';
-import { toast } from '../ui.js';
 import { hint } from '../help.js';
 import { eventTypesBoard } from './eventtypes.js';
-import { needPen } from '../actions.js';
+import { changed, needPen } from '../actions.js';
 
 const NEW_SKILL = '__new__';
 const TYPICAL = 'typical';
@@ -18,13 +17,17 @@ async function loadConfig(scope) {
   setSession({ config: await api.get(`/api/config?scope=${encodeURIComponent(scope)}`) });
 }
 
-async function saveConfig(path, body, message) {
+/**
+ * Save a change to the configuration on screen. A month's can be undone: `message`
+ * (words, or words made from the answer) then comes with Undo; null: nothing said.
+ */
+async function saveConfig(path, body, message = null) {
   const scope = state.session.config.scope;
   needPen();  // another computer edits: say so, send nothing
   const config = await api.post(`/api/${path}`, { ...body, scope });
   setSession({ config });
-  if (message) toast(message);
   if (state.month && state.month.id === scope) setMonth(await api.get(monthPath(scope)));
+  changed(config.history, scope, typeof message === 'function' ? message(config) : message);
   return config;
 }
 
@@ -271,11 +274,10 @@ function useConfiguration() {
   const source = select(sources, sources[0]?.value, { autofocus: true });
   const go = async () => {
     try {
-      const result = await saveConfig('config/use', { source: source.value });
-      dialog.close();
       const chosen = sources.find((s) => s.value === source.value).label;
-      toast(`${config.title} now uses the configuration of ${chosen}`
-        + (result.removed ? ` · ${result.removed} placement(s) on removed tasks taken off` : ''), { actionLabel: 'Undo', onAction: undoMonth });
+      await saveConfig('config/use', { source: source.value }, (result) => `${config.title} now uses the configuration of ${chosen}`
+        + (result.removed ? ` · ${result.removed} placement(s) on removed tasks taken off` : ''));
+      dialog.close();
     } catch (error) {
       formError(dialog.panel.querySelector('.modal-body'), errorText(error));
     }
@@ -288,19 +290,6 @@ function useConfiguration() {
     actions: [h('button', { class: 'btn', type: 'button', onclick: () => dialog.close() }, 'Cancel'),
       h('button', { class: 'btn primary', type: 'button', onclick: go }, 'Use it')],
   });
-}
-
-/** Undo the last change of the month being configured (it may not be the one on the rota). */
-async function undoMonth() {
-  const scope = configOf().scope;
-  try {
-    needPen();  // another computer edits: say so, send nothing
-    const month = await api.post(monthPath(scope, '/undo'));
-    if (state.month && state.month.id === scope) setMonth(month);
-    await loadConfig(scope);
-  } catch (error) {
-    failed(error);
-  }
 }
 
 function saveAsTemplate() {
@@ -397,7 +386,7 @@ export function mountTasks(container) {
         h('span', { class: 'field-label' }, 'Configuration of'), scopePicker,
         h('span', { class: 'muted scope-note' }, isTypical
           ? 'The starting point when there is no previous month; the regular week uses these tasks.'
-          : `Changes apply to ${config.title} only, and can be undone from the rota.`),
+          : `Changes apply to ${config.title} only, and can be undone with the arrows at the top, like its rota.`),
         config.event_tasks ? h('a', { class: 'muted', href: '#/setup', title: 'Tasks of an event are edited with their event, in Set up' },
           `+ ${config.event_tasks} task${config.event_tasks > 1 ? 's' : ''} of events`) : null,
         h('span', { class: 'spacer' }),

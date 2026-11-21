@@ -12,7 +12,7 @@ import { schedulesFinder } from '../schedules.js';
 import { loadMailInfo, openMailer } from '../mailer.js';
 import { settingsLink, toast } from '../ui.js';
 import { mainRotaCard } from './printtemplates.js';
-import { needPen } from '../actions.js';
+import { changed, needPen } from '../actions.js';
 
 let checking = false;
 
@@ -107,9 +107,10 @@ function publishVersion(info, audience) {
           needPen();  // another computer edits: say so, send nothing
           await api.post(monthPath(state.month.id, '/versions/publish'), { audience, forget_comments: Boolean(forget?.input.checked) });
           setSession({ availability: null });
-          setMonth(await api.get(monthPath(state.month.id)));  // its undo now includes this; versions reload
+          const month = await api.get(monthPath(state.month.id));
+          setMonth(month);  // its undo now includes this; versions reload
           dialog.close();
-          toast(`Version ${next} ${AUDIENCE_WORDS[audience]}${forget?.input.checked ? ' · comments deleted' : ''}`);
+          changed(month.history, month.id, `Version ${next} ${AUDIENCE_WORDS[audience]}${forget?.input.checked ? ' · comments deleted' : ''}`);
         } catch (error) {
           formError(dialog.panel.querySelector('.modal-body'), errorText(error));
         }

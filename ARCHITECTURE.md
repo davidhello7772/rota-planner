@@ -33,6 +33,7 @@ report.py         the Check step: to fix, open, overrides, balance
 tips.py           hints shown in the Assistant panel
 view.py           the month as the screen needs it (all numbers computed here)
 app.py            what the program can do: state in memory, undo, saving
+history.py        each month's undo and redo: named steps, packed (zlib of JSON), in memory only
 server.py         HTTP server: static files + JSON API, this computer only, token protected
 exporters/        printed documents: sheet.py (what each cell shows), documents.py
                   (main rota from a print template, event rota, weekly sheets,
@@ -139,7 +140,7 @@ on a computer shared with people you do not trust, delete
 
 Availability comments can mention health: they are deleted once the month is
 over (or on request), from the month file, its backups and the undo history
-(`App.forget_comments`), and the sync file is rewritten at once. PDFs are made
+(`App.forget_comments`, through `History.scrub`: the snapshots are packed), and the sync file is rewritten at once. PDFs are made
 by a local browser on a temporary file that is removed afterwards.
 
 E-mail addresses are never stored (`emails.py`): an address read from a card
@@ -348,5 +349,18 @@ folder only root can change, and is downloaded over https only.
 
 `web/js/state.js` holds the single state object; screens subscribe and
 re-render. `web/js/actions.js` is the only place that changes the rota.
+
+Undo is per month (a month is the document, and the unit of sync), in memory
+only: `history.py` keeps, for each month, the steps that can be undone and
+redone, each with a name made by `App` when the change succeeded ("Ana B. →
+Lunch cook, Tue 1 Dec"), the month as it was (packed: about 10 KB instead of
+300 KB), and, for accepted suggestions, the suggestions that were waiting.
+Step ids grow across the program, so the newest change in two months on
+screen (an event's Event view) is the one with the highest id. Going back k
+steps (`App.history_go`) is k undos with one save. The screen is told what was
+done (`did`: text, and the step id that reverses it), and a message's Undo
+names its step (`expect`), so it never undoes something changed since. People,
+Regular week, Settings and the typical month have no undo: they are saved as
+they are changed.
 Colours, sizes and spacing are tokens at the top of `web/css/app.css`.
 Zoom levels are defined once in `web/js/build/range.js`.

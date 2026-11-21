@@ -1,6 +1,6 @@
 // Set up: create next month in one click, then mark what is different
 // (events, closures, notes) on a calendar of the month.
-import { createMonth, needPen } from '../actions.js';
+import { changed, createMonth, needPen } from '../actions.js';
 import { api, monthPath } from '../api.js';
 import { badge, changes, chipChoice, field, formError, openDialog, segmented, select, textInput, toggle } from '../components.js';
 import { fill, formatDate, formatHours, h } from '../dom.js';
@@ -36,20 +36,16 @@ async function loadMonthSetup() {
 }
 
 /** Send a change to the month; refresh the setup view and the rota. */
-async function changeMonth(path, body, message) {
+/** Send a change to the month; refresh the setup view and the rota. `message`: shown, with Undo when a step was made. */
+async function changeMonth(path, body, message = null) {
   needPen();  // another computer edits: say so, send nothing
-  const setup = await api.post(monthPath(state.month.id, `/${path}`), body);
+  const monthId = state.month.id;
+  const setup = await api.post(monthPath(monthId, `/${path}`), body);
   // The event may have been copied to the next month: views of other months are loaded again.
   setSession({ monthSetup: setup, otherMonths: {} });
-  setMonth(await api.get(monthPath(state.month.id)));
-  if (message) toast(message, { actionLabel: 'Undo', onAction: undoSetup });
+  setMonth(await api.get(monthPath(monthId)));
+  changed(setup.history, monthId, message);
   return setup;
-}
-
-async function undoSetup() {
-  needPen();  // another computer edits: say so, send nothing
-  setMonth(await api.post(monthPath(state.month.id, '/undo')));
-  await loadMonthSetup();
 }
 
 // ---- Creating a month -----------------------------------------------------
@@ -184,12 +180,12 @@ export function editEvent(event, { justAdded = false, newTask = false } = {}) {
       const saved = event && state.session.monthSetup.events.find((e) => e.id === event.id);
       if (saved) fields.tasks_on_main_rota = saved.tasks_on_main_rota;
       else fields.tasks_on_main_rota = typeOf(typeId) ? typeOf(typeId).tasks_on_main_rota : !big.input.checked;
-      const result = await changeMonth('events/save', { event: fields }, event ? 'Event changed' : null);
+      const result = await changeMonth('events/save', { event: fields }, event ? undefined : null);
       dialog.close();
       const added = result.events.find((e) => !before.has(e.id));
       // A type chosen (or changed): the event gets the type's tasks it does not have yet.
       if (typeId && typeId !== event?.type_id && typeOf(typeId).tasks.length) {
-        await changeMonth('events/tasks/add-type', { event_id: added?.id || event.id, type_id: typeId });
+        await changeMonth('events/tasks/add-type', { event_id: added?.id || event.id, type_id: typeId }, null);
       }
       offerMissingMonths(result.missing_months, name.value.trim());
       // A new event opens again, now with its tasks.
@@ -199,7 +195,7 @@ export function editEvent(event, { justAdded = false, newTask = false } = {}) {
     }
   };
   const remove = async () => {
-    await changeMonth('events/delete', { id: event.id }, event.tasks.length ? 'Event and its tasks removed' : 'Event removed');
+    await changeMonth('events/delete', { id: event.id }, event.tasks.length ? `Event and its tasks removed: ${event.name}` : undefined);
     dialog.close();
   };
   const dialog = openDialog({ changes: true,
@@ -247,8 +243,8 @@ function drawEventTasks(box, eventId) {
     followsYes: event.tasks_on_main_rota, oneDay: event.start === event.end };
   const saveTask = (fields, message) => changeMonth('events/tasks/save', { task: { ...fields, event_id: eventId } }, message);
   const open = (task) => editEventTask({ ...common, task, subtitle: event.name,
-    save: async (fields) => { await saveTask(fields, task ? 'Task changed' : 'Task added'); redraw(); },
-    remove: task ? () => change('events/tasks/delete', { id: task.id }, 'Task removed') : null });
+    save: async (fields) => { await saveTask(fields, undefined); redraw(); },
+    remove: task ? () => change('events/tasks/delete', { id: task.id }, undefined) : null });
   const onMain = toggle('Print these tasks on the main rota too', event.tasks_on_main_rota,
     async (e) => {
       const input = e.target;
@@ -258,7 +254,7 @@ function drawEventTasks(box, eventId) {
     });
   const chooseType = (anchor) => openMenu(anchor,
     types.map((t) => ({ value: t.id, label: `${t.name} — ${t.tasks.map((x) => x.name).join(', ')}` })),
-    (typeId) => change('events/tasks/add-type', { event_id: eventId, type_id: typeId }, 'Tasks added'));
+    (typeId) => change('events/tasks/add-type', { event_id: eventId, type_id: typeId }, undefined));
 
   fill(box,
     h('div', { class: 'event-tasks-head' },
@@ -269,9 +265,9 @@ function drawEventTasks(box, eventId) {
     event.tasks.length
       ? h('ul', { class: 'event-task-list' }, event.tasks.map((task) => eventTaskRow(task, {
         ...common,
-        save: (fields) => saveTask(fields).catch(failed).finally(redraw),  // also after a refusal: shows it as it still is
+        save: (fields) => saveTask(fields, null).catch(failed).finally(redraw),  // also after a refusal: shows it as it still is
         open: () => open(task),
-        remove: () => change('events/tasks/delete', { id: task.id }, 'Task removed'),
+        remove: () => change('events/tasks/delete', { id: task.id }, undefined),
       })))
       : h('p', { class: 'faint' }, 'None yet: anything this event needs that the usual tasks do not cover.'),
     h('div', { class: 'card-actions' },
@@ -331,7 +327,7 @@ function editMarker(marker, defaults = {}) {
   const save = async () => {
     try {
       const result = await changeMonth('markers/save', { marker: { id: m.id, kind: kind.getValue(), label: label.value, start: start.value,
-        end: end.value, area_ids: areas.getValue(), keep_task_ids: keep.getValue() } }, marker ? 'Saved' : 'Added');
+        end: end.value, area_ids: areas.getValue(), keep_task_ids: keep.getValue() } }, undefined);
       if (result.missing_months?.length) {
         toast(`Also for ${result.missing_months.map((x) => x.title).join(' and ')}: it will be there when that month is created`);
       }
@@ -341,7 +337,7 @@ function editMarker(marker, defaults = {}) {
     }
   };
   const remove = async () => {
-    await changeMonth('markers/delete', { id: m.id }, 'Removed');
+    await changeMonth('markers/delete', { id: m.id }, undefined);
     dialog.close();
   };
   const dialog = openDialog({ changes: true,
@@ -361,7 +357,7 @@ function editDay(day) {
   const kind = segmented([{ value: '', label: 'Automatic' }, { value: 'normal', label: 'Usual day' }, { value: 'event', label: 'Event day' }],
     day.set_by_hand ? day.day_type : '', { label: 'Kind of day' });
   const save = async () => {
-    await changeMonth('daytype', { date: day.date, day_type: kind.getValue() || null }, 'Day changed');
+    await changeMonth('daytype', { date: day.date, day_type: kind.getValue() || null }, undefined);
     dialog.close();
   };
   const dialog = openDialog({ changes: true,
@@ -451,7 +447,7 @@ export function mountMonthSetup(container) {
         setup ? h('div', { class: 'page-actions' },
           h('a', { class: 'btn', href: '#/tasks' }, icon('layers'), 'Tasks of this month'),
           changes(h('button', { class: 'btn', type: 'button', title: 'Fill empty shifts from the regular week',
-            onclick: () => changeMonth('regulars/apply', {}, 'Regular week applied') }, icon('repeat'), 'Apply the regular week')),
+            onclick: () => changeMonth('regulars/apply', {}, undefined) }, icon('repeat'), 'Apply the regular week')),
           h('a', { class: 'btn primary', href: '#/availability' }, 'Next: availability', icon('right'))) : null),
       info ? createCard(info) : null,
       setup ? balance(setup) : null,

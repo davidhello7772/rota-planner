@@ -7,7 +7,7 @@ import { icon } from '../icons.js';
 import { errorText, failed } from '../setup.js';
 import { setMonth, setSession, state } from '../state.js';
 import { copyText, toast } from '../ui.js';
-import { needPen } from '../actions.js';
+import { changed, needPen } from '../actions.js';
 
 const PERIODS = [['morning', 'M', 'Morning'], ['afternoon', 'A', 'Afternoon'], ['evening', 'E', 'Evening']];
 const MATCH_WORDS = { exact: ['Found', 'ok'], close: ['Check', 'warn'], none: ['Not found', 'bad'] };
@@ -24,19 +24,18 @@ async function loadAvailability() {
   }
 }
 
-async function send(path, body, message) {
+/**
+ * Send a change; refresh this screen and the rota. `message` (words, or words
+ * made from the answer) is shown with Undo when the change made a step; null: nothing.
+ */
+async function send(path, body, message = null) {
   needPen();  // another computer edits: say so, send nothing
-  const result = await api.post(monthPath(state.month.id, `/availability/${path}`), body);
+  const monthId = state.month.id;
+  const result = await api.post(monthPath(monthId, `/availability/${path}`), body);
   setSession({ availability: result });
-  setMonth(await api.get(monthPath(state.month.id)));
-  if (message) toast(message, { actionLabel: 'Undo', onAction: undoAvailability });
+  setMonth(await api.get(monthPath(monthId)));
+  changed(result.history, monthId, typeof message === 'function' ? message(result) : message);
   return result;
-}
-
-async function undoAvailability() {
-  needPen();  // another computer edits: say so, send nothing
-  setMonth(await api.post(monthPath(state.month.id, '/undo')));
-  await loadAvailability();
 }
 
 // ---- Importing the form's replies -----------------------------------------
@@ -119,10 +118,11 @@ function importReplies() {
   const save = async () => {
     const replies = rows.filter((r) => r.keep && r.person_id);
     try {
-      const done = await send('apply', { replies }, null);
+      await send('apply', { replies }, (done) => {
+        const remembered = done.remembered ? ` · ${done.remembered} e-mail address${done.remembered > 1 ? 'es' : ''} remembered` : '';
+        return `${done.saved} replies saved${remembered}`;
+      });
       dialog.close();
-      const remembered = done.remembered ? ` · ${done.remembered} e-mail address${done.remembered > 1 ? 'es' : ''} remembered` : '';
-      toast(`${done.saved} replies saved${remembered}`, { actionLabel: 'Undo', onAction: undoAvailability });
     } catch (error) {
       formError(result, errorText(error));
     }
@@ -308,8 +308,7 @@ export function mountAvailability(container) {
         h('span', {}, `${data.away_regulars} shift(s) from the regular week fall on days the person is away.`),
         changes(h('button', { class: 'btn small', type: 'button', onclick: async () => {
           try {
-            const result = await send('free-regulars', {}, null);
-            toast(`${result.freed} shift(s) freed: they show “cover needed” on the rota`, { actionLabel: 'Undo', onAction: undoAvailability });
+            await send('free-regulars', {}, (result) => `${result.freed} shift(s) freed: they show “cover needed” on the rota`);
           } catch (error) {
             failed(error);
           }

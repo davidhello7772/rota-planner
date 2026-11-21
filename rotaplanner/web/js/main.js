@@ -1,5 +1,5 @@
 // Application shell: sidebar, top bar, routing and keyboard shortcuts.
-import { redo, saidAlready, undo } from './actions.js';
+import { KEYS, redo, redoTarget, saidAlready, undo, undoTarget } from './actions.js';
 import { api, ApiError, monthPath } from './api.js';
 import { h, isTyping } from './dom.js';
 import { icon } from './icons.js';
@@ -7,6 +7,7 @@ import { mountBuild } from './build/index.js';
 import { closePicker } from './build/picker.js';
 import { zoomBy } from './build/toolbar.js';
 import { openHelp, renderCoach } from './help.js';
+import { openHistory } from './history.js';
 import { pageFor } from './pages.js';
 import { openSchedules } from './schedules.js';
 import { mountSync } from './sync.js';
@@ -85,8 +86,10 @@ function shell() {
     h('button', { class: 'btn ghost', id: 'schedules', title: 'Copy a person’s schedule for an e-mail (S)', onclick: openSchedules },
       icon('message'), h('span', { class: 'topbar-label' }, 'Schedules')),
     h('span', { class: 'divider' }),
-    h('button', { class: 'btn ghost icon-only changes', id: 'undo', 'aria-label': 'Undo', title: 'Undo (Ctrl Z)', onclick: () => undo() }, icon('undo')),
-    h('button', { class: 'btn ghost icon-only changes', id: 'redo', 'aria-label': 'Redo', title: 'Redo (Ctrl Y)', onclick: () => redo() }, icon('redo')),
+    h('button', { class: 'btn ghost icon-only changes', id: 'undo', 'aria-label': 'Undo', title: `Undo (${KEYS.undo})`, onclick: () => undo() }, icon('undo')),
+    h('button', { class: 'btn ghost icon-only changes', id: 'redo', 'aria-label': 'Redo', title: `Redo (${KEYS.redo})`, onclick: () => redo() }, icon('redo')),
+    h('button', { class: 'btn ghost icon-only', id: 'history', 'aria-label': 'Recent changes: see them, go back',
+      title: 'Recent changes: see them, go back (R)', onclick: (e) => showHistory(e.currentTarget) }, icon('clock')),
     h('span', { class: 'divider' }),
     h('button', { class: 'btn ghost', id: 'size', title: 'Interface size', onclick: (e) => openMenu(e.currentTarget,
       SIZES.map((size) => ({ value: size, label: `${size}%`, checked: state.ui.size === size })),
@@ -96,6 +99,47 @@ function shell() {
     h('button', { class: 'btn ghost icon-only', id: 'help', 'aria-label': 'Help', title: 'Help (?)', onclick: () => openHelp() }, icon('help')));
   const syncBanner = h('div', { class: 'sync-slot', id: 'sync-banner', hidden: true });
   app.replaceChildren(sidebar, h('div', { class: 'main' }, topbar, syncBanner, h('div', { class: 'coach-slot', id: 'coach', hidden: true }), content));
+}
+
+/** Recent changes of the month the arrows act on (on a screen without one, why not). */
+function showHistory(anchor = document.getElementById('history')) {
+  const target = undoTarget();
+  if (!target.monthId) {
+    if (target.reason) toast(target.reason);
+    return;
+  }
+  openHistory(anchor, target.monthId);
+}
+
+/**
+ * The arrows say what they would undo or redo, and in which month when it is not
+ * the one in the top bar. On a screen whose changes cannot be undone they stay
+ * focusable (aria-disabled) and explain themselves when used.
+ */
+function renderHistoryButtons() {
+  const { month } = state;
+  const name = (target) => (target.monthId && target.monthId !== month?.id ? ` in ${target.title}` : '');
+  for (const [id, target, verb, key, word] of [['undo', undoTarget(), 'Undo', KEYS.undo, 'undo'],
+    ['redo', redoTarget(), 'Redo', KEYS.redo, 'redo']]) {
+    const button = document.getElementById(id);
+    const step = target.history?.[word];
+    const text = !target.monthId && target.reason ? `${target.reason} (${key})`
+      : step ? `${verb}${name(target)}: ${step.label} (${key})` : `Nothing to ${word} (${key})`;
+    button.title = text;
+    button.setAttribute('aria-label', text);
+    if (!target.monthId && target.reason) {
+      button.disabled = false;
+      button.setAttribute('aria-disabled', 'true');
+    } else {
+      button.removeAttribute('aria-disabled');
+      button.disabled = !step;
+    }
+  }
+  const list = document.getElementById('history');
+  const target = undoTarget();
+  if (!target.monthId && target.reason) list.setAttribute('aria-disabled', 'true');
+  else list.removeAttribute('aria-disabled');
+  list.disabled = !target.monthId && !target.reason;
 }
 
 function toggleFocus() {
@@ -133,8 +177,7 @@ function renderShell() {
   const index = months.findIndex((m) => m.id === month?.id);
   document.getElementById('prev-month').disabled = index <= 0;
   document.getElementById('next-month').disabled = index < 0 || index >= months.length - 1;
-  document.getElementById('undo').disabled = !month?.history.undo;
-  document.getElementById('redo').disabled = !month?.history.redo;
+  renderHistoryButtons();
   document.getElementById('rail-toggle').querySelector('.nav-label').textContent = ui.rail ? 'Expand' : 'Collapse';
   const navRoute = STEPS.some((s) => s.route === route) ? 'build' : route;
   markCurrent('.nav-item[data-route]', navRoute, 'page');
@@ -218,9 +261,12 @@ function renderContent() {
 function onKey(event) {
   const mod = event.ctrlKey || event.metaKey;
   const typing = isTyping(event.target);
-  // A dialog, a menu or the tour is on top: its own keys only.
-  if (document.querySelector('.backdrop, .tour-layer, .popover')) return;
-  if (mod && !typing && event.key.toLowerCase() === 'z') {
+  const key = event.key.toLowerCase();
+  // A dialog, a menu or the tour is on top: its own keys only. Recent changes lets
+  // undo and redo through (the list follows them); its other keys are its own.
+  if (document.querySelector('.backdrop, .tour-layer, .popover:not(.history)')) return;
+  if (document.querySelector('.popover.history') && !(mod && !typing && (key === 'z' || key === 'y'))) return;
+  if (mod && !typing && key === 'z') {
     event.preventDefault();
     if (event.shiftKey) redo(); else undo();
   } else if (mod && !typing && event.key.toLowerCase() === 'y') {
@@ -238,6 +284,9 @@ function onKey(event) {
   } else if (!mod && !typing && !event.altKey && event.key.toLowerCase() === 's') {
     event.preventDefault();
     openSchedules();
+  } else if (!mod && !typing && !event.altKey && key === 'r') {
+    event.preventDefault();
+    showHistory();
   } else if (event.key === 'Escape') {
     if (state.session.paint) setSession({ paint: false });
     else if (state.session.focus) toggleFocus();

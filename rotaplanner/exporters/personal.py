@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Dict, List, Optional
 
-from ..model import Month, Person, Settings, parse_date
+from ..model import Month, Person, Settings, day_text, parse_date
 from ..schedule import Schedule
 from . import versions
 from .documents import Document, head
@@ -53,11 +53,6 @@ def shifts_of(month: Month, people: List[Person], settings: Settings) -> Dict[st
     return found
 
 
-def _when(iso: str) -> str:
-    day = parse_date(iso)
-    return f"{day.strftime('%a')} {day.day} {day.strftime('%b')}"
-
-
 def _hours(value: float) -> str:
     return f"{value:g} h"
 
@@ -74,7 +69,7 @@ def personal_rotas(month: Month, people: List[Person], shifts: Dict[str, List[Sh
     for person in chosen:
         mine = shifts.get(person.id, [])
         rows = [el("tr", {"class_": s.changed and "changed"},
-                   el("td", {"class_": "when"}, _when(s.date)),
+                   el("td", {"class_": "when"}, day_text(s.date)),
                    el("td", {}, el("strong", {}, s.task), el("small", {}, " · ".join(x for x in (s.area, s.event, s.note) if x))),
                    el("td", {"class_": "time"}, s.time),
                    el("td", {"class_": "hours"}, _hours(s.hours) if s.hours else ""))
@@ -111,7 +106,7 @@ def message_text(month_title: str, first_name: str, shifts: List[Shift], centre:
         extra = f" ({s.event})" if s.event else ""
         mark = " (changed)" if s.changed else ""
         note = f" — {s.note}" if s.note else ""
-        lines.append(f"• {_when(s.date)} · {s.time} · {s.task}{extra}{note}{mark}")
+        lines.append(f"• {day_text(s.date)} · {s.time} · {s.task}{extra}{note}{mark}")
     if closing.strip():  # no total of hours: the message only lists the shifts
         lines += ["", closing.strip()]
     return "\n".join(lines)

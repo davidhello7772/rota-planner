@@ -1,7 +1,7 @@
 """What the program can do, independent of how it is asked (the HTTP layer).
 
 ``App`` holds the data in memory, applies changes through the domain modules,
-saves them, and keeps an undo history for each month.
+saves them, and keeps an undo history for each month (``history.py``, in memory only).
 """
 
 from __future__ import annotations
@@ -12,28 +12,35 @@ import calendar
 import copy
 import re
 import threading
+import time
 from datetime import date
 from http import HTTPStatus
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 from . import availability, editing, emails, mail, month_setup, months, people_import, report, solver, transfer, view
 from .exporters import documents, pdf, personal, sheet, versions, xlsx_rota
+from .history import AUTO, VERSION, History, unpack
 from .model import (
-    EVENT_TASK_DAYS, EVENT_TASKS_PRINTED, FREQUENCIES, PRINT_SIZES, WEEKDAY_KEYS, ConfigTemplate, Month, PrintTemplate,
-    Task, new_id,
+    EVENT_TASK_DAYS, EVENT_TASKS_PRINTED, FREQUENCIES, PRINT_SIZES, WEEKDAY_KEYS, Assignment, ConfigTemplate, Month,
+    PrintTemplate, Task, day_text, new_id,
 )
 from .schedule import Schedule
 from .store import Store
-from .sync import PenError, Sync
+from .sync import PenError, Sync, ago
 from .updates import UpdateError, Updates
 
 TYPICAL = "typical"
 """Scope name of the typical month: the configuration new months start from."""
 UNDO_LIMIT = 200
+AUTO_SHOWN_FOR = 20
+"""The Assistant offers to undo accepted suggestions while at most this many changes were made after."""
+SYNC_NOTE = "The rota was updated from another computer: changes made here before that can no longer be undone."
+MARKER_WORDS = {"closed": "Closure", "offrota": "Off-rota event", "note": "Note"}
 MAX_UPLOAD_BYTES = 20_000_000
 
 Json = Dict[str, Any]
+Label = Union[str, Callable[[], str]]
 
 
 class ApiError(Exception):
@@ -54,8 +61,8 @@ class App:
         self.settings = store.load_settings()
         self.templates = store.load_templates()
         self._months: Dict[str, Month] = {}
-        self._undo: Dict[str, List[Json]] = {}
-        self._redo: Dict[str, List[Json]] = {}
+        # Undo and redo of each month's rota: named steps, packed, in memory only.
+        self.history = History(UNDO_LIMIT)
         self._proposals: Dict[str, List[solver.Proposal]] = {}  # suggestions not yet accepted, per month
         # What the last "Prefill" said beside its suggestions (what stays open, and
         # why), with the days and area it was asked for: "Suggest for these too"
@@ -111,8 +118,7 @@ class App:
             self.catalog,
             self.people,
             self.settings,
-            can_undo=bool(self._undo.get(month_id)),
-            can_redo=bool(self._redo.get(month_id)),
+            history=self._history_json(month_id),
             proposals=self._proposals.get(month_id, []),
             around=self._around(month_id),
         )
@@ -131,13 +137,17 @@ class App:
     # -- changing ----------------------------------------------------------
 
     def _change(
-        self, month_id: str, change: Callable[[Month], bool], answer: Optional[Callable[[str], Json]] = None,
-        record: bool = True,
+        self, month_id: str, change: Callable[[Month], Any], answer: Optional[Callable[[str], Json]] = None,
+        record: bool = True, label: Label = "Change", kind: str = "change", proposals: Any = None,
     ) -> Json:
-        """Apply ``change``; if it reports a change, make it undoable (unless ``record``
-        is off) and save.
+        """Apply ``change``; if it reports a change and the month really differs, make
+        it undoable (unless ``record`` is off) and save.
 
-        Answers with the month as the rota shows it, or with ``answer(month_id)``.
+        ``label`` names the step in plain words: a string, or a function without
+        arguments called once the change is made (so it can count what was done).
+        ``proposals``: the suggestions waiting before the change, when it uses them
+        (undoing it puts them back). Answers with the month as the rota shows it, or
+        with ``answer(month_id)``.
         """
         month = self.month(month_id)
         before = month.to_dict()
@@ -147,14 +157,44 @@ class App:
             # A change that fails half-way must not leave half of it behind.
             self._months[month_id] = Month.from_dict(before)
             raise
-        if changed:
+        if changed and month.to_dict() != before:
             if record:
-                undo = self._undo.setdefault(month_id, [])
-                undo.append(before)
-                del undo[:-UNDO_LIMIT]
-                self._redo[month_id] = []
+                self.history.record(month_id, self._label(label), kind, before, proposals)
             self.store.save_month(month)
         return (answer or self.month_view)(month_id)
+
+    @staticmethod
+    def _label(label: Label) -> str:
+        """The name of a step. Working it out must never undo the change: "Change" if it fails."""
+        if callable(label):
+            try:
+                label = label()
+            except Exception:  # noqa: BLE001
+                return "Change"
+        return " ".join(str(label or "Change").split())[:200] or "Change"
+
+    def _person_name(self, person_id: str) -> str:
+        return next((p.name for p in self.people if p.id == person_id), "Someone")
+
+    def _who(self, assignment: Optional[Assignment]) -> str:
+        """The name on the rota, the guest's name, or "A guest" / "A volunteer"."""
+        if assignment is None:
+            return "nobody"
+        if assignment.person_id:
+            return self._person_name(assignment.person_id)
+        if assignment.guest:
+            return assignment.guest
+        return "A volunteer" if assignment.guest_kind == "volunteer" else "A guest"
+
+    def _shift(self, month_id: str, task_id: str, iso: str) -> str:
+        """A shift in the names of changes: "Lunch cook, Tue 1 Dec"."""
+        task = next((t for t in self.month(month_id).tasks if t.id == task_id), None)
+        return f"{task.name if task else 'A task'}, {day_text(iso)}"
+
+    def _waiting(self, month_id: str) -> Tuple[List[solver.Proposal], Optional[Json]]:
+        """The suggestions waiting in a month, and what was said beside them: kept by a
+        step that uses them, so that undoing it shows them again."""
+        return list(self._proposals.get(month_id, [])), self._suggested.get(month_id)
 
     # -- help: suggestions, rebalancing, shortages ---------------------------------
 
@@ -229,7 +269,9 @@ class App:
                     skipped += 1
             return accepted > 0
 
-        self._change(month_id, change)
+        word = "move" if any(p.replaces for p in chosen) else "suggestion"
+        self._change(month_id, change, answer=lambda _: {}, label=lambda: f"{_count(accepted, word)} accepted",
+                     kind=AUTO, proposals=self._waiting(month_id))
         done = {p.key for p in chosen}
         self._proposals[month_id] = [p for p in pending if p.key not in done]
         if not self._proposals[month_id]:
@@ -261,7 +303,8 @@ class App:
                 raise ApiError(HTTPStatus.CONFLICT, f"This exchange no longer works: {violation}") from violation
             return True
 
-        return self._change(month_id, change)
+        who = self._person_name(str(body.get("person_id")))
+        return self._change(month_id, change, label=lambda: f"Exchange: {who} → {self._shift(month_id, target[0], target[1])}")
 
     def check(self, month_id: str) -> Json:
         """What still needs attention, and the balance of hours (with the two months before)."""
@@ -381,7 +424,7 @@ class App:
             "skills": [{"id": s.id, "name": s.name} for s in self.catalog.skills],
             "event_types": self._event_types_json(),
             "event_days": EVENT_TASK_DAYS,
-            "history": {"undo": bool(self._undo.get(month_id)), "redo": bool(self._redo.get(month_id))},
+            "history": self._history_json(month_id),
         }
 
     def _event_task_json(self, task: Task, config: editing.TaskConfig) -> Json:
@@ -397,39 +440,59 @@ class App:
                  "tasks": [self._event_task_json(task, self.catalog) for task in t.tasks]}
                 for t in self.catalog.event_types]
 
-    def _setup_change(self, month_id: str, change: Callable[[Month], Any]) -> Json:
-        return self._change(month_id, lambda month: change(month) is not False, answer=self.month_setup)
+    def _setup_change(self, month_id: str, change: Callable[[Month], Any], label: Label = "Change") -> Json:
+        return self._change(month_id, lambda month: change(month) is not False, answer=self.month_setup, label=label)
+
+    def _item(self, month_id: str, kind: str, item_id: Any) -> Any:
+        """An event or a closure of a month, as it is now (None if there is none)."""
+        return next((x for x in getattr(self.month(month_id), kind) if x.id == item_id), None)
 
     def save_event(self, month_id: str, body: Json) -> Json:
         saved = []
-        self._setup_change(month_id, lambda m: saved.append(month_setup.save_event(m, body.get("event") or {})))
+        data = body.get("event") or {}
+        verb = "changed" if self._item(month_id, "events", data.get("id")) else "added"
+        self._setup_change(month_id, lambda m: saved.append(month_setup.save_event(m, data)),
+                           label=lambda: f"Event {verb}: {saved[0].name}")
         return self._after_linked_change(month_id, "events", saved[0].id)
 
     def delete_event(self, month_id: str, body: Json) -> Json:
-        self._setup_change(month_id, lambda m: month_setup.delete_event(m, str(body.get("id"))))
+        event = self._item(month_id, "events", str(body.get("id")))
+        self._setup_change(month_id, lambda m: month_setup.delete_event(m, str(body.get("id"))),
+                           label=lambda: f"Event removed: {event.name}")
         return self._after_linked_change(month_id, "events", str(body.get("id")))
 
     def save_marker(self, month_id: str, body: Json) -> Json:
         saved = []
-        self._setup_change(month_id, lambda m: saved.append(month_setup.save_marker(m, body.get("marker") or {})))
+        data = body.get("marker") or {}
+        verb = "changed" if self._item(month_id, "markers", data.get("id")) else "added"
+        self._setup_change(month_id, lambda m: saved.append(month_setup.save_marker(m, data)),
+                           label=lambda: f"{MARKER_WORDS.get(saved[0].kind, 'Day')} {verb}: {saved[0].label}")
         return self._after_linked_change(month_id, "markers", saved[0].id)
 
     def delete_marker(self, month_id: str, body: Json) -> Json:
-        self._setup_change(month_id, lambda m: month_setup.delete_marker(m, str(body.get("id"))))
+        marker = self._item(month_id, "markers", str(body.get("id")))
+        self._setup_change(month_id, lambda m: month_setup.delete_marker(m, str(body.get("id"))),
+                           label=lambda: f"{MARKER_WORDS.get(marker.kind, 'Day')} removed: {marker.label}")
         return self._after_linked_change(month_id, "markers", str(body.get("id")))
 
     # -- tasks of one event, and event types that keep the usual ones ----------
 
     def save_event_task(self, month_id: str, body: Json) -> Json:
         task = body.get("task") or {}
-        self._setup_change(month_id, lambda m: month_setup.save_event_task(m, self.catalog, task))
+        saved = []
+        verb = "changed" if any(t.id == task.get("id") for t in self.month(month_id).tasks) else "added"
+        event = self._item(month_id, "events", task.get("event_id"))
+        self._setup_change(month_id, lambda m: saved.append(month_setup.save_event_task(m, self.catalog, task)),
+                           label=lambda: f"Event task {verb}: {saved[0].name} ({event.name})")
         return self._after_linked_change(month_id, "events", str(task.get("event_id")))
 
     def delete_event_task(self, month_id: str, body: Json) -> Json:
         task = next((t for t in self.month(month_id).tasks if t.id == body.get("id")), None)
         if task is None or not task.event_id:
             raise ApiError(HTTPStatus.BAD_REQUEST, "Unknown task.")
-        self._setup_change(month_id, lambda m: month_setup.delete_event_task(m, task.id))
+        event = self._item(month_id, "events", task.event_id)
+        self._setup_change(month_id, lambda m: month_setup.delete_event_task(m, task.id),
+                           label=lambda: f"Event task removed: {task.name} ({event.name})")
         return self._after_linked_change(month_id, "events", task.event_id)
 
     def add_type_tasks(self, month_id: str, body: Json) -> Json:
@@ -438,7 +501,10 @@ class App:
             raise ApiError(HTTPStatus.BAD_REQUEST, "Unknown type of event.")
         event_id = str(body.get("event_id"))
         added = []
-        self._setup_change(month_id, lambda m: added.append(month_setup.add_type_tasks(m, event_id, event_type)) or added[0] > 0)
+        self._setup_change(
+            month_id, lambda m: added.append(month_setup.add_type_tasks(m, event_id, event_type)) or added[0] > 0,
+            label=lambda: f"{_count(added[0], 'task')} of “{event_type.name}” added to "
+                          f"{self._item(month_id, 'events', event_id).name}")
         result = self._after_linked_change(month_id, "events", event_id)
         result["added"] = added[0] if added else 0
         return result
@@ -458,7 +524,8 @@ class App:
             changed, event.type_id = event.type_id != event_type.id, event_type.id
             return changed
 
-        self._setup_change(month_id, mark)
+        self._setup_change(month_id, mark, label=lambda: f"{self._item(month_id, 'events', event_id).name} "
+                                                         f"set as a “{event_type.name}” event")
         return self._after_linked_change(month_id, "events", event_id)
 
     # Event types, edited on their own (Tasks & Areas): they live in the catalog.
@@ -491,14 +558,19 @@ class App:
         return result
 
     def set_day_type(self, month_id: str, body: Json) -> Json:
-        day_type = body.get("day_type")
-        return self._setup_change(month_id, lambda m: month_setup.set_day_type(
-            m, str(body.get("date")), str(day_type) if day_type else None))
+        day_type = str(body["day_type"]) if body.get("day_type") else None
+        iso = str(body.get("date"))
+        what = {None: ": back to what the events say", "event": " set as an event day", "normal": " set as a normal day"}
+        return self._setup_change(month_id, lambda m: month_setup.set_day_type(m, iso, day_type),
+                                  label=lambda: f"{day_text(iso)}{what[day_type]}")
 
     def reapply_regulars(self, month_id: str, _body: Json) -> Json:
         around = self._around(month_id)
+        placed = []
         return self._setup_change(
-            month_id, lambda m: months.apply_regulars(m, self.catalog, self.people, self.settings, around) > 0)
+            month_id,
+            lambda m: placed.append(months.apply_regulars(m, self.catalog, self.people, self.settings, around)) or placed[0] > 0,
+            label=lambda: f"Regular week applied: {_count(placed[0], 'shift')} filled")
 
     # -- availability -----------------------------------------------------------
 
@@ -508,7 +580,8 @@ class App:
         result["away_regulars"] = len(availability.away_regulars(month, self.people, self.settings))
         result["title"] = month.title()
         result["comments_until"] = month.dates()[-1]  # deleted once the month is over
-        result["history"] = {"undo": bool(self._undo.get(month_id)), "redo": bool(self._redo.get(month_id))}
+        result["id"] = month_id
+        result["history"] = self._history_json(month_id)
         return result
 
     def availability_preview(self, month_id: str, body: Json) -> Json:
@@ -526,7 +599,8 @@ class App:
             saved = availability.apply(month, self.people, replies)
             return saved > 0
 
-        result = self._change(month_id, change, answer=self.availability)
+        result = self._change(month_id, change, answer=self.availability,
+                              label=lambda: f"{_count(saved, 'reply', 'replies')} saved")
         remembered = 0
         for reply in replies[:availability.MAX_ROWS]:
             if reply.get("remember_email"):
@@ -539,17 +613,18 @@ class App:
         return result
 
     def availability_set(self, month_id: str, body: Json) -> Json:
+        person_id = str(body.get("person_id"))
         return self._change(month_id, lambda m: availability.set_person(
-            m, self.people, str(body.get("person_id")), list(body.get("unavailable") or []),
-            bool(body.get("responded", True))), answer=self.availability)
+            m, self.people, person_id, list(body.get("unavailable") or []),
+            bool(body.get("responded", True))), answer=self.availability,
+            label=lambda: f"Availability changed: {self._person_name(person_id)}")
 
     def forget_comments(self, month_id: str, _body: Json = None) -> Json:
         """Delete the availability comments of a month everywhere they are kept:
         the month, its backups and its undo history. It cannot be undone, on purpose."""
         month = self.month(month_id)
         count = availability.forget_comments(month)
-        for snapshot in self._undo.get(month_id, []) + self._redo.get(month_id, []):
-            availability.scrub_comments(snapshot)
+        self.history.scrub(month_id, availability.scrub_comments)  # both lists, every packed snapshot
         self.store.save_month(month)  # this may back up the old file: scrub after
         self.store.scrub_backups(month_id, availability.scrub_comments)
         transfer.scrub_safety_copies(self.store)
@@ -575,8 +650,11 @@ class App:
         return done
 
     def availability_comment(self, month_id: str, body: Json) -> Json:
-        return self._change(month_id, lambda m: availability.mark_comment(
-            m, str(body.get("person_id")), bool(body.get("done"))), answer=self.availability)
+        done = bool(body.get("done"))
+        # No name: a step about a comment says nothing about whose it is.
+        return self._change(month_id, lambda m: availability.mark_comment(m, str(body.get("person_id")), done),
+                            answer=self.availability,
+                            label="Comment marked as read" if done else "Comment marked as not read")
 
     def free_regulars(self, month_id: str, _body: Json) -> Json:
         freed = 0
@@ -586,17 +664,21 @@ class App:
             freed = availability.free_away_regulars(month, self.people, self.settings)
             return freed > 0
 
-        result = self._change(month_id, change, answer=self.availability)
+        result = self._change(month_id, change, answer=self.availability,
+                              label=lambda: f"{_count(freed, 'regular shift')} freed: people away")
         result["freed"] = freed
         return result
 
     def assign(self, month_id: str, body: Json) -> Json:
         around = self._around(month_id)
+        task_id, iso = str(body.get("task_id", "")), str(body.get("date", ""))
+        placed: Dict[str, Optional[Assignment]] = {}
 
         def change(month: Month) -> bool:
             reason = body.get("reason")
+            placed["before"] = month.find_assignment(task_id, iso, to_int(body.get("position")))
             try:
-                months.assign(
+                placed["now"] = months.assign(
                     month, self.people, self.settings,
                     str(body.get("task_id", "")), str(body.get("date", "")), to_int(body.get("position")),
                     person_id=str(body.get("person_id") or ""), guest=str(body.get("guest") or ""),
@@ -611,69 +693,154 @@ class App:
                     findings=[{"severity": f.severity, "message": f.message} for f in violation.findings],
                 ) from violation
 
-        return self._change(month_id, change)
+        def label() -> str:
+            made, before = placed["now"], placed.get("before")
+            text = f"{self._who(made)} → {self._shift(month_id, task_id, iso)}"
+            if before is not None and self._who(before) != self._who(made):
+                text += f", instead of {self._who(before)}"
+            return text + (" (assigned anyway)" if made.forced_reason is not None else "")
+
+        return self._change(month_id, change, label=label)
 
     def clear(self, month_id: str, body: Json) -> Json:
-        return self._change(
-            month_id,
-            lambda month: months.clear(
-                month, str(body.get("task_id", "")), str(body.get("date", "")), to_int(body.get("position"))
-            ),
-        )
+        task_id, iso, position = str(body.get("task_id", "")), str(body.get("date", "")), to_int(body.get("position"))
+        was = self.month(month_id).find_assignment(task_id, iso, position)
+        return self._change(month_id, lambda month: months.clear(month, task_id, iso, position),
+                            label=lambda: f"{self._shift(month_id, task_id, iso)} left open (was {self._who(was)})")
 
     def set_note(self, month_id: str, body: Json) -> Json:
+        task_id, iso, note = str(body.get("task_id", "")), str(body.get("date", "")), str(body.get("note") or "")
+        # The note's own words never go into the name of the step.
         return self._change(month_id, lambda month: months.set_note(
-            month, str(body.get("task_id", "")), str(body.get("date", "")), to_int(body.get("position")),
-            str(body.get("note") or "")))
+            month, task_id, iso, to_int(body.get("position")), note),
+            label=lambda: f"{'Note saved' if note.strip() else 'Note removed'}: {self._shift(month_id, task_id, iso)}")
 
     def highlight(self, month_id: str, body: Json) -> Json:
+        task_id, iso, on = str(body.get("task_id", "")), str(body.get("date", "")), bool(body.get("on"))
         return self._change(
             month_id,
-            lambda month: months.set_wanted(
-                month, self.people, self.settings,
-                str(body.get("task_id", "")), str(body.get("date", "")), to_int(body.get("position")),
-                bool(body.get("on")),
-            ),
+            lambda month: months.set_wanted(month, self.people, self.settings, task_id, iso,
+                                            to_int(body.get("position")), on),
+            label=lambda: f"{'Highlighted to fill' if on else 'Highlight removed'}: {self._shift(month_id, task_id, iso)}",
         )
 
     def headcount(self, month_id: str, body: Json) -> Json:
         count = body.get("count")
-        return self._change(
-            month_id,
-            lambda month: months.set_headcount(
-                month, str(body.get("task_id", "")), str(body.get("date", "")),
-                None if count is None else to_int(count),
-            ),
-        )
+        number = None if count is None else to_int(count)
+        task_id, iso = str(body.get("task_id", "")), str(body.get("date", ""))
+        said = ("back to the usual number" if number is None else "not needed that day" if number == 0
+                else f"{number} needed")
+        return self._change(month_id, lambda month: months.set_headcount(month, task_id, iso, number),
+                            label=lambda: f"{self._shift(month_id, task_id, iso)}: {said}")
 
     def set_time(self, month_id: str, body: Json) -> Json:
         data = None if body.get("clear") else body
-        return self._change(
-            month_id,
-            lambda month: months.set_time(month, str(body.get("task_id", "")), str(body.get("date", "")), data),
-        )
+        task_id, iso = str(body.get("task_id", "")), str(body.get("date", ""))
+        said = "back to the usual time" if data is None else "time changed for that day"
+        return self._change(month_id, lambda month: months.set_time(month, task_id, iso, data),
+                            label=lambda: f"{self._shift(month_id, task_id, iso)}: {said}")
 
-    def undo(self, month_id: str, _body: Json) -> Json:
-        return self._step(month_id, self._undo, self._redo)
+    # -- undo, redo, and going back several steps ---------------------------------
 
-    def redo(self, month_id: str, _body: Json) -> Json:
-        return self._step(month_id, self._redo, self._undo)
+    def undo(self, month_id: str, body: Json) -> Json:
+        return self._one_step(month_id, "undo", body or {})
 
-    def _step(self, month_id: str, source: Dict[str, List[Json]], target: Dict[str, List[Json]]) -> Json:
-        stack = source.get(month_id)
-        if not stack:
-            raise ApiError(HTTPStatus.CONFLICT, "Nothing to undo or redo.")
+    def redo(self, month_id: str, body: Json) -> Json:
+        return self._one_step(month_id, "redo", body or {})
+
+    def _one_step(self, month_id: str, direction: str, body: Json) -> Json:
+        """Undo or redo the last step. With ``expect`` (the step a message offered to
+        undo), refuse if another step is on top now: never undo the wrong change."""
+        top = self.history.top(month_id, redo=direction == "redo")
+        if top is None:
+            raise ApiError(HTTPStatus.CONFLICT, "Nothing to undo." if direction == "undo" else "Nothing to redo.")
+        expect = body.get("expect")
+        if expect is not None and str(expect) != str(top.id):
+            raise ApiError(HTTPStatus.CONFLICT,
+                           "Something else was changed since. Open Recent changes to choose where to go back to.")
+        return self._restore(month_id, direction, 1)
+
+    def history_go(self, month_id: str, body: Json) -> Json:
+        """From the list of recent changes: in the undo list, go back to before that step;
+        in the redo list, redo up to and including it."""
+        try:
+            direction, count = self.history.find(month_id, body.get("to"))
+        except KeyError:
+            raise ApiError(HTTPStatus.CONFLICT, "This list is out of date: open it again.") from None
+        return self._restore(month_id, direction, count)
+
+    def _restore(self, month_id: str, direction: str, count: int) -> Json:
+        """Cross ``count`` steps of a month's history at once, save once, and say what was done."""
         current = self.month(month_id)
-        target.setdefault(month_id, []).append(current.to_dict())
-        restored = Month.from_dict(stack.pop())
+        first = self.history.top(month_id, redo=direction == "redo")
+        step = self.history.move(month_id, direction, count, current.to_dict(), self._waiting(month_id))
+        restored = Month.from_dict(unpack(step.snapshot))
         restored.mailed = dict(current.mailed)  # an e-mail sent cannot be undone: who got one stays known
         self._months[month_id] = restored
+        suggestions_back = False
+        if step.proposals is not None:  # a step crossed had accepted suggestions: as they were then
+            proposals, suggested = step.proposals
+            self._proposals[month_id] = list(proposals)
+            if suggested:
+                self._suggested[month_id] = suggested
+            else:
+                self._suggested.pop(month_id, None)
+            suggestions_back = direction == "undo" and bool(proposals)
         self.store.save_month(restored)
         # Events and closures shared with other months follow the undo there too.
         for kind in month_setup.LINKED_KINDS:
             for item_id in self._linked_differences(current, restored, kind):
                 self._spread(month_id, kind, item_id)
-        return self.month_view(month_id)
+        result = self.month_view(month_id)
+        if direction == "undo" and count == 1:
+            text = f"Undone: {step.label}" + (". They are shown dashed again." if suggestions_back else "")
+            back_label = "Redo"
+        elif direction == "undo":
+            text = f"Went back {count} changes, to before “{step.label}”" + (
+                ". The suggestions are shown dashed again." if suggestions_back else "")
+            back_label = "Redo them"
+        elif count == 1:
+            text, back_label = f"Redone: {step.label}", "Undo"
+        else:
+            text, back_label = f"{count} changes redone", "Undo them"
+        # The way back: the first step crossed is now the far end of what was crossed.
+        result["did"] = {"text": text, "back": first.id if first else step.id, "back_label": back_label}
+        return result
+
+    def _history_json(self, month_id: str) -> Json:
+        """What the arrows and the Assistant say about a month's history."""
+        undo, redo = self.history.stacks(month_id)
+        auto = None
+        for later, step in enumerate(reversed(undo[-(AUTO_SHOWN_FOR + 1):])):
+            if step.kind == AUTO:
+                auto = {"id": step.id,
+                        "text": f"{step.label}." if not later else f"{step.label}, then {_count(later, 'more change')}.",
+                        "button": "Undo" if not later else f"Undo all {later + 1}"}
+                break
+        return {
+            "undo": {"id": undo[-1].id, "label": undo[-1].label} if undo else None,
+            "redo": {"id": redo[-1].id, "label": redo[-1].label} if redo else None,
+            "auto": auto,
+        }
+
+    def history_list(self, month_id: str) -> Json:
+        """Recent changes of a month, newest first, and those undone (which can be redone)."""
+        undo, redo = self.history.stacks(month_id)
+        now = time.time()
+
+        def row(step: Any, count: int) -> Json:
+            return {"id": step.id, "label": step.label, "kind": step.kind, "when": ago(step.at, now), "count": count}
+
+        title = self.month(month_id).title()
+        return {
+            "id": month_id,
+            "title": f"Recent changes · {title}",
+            "steps": [row(step, depth) for depth, step in enumerate(reversed(undo), start=1)],
+            # Newest change first, as the steps: the last of these is the next to redo.
+            "undone": [row(step, len(redo) - index) for index, step in enumerate(redo)],
+            "empty": f"Nothing to undo in {title} yet. What you change appears here until Rota Planner is closed.",
+            "note": self.history.note(month_id),
+        }
 
     @staticmethod
     def _linked_differences(before: Month, after: Month, kind: str) -> List[str]:
@@ -785,30 +952,45 @@ class App:
             "sources": self._sources(exclude=scope),
             "templates": [{"id": t.id, "name": t.name, "tasks": len(t.tasks), "created": t.created}
                           for t in self.templates],
+            # A month's tasks can be undone like its rota; the typical month's cannot.
+            "history": None if scope == TYPICAL else self._history_json(scope),
         }
 
-    def _edit_config(self, body: Json, edit: Callable[[editing.TaskConfig], Any]) -> Json:
+    def _edit_config(self, body: Json, edit: Callable[[editing.TaskConfig], Any], label: Label = "Change") -> Json:
         """Apply ``edit`` to the configuration named by ``body["scope"]`` and save it.
 
         A month's configuration is part of the month, so the change can be undone
-        from the rota like any other.
+        from the rota like any other (``label`` names it); the typical month's cannot.
         """
         scope = str(body.get("scope") or TYPICAL)
         if scope == TYPICAL:
             edit(self.catalog)
             self.store.save_catalog(self.catalog)
         else:
-            self._change(scope, lambda month: edit(month) is not False)
+            self._change(scope, lambda month: edit(month) is not False, answer=lambda _: {}, label=label)
         return self.config(scope)
 
+    def _config_verb(self, body: Json, kind: str, key: str) -> str:
+        """"added" or "changed": is the item sent already in the configuration?"""
+        target = self._target(str(body.get("scope") or TYPICAL))
+        item_id = (body.get(key) or {}).get("id")
+        return "changed" if any(x.id == item_id for x in getattr(target, kind)) else "added"
+
     def save_area(self, body: Json) -> Json:
-        return self._edit_config(body, lambda c: editing.save_area(c, body.get("area") or {}))
+        saved = []
+        verb = self._config_verb(body, "areas", "area")
+        return self._edit_config(body, lambda c: saved.append(editing.save_area(c, body.get("area") or {})),
+                                 label=lambda: f"Area {verb}: {saved[0].name}")
 
     def order_areas(self, body: Json) -> Json:
-        return self._edit_config(body, lambda c: editing.reorder(c.areas, [str(i) for i in body.get("ids") or []]))
+        return self._edit_config(body, lambda c: editing.reorder(c.areas, [str(i) for i in body.get("ids") or []]),
+                                 label="Areas put in another order")
 
     def save_task(self, body: Json) -> Json:
-        return self._edit_config(body, lambda c: editing.save_task(c, self.catalog, body.get("task") or {}))
+        saved = []
+        verb = self._config_verb(body, "tasks", "task")
+        return self._edit_config(body, lambda c: saved.append(editing.save_task(c, self.catalog, body.get("task") or {})),
+                                 label=lambda: f"Task {verb}: {saved[0].name}")
 
     def task_times(self, body: Json) -> Json:
         """For the task form, as the times are typed: how long that is, and which
@@ -818,10 +1000,13 @@ class App:
         return {"hours": hours, "periods": editing.periods_for_times(start, end) if hours is not None else None}
 
     def duplicate_task(self, body: Json) -> Json:
-        return self._edit_config(body, lambda c: editing.duplicate_task(c, str(body.get("id"))))
+        made = []
+        return self._edit_config(body, lambda c: made.append(editing.duplicate_task(c, str(body.get("id")))),
+                                 label=lambda: f"Task duplicated: {made[0].name}")
 
     def order_tasks(self, body: Json) -> Json:
-        return self._edit_config(body, lambda c: editing.reorder(c.tasks, [str(i) for i in body.get("ids") or []]))
+        return self._edit_config(body, lambda c: editing.reorder(c.tasks, [str(i) for i in body.get("ids") or []]),
+                                 label="Tasks put in another order")
 
     def use_config(self, body: Json) -> Json:
         """Give a month the configuration of another month, a template or the typical month."""
@@ -837,7 +1022,9 @@ class App:
             nonlocal removed
             removed = editing.use_configuration(month, origin)
 
-        result = self._edit_config(body, change)
+        name = next((s["label"] for s in self._sources() if s["id"] == source), "another configuration")
+        result = self._edit_config(body, change, label=lambda: f"Tasks and areas taken from {name}" + (
+            f" · {_count(removed, 'placement')} taken off" if removed else ""))
         result["removed"] = removed
         return result
 
@@ -1129,8 +1316,10 @@ class App:
         audience = str(body.get("audience") or versions.RESIDENTS)
         if audience not in versions.AUDIENCES:
             raise ApiError(HTTPStatus.BAD_REQUEST, "Unknown choice.")
-        self._change(month_id, lambda m: versions.publish(m, self.people, self.settings, audience=audience) is not None,
-                     answer=lambda _: {})
+        made = []
+        words = "given to the manager" if audience == versions.MANAGER else "published for the residents"
+        self._change(month_id, lambda m: made.append(versions.publish(m, self.people, self.settings, audience=audience)) or True,
+                     answer=lambda _: {}, label=lambda: f"Version {made[0].number} {words}", kind=VERSION)
         if body.get("forget_comments"):
             self.forget_comments(month_id)
         return self.versions_info(month_id)
@@ -1186,7 +1375,8 @@ class App:
             raise ApiError(HTTPStatus.BAD_REQUEST, str(error)) from error
         self.catalog, self.people = self.store.load_catalog(), self.store.load_people()
         self.settings, self.templates = self.store.load_settings(), self.store.load_templates()
-        self._months, self._undo, self._redo, self._proposals, self._suggested = {}, {}, {}, {}, {}
+        self._months, self._proposals, self._suggested = {}, {}, {}
+        self.history.drop()
         self.forget_old_comments(date.today())  # same rule as when the program starts
         return {"safety": safety, "bootstrap": self.bootstrap()}
 
@@ -1214,8 +1404,9 @@ class App:
         self.settings, self.templates = self.store.load_settings(), self.store.load_templates()
         for month_id in result["replaced_months"]:
             # Undo would bring back what the other computer's version replaced: start afresh.
-            for kept in (self._months, self._undo, self._redo, self._proposals, self._suggested):
+            for kept in (self._months, self._proposals, self._suggested):
                 kept.pop(month_id, None)
+            self.history.drop(month_id, note=SYNC_NOTE)
         if any(not unit.startswith("months/") for unit in result["replaced"]):
             self._proposals, self._suggested = {}, {}  # suggestions were made for other people or tasks
 
@@ -1362,6 +1553,11 @@ def _decode_file(body: Json) -> bytes:
         return base64.b64decode(encoded, validate=True)
     except (binascii.Error, ValueError):
         raise ApiError(HTTPStatus.BAD_REQUEST, "The file could not be read.") from None
+
+
+def _count(n: int, one: str, many: str = "") -> str:
+    """"1 shift", "3 shifts", "2 replies"."""
+    return f"{n} {one if n == 1 else (many or one + 's')}"
 
 
 def month_in_preparation(ids: List[str], today: date) -> Optional[str]:
