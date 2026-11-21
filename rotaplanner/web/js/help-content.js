@@ -47,7 +47,7 @@ export const SCREENS = {
     points: [
       'To fix: assignments that break a rule (away, not trained, two shifts at once).',
       'Open shifts: essential ones first. They are printed as places to sign up.',
-      'Balance › Hours: hours against each person’s target, with weekends and evenings.',
+      'Balance › Hours: each person’s hours a week, on average, against their target; then the month’s total and the hours of each week, Monday to Sunday. A week far above the target is marked. Weekends and evenings follow.',
       'Balance › Days: which weekdays and weeks each person’s shifts fall on. Dark boxes show always the same day, or everything in one week. Hatched boxes: they are away some of those days (hover to see which).',
       'Balance › Calendar: each person’s month day by day, with the number of tasks each date. Hover a box for the tasks; hatched means away, a red outline a task while away.',
     ],
@@ -176,6 +176,8 @@ export const QUESTIONS = [
     a: '“Add a person” in People. Skills are ticked on the person’s card or, for many people at once, in the skills grid. A new skill is created from Tasks & Areas › New skill.' },
   { q: 'Set how many hours a week someone gives', go: 'people', find: 'target hours week average month expected usual objective how much',
     a: 'The usual target is in Settings › Centre and hours, “Target hours a week”: it is for everyone without a target of their own. For one person, open their card in People and fill in “Target a week” (empty: the usual target). It is an average: the program works out the month’s figure from it, so 3.5 h a week makes 15 h in a month of 30 days and 14 h in February. “At most a month” and “At most a day” are limits, not targets.' },
+  { q: 'See how many hours a week someone does', go: 'check', find: 'hours week weekly average target busy heavy month balance each week',
+    a: 'In Check › Balance › Hours: the bar shows each person’s hours a week, on average over the month, against their target; then come the month’s hours and one column per week, Monday to Sunday (click a week, or reach it with Tab, to read it in words). A week shared with the month before or after counts whole when that month has a rota. A week with more than twice the target, in two shifts or more, is marked. One busy week is fine: the target is an average, and a quieter week makes up for it. The same weeks are on the People tab of the rota (click someone to see their weeks) and in the list for a shift (“… h that week”).' },
   { q: 'Limit how many shifts someone does in a week', go: 'people', find: 'weekly limit maximum per week too many shifts',
     a: 'Open the person in People: under “Number of shifts”, fill in “A week, at most” (2, for example). It counts shifts, whatever their length, not hours. Weeks run Monday to Sunday, also across the end of a month. Suggestions never go over it, and the list for a shift shows them under “Away, busy or not trained”, with the reason. “Assign anyway” still works: only that shift is flagged. Their limits also show on their card in the People tab of the rota.' },
   { q: 'Rename or delete a skill', go: 'people', find: 'skill rename remove delete change name wrong',

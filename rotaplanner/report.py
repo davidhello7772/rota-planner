@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import Counter
 from typing import Any, Dict, Iterable, List
 
-from . import checks
+from . import checks, workload
 from .eligibility import WEEKDAY_NAMES as DAY_NAMES
 from .model import PERIODS, WEEKDAY_KEYS, Month, Person, Settings, parse_date, weekday_key
 from .schedule import Schedule
@@ -135,6 +135,26 @@ def calendar_row(schedule: Schedule, shifts: List[Any], away: Dict[str, List[str
     return row
 
 
+def balance_text(schedule: Schedule, figures: List[Any], balance: List[Json], settings: Settings) -> str:
+    """The sentence above Balance › Hours: the means over the rows of the table
+    ("On average 3.1 h a week for a target of 3.4 h · 13.5 h each in December ·
+    0.7 weekend and 0.3 evening shifts each."). ``figures``: each row's average
+    a week, weekly target and hours in the month, unrounded."""
+    month = workload.MONTH_NAMES[schedule.month.month - 1]
+    if not balance:
+        return f"Nobody to compare in {month}."
+    count = len(balance)
+    week, target, hours = (sum(values) / count for values in zip(*figures))
+    weekends = sum(p["weekends"] for p in balance) / count
+    evenings = sum(p["evenings"] for p in balance) / count
+    text = (f"On average {workload.number(week, 1)} h a week for a target of {workload.number(target)} h · "
+            f"{workload.number(hours, 1)} h each in {month} · "
+            f"{workload.number(weekends, 1)} weekend and {workload.number(evenings, 1)} evening shifts each.")
+    if settings.prorate_target:
+        text += " The time someone is away is not counted in their average."
+    return text
+
+
 def check_report(month: Month, people: List[Person], settings: Settings, previous: List[Month],
                  around: Iterable[Month] = ()) -> Json:
     """``previous``: earlier months, most recent first, for the hours history.
@@ -166,6 +186,7 @@ def check_report(month: Month, people: List[Person], settings: Settings, previou
     weeks = month_weeks(schedule.dates)
     by_weekday = [[iso for iso in schedule.dates if parse_date(iso).weekday() == i] for i in range(7)]
     balance = []
+    figures = []   # each row's average a week, weekly target and hours, unrounded, for the sentence above the table
     for person in people:
         if not person.active or person.archived:
             continue
@@ -179,6 +200,11 @@ def check_report(month: Month, people: List[Person], settings: Settings, previou
         ratio = hours / target if target > 0 else 0.0
         balance.append({
             **pattern,
+            # Hours a week against the target, the month's hours and figure, in figures and
+            # words (Balance › Hours); "weeks" above stays the Days view's own.
+            **workload.summary(schedule, person.id),
+            # Each whole week, Monday to Sunday, with the nearby days of the months next door.
+            "by_week": workload.by_week(schedule, person.id, detailed=True),
             # Hours against the target (1 = exactly the target), and whether it stands out.
             "ratio": round(ratio, 4),
             "load": "over" if ratio > WELL_OVER else "under" if ratio < WELL_UNDER else "",
@@ -196,13 +222,18 @@ def check_report(month: Month, people: List[Person], settings: Settings, previou
             "weekends": schedule.weekends(person.id),
             "evenings": schedule.evenings(person.id),
             "previous": [round(s.hours(person.id), 1) for s in previous_schedules],
+            "previous_week": [round(s.week_average(person.id), 1) for s in previous_schedules],
             "replied": schedule.has_replied(person.id),
         })
+        figures.append((schedule.week_average(person.id), schedule.week_target(person.id), hours))
 
     by_day = Counter(iso for _, iso, _ in open_slots)
     return {
         "title": month.title(),
         "previous_titles": [m.title() for m in previous],
+        "previous_short": [workload.MONTH_SHORT[m.month - 1] for m in previous],
+        "balance_text": balance_text(schedule, figures, balance, settings),
+        "calendar_weeks": workload.weeks(schedule),
         "to_fix": [describe(slot, s) for slot, s in ordered if s.state == checks.CONFLICT],
         "warnings": [describe(slot, s) for slot, s in ordered if s.state == checks.WARN],
         "overrides": [describe(slot, s) for slot, s in ordered if s.state == checks.FORCED],

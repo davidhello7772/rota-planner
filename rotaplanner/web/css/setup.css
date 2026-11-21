@@ -439,6 +439,27 @@ a.tile:hover { border-color: var(--line-strong); }
   background: var(--surface-2); font-size: var(--fs-sm); white-space: pre-line; }
 .balance-detail[hidden] { display: none; }
 
+/* ---- Check › Balance › Hours: hours a week, then each week (Monday to Sunday) ---- */
+/* Widths for a 1071 px card: five weeks and two earlier months fit without
+   scrolling; in a narrow window the table scrolls and the names stay in place. */
+.hours-table th, .hours-table td { padding-left: var(--space-2); padding-right: var(--space-2); }
+.hours-table .col-person { width: 10.625rem; position: sticky; left: 0; z-index: 1; background: var(--surface); box-shadow: inset -1px 0 0 var(--line); }
+.hours-table thead .col-person { z-index: 2; background: var(--surface-2); }
+.hours-table .col-bar { width: 12.5rem; }
+.hours-table .balance-bar { min-width: 0; }
+.hours-table .balance-text { white-space: nowrap; }
+.hours-table .col-month { width: 4rem; }
+.hours-table .col-shifts { width: 3.5rem; }
+.hours-table .col-weekends { width: 4.75rem; }
+.hours-table .col-evenings, .hours-table .col-before { width: 4.5rem; }
+.hours-table th.week-col, .hours-table td.week-cell { width: 3rem; padding-left: var(--space-1); padding-right: var(--space-1); text-align: center; }
+.hours-table td.week-cell { font-variant-numeric: tabular-nums; cursor: pointer; }
+.hours-table .group-start { border-left: 2px solid var(--line); }
+.hours-table td.week-1 { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.hours-table td.week-2 { background: color-mix(in srgb, var(--accent) 20%, transparent); }
+.hours-table td.week-3 { background: var(--warn-weak); color: var(--warn); font-weight: 700; }
+.hours-table td.week-cell:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
 /* ---- Publish › Where the rota stands: the steps ----------------------------- */
 .phase-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .phase-step { flex: 1 1 9rem; display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3);

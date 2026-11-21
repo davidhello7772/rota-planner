@@ -60,23 +60,46 @@ function showDetail(text) {
 
 const WEEKDAY_NAMES = ['Mondays', 'Tuesdays', 'Wednesdays', 'Thursdays', 'Fridays', 'Saturdays', 'Sundays'];
 
+/**
+ * Hours a week against the target (the bar), the month's hours, then the hours
+ * of each week, Monday to Sunday (whole across two months when the other one
+ * has a rota). Every figure and sentence comes from the program.
+ */
 function hoursRows(report, rows) {
   const maxRatio = Math.max(1.5, ...rows.map(ratio));
-  return h('table', { class: 'table balance-table' },
-    h('thead', {}, h('tr', {}, h('th', {}, 'Person'), h('th', {}, 'Hours against target'), h('th', {}, 'Shifts'),
-      h('th', {}, 'Weekends'), h('th', {}, 'Evenings'), report.previous_titles.map((t) => h('th', {}, t)))),
+  const weeks = report.calendar_weeks;
+  return h('table', { class: 'table balance-table hours-table' },
+    h('thead', {}, h('tr', {},
+      h('th', { class: 'col-person' }, 'Person'),
+      h('th', { class: 'col-bar' }, 'Hours a week against target'),
+      h('th', { class: ['num', 'col-month'] }, 'Month'),
+      weeks.map((w, i) => h('th', { class: ['num', 'week-col', i === 0 && 'group-start'], title: w.title },
+        i === 0 ? `Week ${w.short}` : w.short)),  // the days only: the full dates are in the title
+      h('th', { class: ['num', 'col-shifts'] }, 'Shifts'),
+      h('th', { class: ['num', 'col-weekends'] }, 'Weekends'),
+      h('th', { class: ['num', 'col-evenings'] }, 'Evenings'),
+      report.previous_short.map((short, i) => h('th', { class: ['num', 'col-before'],
+        title: `Hours a week on average in ${report.previous_titles[i]}` }, short)))),
     h('tbody', {}, rows.map((p) => {
       const r = ratio(p);
       return h('tr', {},
-        h('th', { scope: 'row' }, p.name, !p.replied ? h('span', { class: 'faint' }, ' · no reply') : null),
+        h('th', { scope: 'row', class: 'col-person' }, p.name, !p.replied ? h('span', { class: 'faint' }, ' · no reply') : null),
         h('td', {}, h('div', { class: 'balance-bar', title: `${Math.round(r * 100)}% of target` },
           h('span', { class: ['fill', p.load], style: { width: `${Math.min(100, (r / maxRatio) * 100)}%` } }),
           h('span', { class: 'target-mark', style: { left: `${(1 / maxRatio) * 100}%` } }),
-          h('span', { class: 'balance-text' }, `${formatHours(p.hours)} / ${formatHours(p.target)}`))),
+          h('span', { class: 'balance-text' }, p.week_text))),
+        h('td', { class: 'num', title: p.month_detail }, formatHours(p.hours)),
+        p.by_week.map((w, i) => h('td', {
+          class: ['num', 'week-cell', `week-${w.level}`, i === 0 && 'group-start'],  // 3: far above the target
+          title: w.text, tabindex: w.hours ? '0' : null,
+          onclick: () => showDetail(w.text),
+          onfocus: () => showDetail(w.text),
+        }, w.hours || '')),
         h('td', { class: 'num' }, p.shifts),
         h('td', { class: 'num' }, p.weekends),
         h('td', { class: 'num' }, p.evenings),
-        p.previous.map((hours) => h('td', { class: 'num faint' }, formatHours(hours))));
+        p.previous_week.map((week, i) => h('td', { class: 'num faint',
+          title: `${formatHours(p.previous[i])} in ${report.previous_titles[i]}` }, week)));
     })));
 }
 
@@ -87,7 +110,7 @@ function daysRows(report, rows) {
       h('th', {}, 'Person'), h('th', { class: 'num' }, 'Shifts'),
       WEEKDAYS.map((d, i) => h('th', { class: ['num', i >= 5 && 'weekend', i === 0 && 'group-start'], title: `Shifts on ${d}days` }, d)),
       report.weeks.map((w, i) => h('th', { class: ['num', i === 0 && 'group-start'], title: `Week starting ${formatDate(w.start)}` },
-        i === 0 ? `Week ${w.label}` : w.label)),
+        i === 0 ? `Week ${w.short}` : w.short)),  // the days only: the full dates are in the title
       h('th', { class: ['num', 'group-start'], title: 'Most shifts on a single day' }, 'Most in a day'),
       h('th', { class: 'num', title: 'Longest run of days with a shift' }, 'Days in a row'),
       h('th', {}, 'Worth a look'))),
@@ -138,7 +161,6 @@ function balanceTable(report) {
   const days = view === 'days' || view === 'calendar';
   const sort = state.session.checkSort || 'ratio';
   const rows = [...report.balance].sort(days && sort === 'ratio' ? (a, b) => unevenness(b) - unevenness(a) : SORTS[sort][1]);
-  const average = report.averages;
   const noted = rows.filter((p) => p.notes.length).length;
   return h('section', { class: 'card' },
     h('div', { class: 'card-title' }, h('h2', {}, 'Balance'),
@@ -155,9 +177,8 @@ function balanceTable(report) {
       ? h('p', { class: 'muted' }, 'Each person’s month day by day: the number of tasks each date (hover or click for which). Hatched: away that day, part of it or all of it. Red outline: a task while they said they are away.')
       : days
       ? h('p', { class: 'muted' }, 'Where each person’s shifts fall. A darker box holds a larger share of their month: one dark weekday means always the same day; one dark week means everything at once. Hatched: away on some of those days (darker: away all day, every one of them); hover or click to see which.')
-      : h('p', { class: 'muted' }, `On average ${formatHours(average.hours)} for ${formatHours(average.target)} targeted · `
-        + `${average.weekends.toFixed(1)} weekend and ${average.evenings.toFixed(1)} evening shifts each. Targets are lowered for people away part of the month.`),
-    days ? h('p', { class: 'balance-detail', id: 'balance-detail', role: 'status', hidden: true }) : null,
+      : h('p', { class: 'muted' }, report.balance_text),
+    h('p', { class: 'balance-detail', id: 'balance-detail', role: 'status', hidden: true }),
     h('div', { class: 'table-scroll', dataset: { scrollId: 'balance' } },
       view === 'calendar' ? calendarRows(report, rows) : days ? daysRows(report, rows) : hoursRows(report, rows)));
 }

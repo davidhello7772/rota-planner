@@ -167,8 +167,11 @@ folder.
      day of that week), someone who has not replied, a comment
      about that day, a regular who is away, someone who could be trained.
 4. **Check**: what breaks a rule, the open shifts (essential first), the rules
-   overridden and why, and the balance of hours, weekends and evenings, with
-   the two previous months.
+   overridden and why, and the balance: each person's hours a week, on
+   average, against their target, then the month's hours and the hours of
+   each week (Monday to Sunday; a week far above the target is marked),
+   weekends and evenings, with the two previous months (their average a
+   week).
 5. **Publish**: the rota goes through phases, shown as steps and written
    under the month's name on every screen: **Draft** → **Manager's check**
    (*Give to the manager to check*: printouts say "Version 1 to check") →

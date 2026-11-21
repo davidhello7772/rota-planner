@@ -328,6 +328,96 @@ class DaysPatternTest(unittest.TestCase):
         ben = next(p for p in check_report(month, people, Settings(), [])["balance"] if p["id"] == "ben")
         self.assertEqual(ben["weekday_away"][4], {"level": "all", "text": "Never on Friday (on their card)"})
 
+    # -- Balance › Hours: hours a week, week by week ----------------------------
+
+    def test_hours_a_week_and_each_week(self):
+        from rotaplanner.report import check_report
+        month = h.month()
+        # Ana (3.5 h a week): a lunch (4 h) on Tue 1, then three in the week of Monday 14.
+        month.assignments = [Assignment("lunch", f"2026-12-{d:02d}", 0, person_id="ana") for d in (1, 14, 15, 16)]
+        # Ben: one breakfast (2 h) on Mon 21.
+        month.assignments.append(Assignment("breakfast", "2026-12-21", 0, person_id="ben"))
+        report = check_report(month, h.people(), Settings(default_target_hours_per_week=3.5), [])
+        ana = next(p for p in report["balance"] if p["id"] == "ana")
+        # The month's figures and words, from the program.
+        self.assertEqual((ana["hours"], ana["target"], ana["week_target"]), (16.0, 15.5, 3.5))
+        self.assertEqual(ana["week_hours"], round(16 / (31 / 7), 1))
+        self.assertEqual(ana["week_text"], "3.6 / 3.5 h a week")
+        self.assertEqual(ana["month_detail"], "16 of 15.5 h in December")
+        self.assertEqual((ana["ratio"], ana["load"]), (round(16 / 15.5, 4), ""))   # under the 1.15 that stands out
+        # One entry per week, Monday to Sunday, aligned with the report's calendar weeks.
+        self.assertEqual([w["label"] for w in report["calendar_weeks"]], ["1–6", "7–13", "14–20", "21–27", "28–31"])
+        self.assertEqual([w["hours"] for w in ana["by_week"]], [4.0, 0.0, 12.0, 0.0, 0.0])
+        self.assertEqual([w["level"] for w in ana["by_week"]], [2, 0, 3, 0, 0])   # 4 h is above 3.5; 12 h far above
+        self.assertEqual([w["far"] for w in ana["by_week"]], [False, False, True, False, False])
+        self.assertEqual(ana["by_week"][2]["text"],
+                         "Week of Monday 14 to Sunday 20 December: 12 h, more than twice their target (3.5 h a week)")
+        # Every week is said in words on Check, even an empty one.
+        self.assertEqual(ana["by_week"][1]["text"], "Week of Monday 7 to Sunday 13 December: 0 h")
+        ben = next(p for p in report["balance"] if p["id"] == "ben")
+        self.assertEqual([w["hours"] for w in ben["by_week"]], [0.0, 0.0, 0.0, 2.0, 0.0])
+        self.assertEqual(ben["by_week"][3]["level"], 1)
+
+    def test_a_week_shared_with_the_month_before_counts_whole(self):
+        from rotaplanner.months import create_month
+        from rotaplanner.report import check_report
+        november = create_month(h.catalog(), 2026, 11)
+        november.assignments = [Assignment("lunch", "2026-11-30", 0, person_id="ana")]   # Monday 30 November
+        month = h.month()
+        month.assignments = [Assignment("lunch", "2026-12-01", 0, person_id="ana")]
+        settings = Settings(default_target_hours_per_week=4)   # 8 h that week: twice the target, not more
+        report = check_report(month, h.people(), settings, [november], around=[november])
+        ana = next(p for p in report["balance"] if p["id"] == "ana")
+        self.assertEqual(report["calendar_weeks"][0]["start"], "2026-11-30")
+        self.assertEqual(report["calendar_weeks"][0]["label"], "30 Nov–6 Dec")
+        self.assertEqual(ana["by_week"][0]["hours"], 8.0)
+        self.assertEqual(ana["by_week"][0]["text"],
+                         "Week of Monday 30 November to Sunday 6 December: 8 h, 4 h of them in November")
+        self.assertEqual(ana["hours"], 4.0)   # the month's own hours only
+        # The Days view keeps the month's own weeks and counts: not the calendar weeks.
+        self.assertEqual(report["weeks"][0], {"start": "2026-12-01", "label": "1–6"})
+        self.assertEqual(ana["weeks"][0], 1)
+        # Without November's rota, only December's days count, and the week says so.
+        alone = check_report(month, h.people(), settings, [])
+        ana = next(p for p in alone["balance"] if p["id"] == "ana")
+        self.assertEqual((alone["calendar_weeks"][0]["label"], alone["calendar_weeks"][0]["cut"]), ("1–6", True))
+        self.assertEqual(ana["by_week"][0]["hours"], 4.0)
+
+    def test_the_earlier_months_as_hours_a_week(self):
+        from rotaplanner.months import create_month
+        from rotaplanner.report import check_report
+        november, october = create_month(h.catalog(), 2026, 11), create_month(h.catalog(), 2026, 10)
+        # Ana: three lunches (12 h) in November, 30 days: 2.8 h a week; nothing in October.
+        november.assignments = [Assignment("lunch", f"2026-11-{d:02d}", 0, person_id="ana") for d in (3, 10, 17)]
+        report = check_report(h.month(), h.people(), Settings(default_target_hours_per_week=3.5), [november, october])
+        ana = next(p for p in report["balance"] if p["id"] == "ana")
+        self.assertEqual(report["previous_titles"], ["November 2026", "October 2026"])
+        self.assertEqual(report["previous_short"], ["Nov", "Oct"])
+        self.assertEqual(ana["previous"], [12.0, 0.0])
+        self.assertEqual(ana["previous_week"], [round(12 / (30 / 7), 1), 0.0])
+        self.assertEqual(ana["previous_week"], [2.8, 0.0])
+
+    def test_the_sentence_above_the_hours(self):
+        from rotaplanner.report import check_report
+        month = h.month()
+        # As in test_hours_against_the_target_and_the_averages: Ana 16 h (2 weekend shifts), Ben 2 h, Cleo nothing.
+        month.assignments = [Assignment("lunch", f"2026-12-{d:02d}", 0, person_id="ana") for d in (1, 2, 5, 6)]
+        month.assignments.append(Assignment("breakfast", "2026-12-07", 0, person_id="ben"))
+        people = h.people()
+        people[2].target_hours_per_week = 1.5   # Cleo's own target
+        # The means over the rows: (16 + 2 + 0) / 3 = 6 h, 6 / (31 / 7) = 1.35 h a week; targets (3.5 + 3.5 + 1.5) / 3.
+        off = check_report(month, people, Settings(default_target_hours_per_week=3.5, prorate_target=False), [])
+        self.assertEqual(off["balance_text"], "On average 1.4 h a week for a target of 2.83 h · 6 h each in December · "
+                                              "0.7 weekend and 0 evening shifts each.")
+        on = check_report(month, people, Settings(default_target_hours_per_week=3.5, prorate_target=True), [])
+        self.assertEqual(on["balance_text"], off["balance_text"] + " The time someone is away is not counted in their average.")
+        # The averages of before are kept as they were (their keys are pinned).
+        self.assertEqual(sorted(on["averages"]), ["evenings", "hours", "target", "weekends"])
+        # Nobody in the table: still a sentence, nothing divided by zero.
+        nobody = check_report(h.month(), [], Settings(prorate_target=True), [])
+        self.assertEqual(nobody["balance_text"], "Nobody to compare in December.")
+        self.assertEqual((nobody["calendar_weeks"][0]["label"], nobody["previous_short"]), ("1–6", []))
+
 
 class HardeningTest(unittest.TestCase):
     """From the security review."""

@@ -206,6 +206,15 @@ class ServerTest(unittest.TestCase):
         report = self.json("GET", "/api/months/2026-12/check")[1]
         self.assertEqual(sorted(report["averages"]), ["evenings", "hours", "target", "weekends"])
         self.assertTrue(all({"ratio", "load", "uneven"} <= set(p) for p in report["balance"]))
+        # Balance › Hours: hours a week, week by week, and the earlier months as hours a week.
+        self.assertTrue({"calendar_weeks", "previous_short", "balance_text"} <= set(report))
+        self.assertTrue(report["balance_text"].startswith("On average "))
+        self.assertTrue(report["balance"] and all(
+            {"week_text", "month_detail", "by_week", "previous_week"} <= set(p)
+            and len(p["by_week"]) == len(report["calendar_weeks"])
+            and all("text" in w for w in p["by_week"])
+            and len(p["previous_week"]) == len(p["previous"]) == len(report["previous_short"])
+            for p in report["balance"]))
         # Hours a week against the target, in words and for the bar: on the rota and in the list for a shift.
         words = {"week_text", "month_text", "month_detail", "week_hours", "ratio", "bar", "hours", "target"}
         people = self.json("GET", "/api/months/2026-12")[1]["people"]
