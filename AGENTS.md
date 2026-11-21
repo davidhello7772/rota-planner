@@ -242,6 +242,17 @@ cost a bug report.
   for a server. Lock order: `app.lock`, then `sync.lock`. Any new data file
   must be added to `transfer.TOP_LEVEL` (so it is exported, checked and
   synchronised) or deliberately kept local like `sync.json` and `mail.json`.
+- **The 25 % ceiling is the suggestions' own, not a rule.** `solver.prefill`
+  takes nobody past `SUGGEST_UP_TO` × their target (`ceiling=`); it is not
+  in `eligibility.RULES`, and the picker, the checks, Ideas, Not enough
+  people and Rebalance do not use it (by hand the coordinator places whoever
+  they want). `solver.prefill` returns three things: `(proposals, left,
+  report)`; the report (what stays open and why, every sentence made in
+  Python) waits beside the suggestions in `App._suggested` and goes in the
+  month view as `"suggested"`. "Suggest for these too" is the same prefill
+  with `"beyond": true`: no ceiling, the waiting suggestions `held` (their
+  shifts stay filled; the repair may give one to someone else, the
+  improvement leaves them alone) and returned again with the new ones.
 - **One computer edits at a time (the pen).** Every POST that changes shared
   data passes `server._pen` first (`PEN_FREE` lists the exceptions): a new
   route that changes data needs nothing; one that only looks, or only

@@ -1,6 +1,6 @@
 // Side panel: the Assistant (where the rota stands, hints) and People
 // (everyone's hours, highlight someone, paint their shifts).
-import { acceptProposals, discardProposals, loadEligible, prefill, rebalance } from '../actions.js';
+import { acceptProposals, discardProposals, loadEligible, prefill, prefillBeyond, rebalance } from '../actions.js';
 import { api, monthPath } from '../api.js';
 import { formatDate, formatHours, h } from '../dom.js';
 import { icon } from '../icons.js';
@@ -65,7 +65,7 @@ function assistant(month) {
         tile(String(s.conflicts), 'to fix', s.conflicts ? 'bad' : 'ok'),
         tile(String(s.forced), 'assigned anyway', s.forced ? 'forced' : ''),
         tile(String(s.guests), 'not on the list', ''))),
-    month.proposals.length ? proposalsBox(month) : h('section', { class: 'actions' },
+    month.proposals.length || month.suggested ? proposalsBox(month, showOpen) : h('section', { class: 'actions' },
       h('h3', {}, 'Suggestions', hint('prefill')),
       suggestButton('prefill', 'Suggest someone for open shifts', 'wand', 'Prefill the rota…',
         (e) => prefillMenu(e.currentTarget, month)),
@@ -88,7 +88,7 @@ function assistant(month) {
 
 // ---- Suggestions: prefill and rebalance ---------------------------------
 
-/** One of the two buttons: while either is looking, both wait, and the one at work says so. */
+/** A button that asks for suggestions: while one is looking, all wait, and the one at work says so. */
 function suggestButton(kind, title, iconName, label, onclick) {
   const looking = state.session.looking;
   const mine = looking === kind;
@@ -123,16 +123,39 @@ function prefillMenu(anchor, month) {
   });
 }
 
-function proposalsBox(month) {
+/** What the suggestions left open, and why (every word from the server), with what to do next. */
+function leftOpen(suggested, showOpen) {
+  if (!suggested?.left) return null;
+  return [
+    h('p', {}, suggested.left_text),
+    h('ul', { class: 'left-reasons' }, suggested.reasons.map((r) => h('li', {}, r.text))),
+    h('div', { class: 'proposal-actions' },
+      h('button', { class: 'btn small', type: 'button', onclick: () => showOpen() }, 'Show them'),
+      suggested.beyond ? suggestButton('beyond', 'Suggest someone for these too, further over their target',
+        'wand', 'Suggest for these too', () => prefillBeyond()) : null),
+    suggested.beyond ? h('p', { class: 'faint' }, 'Goes further over people’s targets, never over a limit on their card.') : null,
+  ];
+}
+
+function proposalsBox(month, showOpen) {
   const people = new Map(month.people.map((p) => [p.id, p]));
   const tasks = new Map(month.areas.flatMap((a) => a.tasks).map((t) => [t.id, t]));
   const moves = month.proposals.filter((p) => p.replaces);
   const fills = month.proposals.length - moves.length;
+  if (!month.proposals.length) {
+    // Nothing could be suggested: say why, and let it go.
+    return h('section', { class: 'proposals-box' },
+      h('h3', {}, 'Nothing to suggest'),
+      leftOpen(month.suggested, showOpen),
+      changes(h('div', { class: 'proposal-actions' },
+        h('button', { class: 'btn primary', type: 'button', onclick: () => discardProposals() }, 'OK'))));
+  }
   return h('section', { class: 'proposals-box' },
     h('h3', {}, moves.length ? 'Suggested moves' : 'Suggestions'),
     h('p', {}, moves.length
       ? `${moves.length} moves would even out hours. Accept them one by one, or all at once.`
       : `${fills} open shifts have a suggestion, shown dashed on the rota. Click one to choose someone else.`),
+    moves.length ? null : leftOpen(month.suggested, showOpen),
     moves.length ? h('ul', { class: 'move-list' }, moves.map((m) => h('li', {},
       h('div', {}, h('strong', {}, `${tasks.get(m.task_id)?.name || ''}, ${formatDate(m.date)}`),
         h('span', { class: 'muted' }, `${people.get(m.replaces)?.name} → ${people.get(m.person_id)?.name}`),

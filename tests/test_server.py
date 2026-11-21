@@ -291,6 +291,7 @@ class ServerTest(unittest.TestCase):
         self.assertTrue(any("proposal" in s for s in body["cells"]["lunch|2026-12-20"]["slots"]))
         status, body = self.json("POST", "/api/months/2026-12/proposals/accept", {})
         self.assertEqual((body["accepted"], body["skipped"], body["proposals"]), (proposed, 0, []))
+        self.assertIsNone(body["suggested"])   # all accepted: nothing more to say
         self.assertFalse(body["cells"]["lunch|2026-12-20"]["slots"][0].get("open"))
         status, body = self.json("POST", "/api/months/2026-12/undo")
         self.assertTrue(body["cells"]["lunch|2026-12-20"]["slots"][0]["open"])
@@ -302,6 +303,31 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual({p["name"] for p in report["balance"]} >= {"Ana B.", "Ben C."}, True)
         self.assertTrue(report["open"])
+
+    def test_prefill_says_what_stays_open_and_can_go_further(self):
+        week = [f"2026-12-{d:02d}" for d in range(7, 14)]
+        status, body = self.json("POST", "/api/months/2026-12/prefill", {"dates": week})
+        self.assertEqual(status, 200)
+        first = {p["key"] for p in body["proposals"]}
+        suggested = body["suggested"]
+        self.assertEqual((suggested["proposed"], suggested["left"]), (len(first), body["prefill"]["left_open"]))
+        self.assertGreater(suggested["beyond"], 0)
+        self.assertTrue(suggested["left_text"].startswith(f"{suggested['left']} shifts stay open: "))
+        self.assertEqual(sum(r["count"] for r in suggested["reasons"]), suggested["left"])
+        self.assertEqual(self.json("GET", "/api/months/2026-12")[1]["suggested"], suggested)
+
+        status, body = self.json("POST", "/api/months/2026-12/prefill", {"beyond": True})
+        self.assertEqual(status, 200)
+        now = {p["key"] for p in body["proposals"]}
+        self.assertTrue(first < now)                                   # the first ones stay, new ones are added
+        self.assertEqual(body["prefill"]["proposed"], len(now) - len(first))
+        self.assertEqual({p["date"] for p in body["proposals"]} - set(week), set())   # the same days
+        self.assertEqual(body["suggested"]["beyond"], 0)
+
+        status, body = self.json("POST", "/api/months/2026-12/proposals/discard", {})
+        self.assertEqual((body["proposals"], body["suggested"]), ([], None))
+        status, body = self.json("POST", "/api/months/2026-12/prefill", {"beyond": True})
+        self.assertEqual(status, 409)
 
     def test_swap_is_all_or_nothing(self):
         self.json("POST", "/api/months/2026-12/assign", {"task_id": "supper", "date": "2026-12-22", "position": 0, "person_id": "ben"})

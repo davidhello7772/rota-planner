@@ -144,6 +144,20 @@ export async function assign(key, who, { force = false, reason = null } = {}) {
 
 // ---- Suggestions -----------------------------------------------------------
 
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+/** What a round of suggestions says: how many, and how many shifts stay open (the Assistant says why). */
+function suggestedToast(proposed, left, more = false) {
+  const stay = `${plural(left, 'shift')} ${left === 1 ? 'stays' : 'stay'} open: the Assistant says why.`;
+  if (proposed) {
+    toast(`${plural(proposed, more ? 'more suggestion' : 'suggestion')}, shown dashed. ${left ? stay : 'Check them, then accept.'}`);
+  } else if (left) {
+    toast(`Nobody${more ? ' else' : ''} can be suggested for these shifts: the Assistant says why.`);
+  } else {
+    toast('No open shifts here: nothing to suggest.');
+  }
+}
+
 /** Ask for suggestions for open shifts: `scope` is {} (whole month), {dates} or {area_id}. */
 export async function prefill(scope = {}) {
   if (state.session.looking) return;
@@ -160,9 +174,35 @@ export async function prefill(scope = {}) {
       proposed += month.prefill.proposed;
       left += month.prefill.left_open;
     }
-    toast(proposed
-      ? `${proposed} suggestions, shown dashed. Check them, then accept${left ? ` · ${left} shifts have nobody free` : ''}.`
-      : 'Nobody can be suggested for these shifts.');
+    suggestedToast(proposed, left);
+  } catch (error) {
+    reportError(error);
+  } finally {
+    setSession({ looking: null });
+  }
+}
+
+/**
+ * "Suggest for these too": go further over people's targets (never over a limit on
+ * their card) for the shifts the suggestions left open. Each month keeps, on the
+ * server, the days and area its suggestions were asked for, so this asks every
+ * month on screen whose suggestions could go further (an event can run over two).
+ */
+export async function prefillBeyond() {
+  if (state.session.looking) return;
+  const others = state.ui.view === 'event' ? Object.keys(state.session.otherMonths) : [];
+  const ids = [state.month.id, ...others].filter((id) => viewOf(id)?.suggested?.beyond);
+  if (!ids.length) return;
+  setSession({ looking: 'beyond' });
+  try {
+    let proposed = 0;
+    let left = 0;
+    for (const monthId of ids) {
+      const month = await post('/prefill', { beyond: true }, monthId);
+      proposed += month.prefill.proposed;
+      left += month.prefill.left_open;
+    }
+    suggestedToast(proposed, left, true);
   } catch (error) {
     reportError(error);
   } finally {

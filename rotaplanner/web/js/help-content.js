@@ -115,9 +115,11 @@ export const QUESTIONS = [
   { q: 'Put someone on a shift', go: 'build', find: 'assign place choose person slot',
     a: 'Click the shift. People are listed best first, with why. Click a name, or type a few letters and press Enter. With the arrows you move between shifts; Enter opens the list.' },
   { q: 'Fill the open shifts quickly', go: 'build', find: 'prefill automatic suggest auto fast',
-    a: 'In the Assistant, “Prefill the rota…” suggests someone for every open shift, starting with the essential ones. The work is shared in proportion to each person’s target and spread over the weeks, never beyond a limit on their card. Suggestions are dashed: accept them all, or click one to choose someone else.' },
+    a: 'In the Assistant, “Prefill the rota…” suggests someone for every open shift, starting with the essential ones, and someone on every day before a second person anywhere. The work is shared in proportion to each person’s target and spread over the weeks. Suggestions stay within a quarter over each person’s target and never break a limit on their card. They are dashed: accept them all, or click one to choose someone else.' },
   { q: 'Nobody is free for a shift', go: 'build', find: 'no one empty shortage cannot fill ideas',
     a: 'Open the shift: under “Ideas” the program proposes an exchange that frees someone, a person who has not replied, a comment about that day, or a regular who is away. You can also highlight the shift (H): it is printed “Sign up”, and listed on the sign-up sheet.' },
+  { q: 'There are not enough people for every shift', go: 'build', find: 'short not enough people open left why over target',
+    a: 'Suggestions stop a quarter over each person’s target and never break a limit on their card, so some shifts may stay open. Under the suggestions, the Assistant says how many and why: the people who could take them would go too far over their target, are at a limit on their card, are on another shift, are away, or nobody is trained. “Show them” shows only the open shifts. “Suggest for these too” goes further over people’s targets, never over a limit on their card; the shifts already suggested stay filled, though one may go to someone else so that another shift can be filled. For one shift, open it: its “Ideas” may free someone, and “Assign anyway” places someone a rule would stop, with a small flag.' },
   { q: 'Use someone who said they are away', go: 'build', find: 'force override unavailable assign anyway exception',
     a: 'In the list, people who are away or not trained are at the bottom. Click one, give a reason if you wish, and “Assign anyway”. The shift keeps a small flag and is listed in Check under “Assigned anyway”.' },
   { q: 'A volunteer or guest, name not known yet', go: 'build', find: 'unknown outsider not on the list placeholder',
@@ -230,7 +232,7 @@ export const HINTS = {
   versions: 'A version records who is on each shift, for the manager to check or published for the residents. Later changes are marked ● on printouts, so people only look at what moved.',
   eventDay: 'On the days of an event, each usual task uses its “Event day” number of people when that is higher (set in Tasks & Areas).',
   target: 'The hours each person is expected to give in a month. Someone away part of the month has a lower target. Suggestions and the list for a shift compare each person’s hours with their own target, so someone with half the usual target gets about half the work.',
-  prefill: 'Essential tasks first, then the shifts with the fewest possible people; each time the person who fits and is furthest below their own target. The work is shared in proportion to each person’s target, spread over the weeks, and never beyond a limit on their card. Nothing is placed without your agreement.',
+  prefill: 'Essential tasks first, then someone on every day before a second person anywhere, then the shifts with the fewest possible people; each time the person who fits and is furthest below their own target. The work is shared in proportion to each person’s target and spread over the weeks. Suggestions stay within a quarter over each person’s target and never break a limit on their card; the Assistant says what stays open, and why. Nothing is placed without your agreement.',
 };
 
 /**

@@ -147,10 +147,15 @@ folder.
 3. **Build**: the rota itself. The *Event* view shows an event day by day,
    grouped by area.
    - *Prefill the rota…* (Assistant panel) suggests someone for every open
-     shift — or only the days on screen, or one area. The work is shared in
-     proportion to each person's target and spread over the weeks, never
-     beyond a limit on their card. Suggestions appear dashed; accept them all,
-     or click one to choose someone else.
+     shift — or only the days on screen, or one area. Essential tasks come
+     first, and every day gets someone before any day gets a second person.
+     The work is shared in proportion to each person's target and spread over
+     the weeks. Suggestions stay within a quarter over each person's target
+     and never break a limit on their card. Suggestions appear dashed; accept
+     them all, or click one to choose someone else. When there are not enough
+     people, the Assistant says how many shifts stay open and why; *Suggest
+     for these too* goes further over people's targets (never over a limit on
+     their card).
    - *Rebalance hours* suggests moves from the busiest people to the least
      busy, one by one.
    - *Not enough people* lists the days where open shifts outnumber the people

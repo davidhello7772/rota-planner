@@ -5,25 +5,40 @@ indexed copy of the month) and returns *proposals* the coordinator accepts or
 not. The rules are the ones in ``eligibility``: a proposal never breaks a
 hard rule.
 
-Prefill works in three passes:
+Prefill works in four passes:
 
-1. **Build**: open shifts are filled one by one, essential tasks first, and
-   among them the shifts with the fewest possible people first (they are the
-   ones that would be lost by filling others before). Each goes to the best
-   ranked person (fewest hours against target, fair weekends and evenings…).
-   Equal choices go to the person drawn first in an order mixed for each
-   run (``seed``), so they do not always go to the earliest name.
+1. **Build**: open shifts are filled one by one, essential tasks first; then
+   every day of a task gets its first person before any day gets its second
+   ("someone every day first"); then the shifts with the fewest possible
+   people first (they are the ones that would be lost by filling others
+   before); then in an order mixed for each run (``seed``), so that what
+   cannot be filled is not always the end of the month. Each goes to the
+   best ranked person (fewest hours against target, fair weekends and
+   evenings…). Equal choices go to the person drawn first in an order mixed
+   for each run, so they do not always go to the earliest name.
 2. **Repair**: for a shift still open, find someone kept away only by
-   another shift placed in pass 1 (that day, or that week for the weekly
-   limit) that someone else can take instead.
-3. **Improve**: try giving each placed shift to a better ranked person,
+   suggested shifts (those of pass 1, or those already waiting, which stay
+   filled), that day, that week for the weekly limit, or the month for the
+   monthly limit and the ceiling, and give one of them to someone else; that
+   one may in turn free a third person (two moves deep), under a counted
+   budget (``REPAIR_TRIES``). Real assignments never move.
+3. **Improve**: try giving each shift placed in this run to a better ranked person,
    keeping every change that improves the ranking, pass after pass until
-   one changes nothing (at most ``IMPROVE_PASSES``). The result is the same
-   on every computer: the time limit is only a safety net.
+   one changes nothing (at most ``IMPROVE_PASSES``).
+4. **Fill again**: shifts still open are tried once more, since moving
+   shifts around may have freed someone; then improve again (at most
+   ``FILL_AGAIN_ROUNDS``). No shift is left open that someone free could take.
+
+The result is the same on every computer: budgets are counted, and the time
+limit is only a safety net.
 
 The ranking (``eligibility.placement_cost``) shares the work in proportion to
 each person's target, spreads it over the weeks, and never goes past a
-person's limits (those are rules).
+person's limits (those are rules). Suggestions also stop at
+``SUGGEST_UP_TO`` of each person's target: a ceiling of the suggestions
+only, not a rule (the list for a shift, the checks, Rebalance and Ideas do
+not use it). What stays open is explained (``_report``), and "Suggest for
+these too" asks again without the ceiling.
 """
 
 from __future__ import annotations
@@ -36,10 +51,23 @@ from dataclasses import asdict, dataclass
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 from . import eligibility as rules
-from .model import Assignment, Month, Person, Settings, parse_date, slot_key, week_dates, weekday_key
+from .model import Assignment, Month, Person, Settings, Task, parse_date, slot_key, week_dates, weekday_key
 from .schedule import Schedule, Slot
 
 PRIORITY_RANK = {"critical": 0, "normal": 1, "optional": 2}
+PRIORITY_WORDS = {"critical": "essential", "normal": "normal", "optional": "optional"}
+SUGGEST_UP_TO = 1.25
+"""Suggestions take nobody past this share of their own target (a quarter over it).
+The suggestions' own ceiling, not a rule: the list for a shift, the checks,
+Rebalance and Ideas do not use it, and "Suggest for these too" goes further."""
+REPAIR_TRIES = 10000
+"""Moves the repair may try in one run, all open shifts together: counted, not
+timed, so that the result is the same on every computer (about half a second
+for the demo month)."""
+REPAIR_DEPTH = 2
+"""How many moves deep the repair goes: A takes the open shift, B takes A's, C takes B's."""
+FILL_AGAIN_ROUNDS = 3
+"""Rounds of "fill again, then improve again" after the improvement at most."""
 IMPROVE_PASSES = 40
 """Passes of the improvement at most; it stops earlier once a pass changes nothing."""
 IMPROVE_SECONDS = 4.0
@@ -52,6 +80,10 @@ CLASH_RULES = {"double_booked", "overlap", "daily_tasks", "daily_hours"}
 """Rules that another shift on the same day can cause: moving that shift may lift them."""
 WEEK_RULES = {"weekly_shifts"}
 """Rules that another shift in the same week can cause."""
+MONTH_RULES = {"monthly_hours"}
+"""Rules that any other shift of the month can cause."""
+CEILING = "ceiling"
+"""Stands for ``SUGGEST_UP_TO`` among the rules that hold someone back (it is not one of them)."""
 
 
 @dataclass
@@ -93,17 +125,34 @@ def _rank(people: Iterable[Person], rng: random.Random) -> Rank:
     return {person_id: number for number, person_id in enumerate(ids)}
 
 
+def _over_ceiling(schedule: Schedule, person_id: str, task: Task, ceiling: Optional[float],
+                  ignore: Optional[Assignment] = None) -> bool:
+    """Would this task take the person past ``ceiling`` × their target? Tasks
+    counted as zero hours never do; with a target of zero, any hours do.
+    ``ignore``: the shift under review, not counted when it is theirs."""
+    if ceiling is None or task.hours <= 0:
+        return False
+    hours = schedule.hours(person_id)
+    if ignore is not None and ignore.person_id == person_id:
+        hours -= schedule.hours_of(ignore)
+    return hours + task.hours > ceiling * schedule.target(person_id) + 1e-9
+
+
 def _options(schedule: Schedule, slot: Slot, ignore: Optional[Assignment] = None,
-             rank: Optional[Rank] = None) -> List[rules.Candidate]:
+             rank: Optional[Rank] = None, ceiling: Optional[float] = None) -> List[rules.Candidate]:
     """Who may take ``slot``, best first: what ``rules.candidates`` lists outside
     "blocked", in the same order, but quicker (a person is dropped at the first
-    rule that blocks them). With ``rank``, equal costs follow that order before the names."""
+    rule that blocks them). With ``rank``, equal costs follow that order before
+    the names. With ``ceiling`` (suggestions only), people it would take past
+    that share of their target are left out too."""
     task_id, iso, _ = slot
     task = schedule.task_on(task_id, iso)
     found = []
     for person in schedule.people.values():
         if person.archived or not person.active:
             continue  # always blocked (rule "inactive")
+        if _over_ceiling(schedule, person.id, task, ceiling, ignore):
+            continue
         placement = rules.Placement(schedule, person, task, iso, ignore)
         findings = rules.allowed(placement)
         if findings is None:
@@ -131,18 +180,45 @@ def _why(schedule: Schedule, assignment: Assignment) -> str:
     return text
 
 
-def _in_the_way(schedule: Schedule, person_id: str, iso: str, blocking: List[rules.Finding]) -> List[Assignment]:
+def _in_the_way(schedule: Schedule, person_id: str, iso: str, blocking: List[rules.Finding],
+                over_ceiling: bool = False, whole_month: bool = False) -> List[Assignment]:
     """This person's shifts whose move could lift what blocks them: those of
     that day (a clash), or of that week (the weekly limit), that day's first.
-    Only shifts of this month; [] when something else blocks them too."""
+    With ``whole_month`` (the repair of suggestions), also any shift of the
+    month for the monthly limit, or for the ceiling (``over_ceiling``), after
+    those of that day and that week. Only shifts of this month; [] when
+    something else blocks them too."""
     hit = {finding.rule for finding in blocking}
-    if not hit or not hit <= CLASH_RULES | WEEK_RULES:
+    if over_ceiling:
+        hit.add(CEILING)
+    liftable = CLASH_RULES | WEEK_RULES | (MONTH_RULES | {CEILING} if whole_month else set())
+    if not hit or not hit <= liftable:
         return []
     days = [iso]
-    if hit & WEEK_RULES:
+    if hit & (WEEK_RULES | MONTH_RULES | {CEILING}):
         days += [day for day in week_dates(iso) if day != iso]
+    if hit & (MONTH_RULES | {CEILING}):
+        seen = set(days)
+        days += [day for day in schedule.dates if day not in seen]
     return [a for day in days if schedule.in_month(day)
             for a in schedule.on_day(person_id, day) if schedule.knows(a)]
+
+
+_UNLIFTABLE = {"inactive", "not_trained", "excluded", "unavailable", "never"}
+"""Rules no move of another shift can lift: the repair does not look further."""
+
+
+def _liftable_blocks(placement: rules.Placement) -> Optional[List[rules.Finding]]:
+    """What blocks this placement, or ``None`` as soon as a rule no move can lift
+    blocks it (quicker than ``rules.evaluate``: those rules come first)."""
+    blocking = []
+    for rule in rules.RULES:
+        finding = rule(placement)
+        if finding and finding.severity == rules.BLOCK:
+            if finding.rule in _UNLIFTABLE:
+                return None
+            blocking.append(finding)
+    return blocking
 
 
 # --------------------------------------------------------------------------
@@ -159,37 +235,108 @@ def prefill(
     seed: int = 0,
     seconds: float = IMPROVE_SECONDS,
     around: Iterable[Month] = (),
-) -> Tuple[List[Proposal], List[Slot]]:
-    """Proposals for open shifts (in the given days / areas); and those left open.
-    ``around``: the months next door, which the rules look into (see ``Schedule``)."""
+    ceiling: Optional[float] = SUGGEST_UP_TO,
+    held: Iterable[Proposal] = (),
+) -> Tuple[List[Proposal], List[Slot], Dict[str, object]]:
+    """Proposals for open shifts (in the given days / areas); those left open; and
+    what to tell the coordinator about them (see ``_report``).
+
+    ``ceiling``: no suggestion takes someone past that share of their own target
+    (``None``: only the limits on their card hold, for "Suggest for these too").
+    ``held``: suggestions already waiting: their shifts stay filled, and the
+    improvement leaves them alone, but the repair may give one to someone else
+    when that fills an open shift (they are only suggestions). The proposals
+    returned are every suggestion waiting after the run: the held ones (with
+    their person now) and the new ones. ``around``: the months next door, which the rules
+    look into (see ``Schedule``). ``seconds`` is only a safety net for all the
+    passes together: counted budgets decide the result."""
     schedule = Schedule(month, people, settings, around)
     rng = random.Random(seed)
     rank = _rank(schedule.people.values(), rng)
+    deadline = time.monotonic() + seconds
+
+    placed: Dict[Slot, Assignment] = {}
+    for proposal in held:
+        slot = (proposal.task_id, proposal.date, proposal.position)
+        if proposal.replaces or proposal.task_id not in schedule.tasks or schedule.at(slot) is not None:
+            continue
+        _place(schedule, placed, slot, proposal.person_id)
+    fixed = set(placed)  # held: the improvement does not reshuffle what the coordinator has seen
 
     def in_scope(slot: Slot) -> bool:
         task = schedule.tasks[slot[0]]
         return (dates is None or slot[1] in dates) and (area_ids is None or task.area_id in area_ids)
 
     slots = [s for s in schedule.open_slots() if in_scope(s)]
-    choices = {s: len(_options(schedule, s)) for s in slots}
-    slots.sort(key=lambda s: (PRIORITY_RANK.get(schedule.tasks[s[0]].priority, 1), choices[s], s[1], s[0], s[2]))
+    mixed = list(slots)
+    rng.shuffle(mixed)  # always drawn here, right after the people's order: the same seed, the same result
+    order = _build_order(schedule, slots, mixed, ceiling)
+    slots.sort(key=order.__getitem__)
 
-    placed: Dict[Slot, Assignment] = {}
-    for slot in slots:
-        options = _options(schedule, slot, rank=rank)
-        if options:
-            _place(schedule, placed, slot, options[0].person.id)
+    _fill(schedule, placed, slots, rank, ceiling)
 
-    for slot in [s for s in slots if s not in placed]:
-        _repair(schedule, placed, slot, rank)
+    # One move deep for every open shift first, then two moves deep for those
+    # still open: the cheap repairs are not starved by the costly ones.
+    budget = [REPAIR_TRIES]
+    for depth in range(1, REPAIR_DEPTH + 1):
+        for slot in slots:
+            if slot not in placed and budget[0] > 0 and time.monotonic() < deadline:
+                _repair(schedule, placed, slot, rank, ceiling, budget, depth)
 
-    _improve(schedule, placed, rng, time.monotonic() + seconds, rank)
+    _improve(schedule, placed, rng, deadline, rank, ceiling, fixed)
+    for _ in range(FILL_AGAIN_ROUNDS):
+        if not _fill(schedule, placed, slots, rank, ceiling):
+            break
+        _improve(schedule, placed, rng, deadline, rank, ceiling, fixed)
+    else:
+        _fill(schedule, placed, slots, rank, ceiling)  # the last improvement may have freed someone
+    # Adding a shift never frees anyone: after a fill that placed nobody, or a
+    # last fill with nothing changed after it, nobody free is left for ``left``.
+    left = [s for s in slots if s not in placed]
 
     proposals = [
         Proposal(task_id, iso, position, a.person_id, why=_why(schedule, a))
         for (task_id, iso, position), a in sorted(placed.items(), key=lambda item: (item[0][1], item[0][0], item[0][2]))
     ]
-    return proposals, [s for s in slots if s not in placed]
+    return proposals, left, _report(schedule, left, len(proposals), ceiling)
+
+
+def _build_order(schedule: Schedule, slots: List[Slot], mixed: List[Slot],
+                 ceiling: Optional[float]) -> Dict[Slot, Tuple[int, int, int, int]]:
+    """The order the open places are filled in: essential tasks first; then the
+    first place of every day of a task before any second place (someone every
+    day first); then the places with the fewest possible people; then the
+    run's mixed order (``mixed``), so that what cannot be filled is not always
+    the end of the month."""
+    seeded = {slot: number for number, slot in enumerate(mixed)}
+    open_in_cell: Dict[Tuple[str, str], List[int]] = defaultdict(list)
+    for task_id, iso, position in slots:
+        open_in_cell[(task_id, iso)].append(position)
+    order = {}
+    for (task_id, iso), positions in open_in_cell.items():
+        required = schedule.required.get((task_id, iso), 0)
+        filled = sum(1 for position in schedule.cell(task_id, iso) if position < required)
+        priority = PRIORITY_RANK.get(schedule.tasks[task_id].priority, 1)
+        choices = len(_options(schedule, (task_id, iso, positions[0]), ceiling=ceiling))  # the same for every place
+        for index, position in enumerate(sorted(positions)):
+            slot = (task_id, iso, position)
+            order[slot] = (priority, filled + index, choices, seeded[slot])
+    return order
+
+
+def _fill(schedule: Schedule, placed: Dict[Slot, Assignment], slots: List[Slot], rank: Optional[Rank],
+          ceiling: Optional[float]) -> bool:
+    """Give each of ``slots`` still open, in that order, to the best person free
+    for it, if there is one (no moves). Did it place anyone?"""
+    anything = False
+    for slot in slots:
+        if slot in placed:
+            continue
+        options = _options(schedule, slot, rank=rank, ceiling=ceiling)
+        if options:
+            _place(schedule, placed, slot, options[0].person.id)
+            anything = True
+    return anything
 
 
 def _place(schedule: Schedule, placed: Dict[Slot, Assignment], slot: Slot, person_id: str) -> None:
@@ -204,25 +351,57 @@ def _unplace(schedule: Schedule, placed: Dict[Slot, Assignment], slot: Slot) -> 
     return assignment.person_id
 
 
-def _repair(schedule: Schedule, placed: Dict[Slot, Assignment], slot: Slot, rank: Optional[Rank] = None) -> bool:
-    """Free someone for ``slot`` by giving one of their shifts that day (or that
-    week, for the weekly limit) to another person."""
+def _repair(schedule: Schedule, placed: Dict[Slot, Assignment], slot: Slot, rank: Optional[Rank] = None,
+            ceiling: Optional[float] = None, budget: Optional[List[int]] = None, depth: int = REPAIR_DEPTH) -> bool:
+    """Fill the open ``slot`` by freeing someone: give one of their suggested
+    shifts, of this run or waiting (that day, that week for the weekly limit,
+    the month for the monthly limit or the ceiling), to another person; that
+    one may in turn be freed the same way, ``depth`` moves deep in all. Real
+    assignments never move. ``budget``: moves left to try
+    (``[REPAIR_TRIES]``), spent by every call that shares it."""
+    if budget is None:
+        budget = [REPAIR_TRIES]
+    return _free_someone(schedule, placed, slot, rank, ceiling, budget, depth, frozenset())
+
+
+def _take(schedule: Schedule, placed: Dict[Slot, Assignment], slot: Slot, rank: Optional[Rank],
+          ceiling: Optional[float], budget: List[int], depth: int, moved: frozenset) -> bool:
+    """Fill the open ``slot``: with someone free, or (``depth`` left) someone freed by a move.
+    People in ``moved`` were just moved off a shift for another: they are not asked again."""
+    options = [c for c in _options(schedule, slot, rank=rank, ceiling=ceiling) if c.person.id not in moved]
+    if options:
+        _place(schedule, placed, slot, options[0].person.id)
+        return True
+    return depth > 0 and _free_someone(schedule, placed, slot, rank, ceiling, budget, depth, moved)
+
+
+def _free_someone(schedule: Schedule, placed: Dict[Slot, Assignment], slot: Slot, rank: Optional[Rank],
+                  ceiling: Optional[float], budget: List[int], depth: int, moved: frozenset) -> bool:
+    """Free someone for the open ``slot`` by moving one of their suggested shifts
+    (of this run, or waiting) to another person (who may be freed in turn while ``depth`` lasts).
+    Everything tried and not kept is put back as it was."""
     task_id, iso, _ = slot
     task = schedule.task_on(task_id, iso)
-    for person in schedule.people.values():
-        if person.archived or not person.active:
+    people = [p for p in schedule.people.values() if p.active and not p.archived and p.id not in moved]
+    if rank is not None:
+        people.sort(key=lambda p: rank.get(p.id, len(rank)))
+    for person in people:
+        blocking = _liftable_blocks(rules.Placement(schedule, person, task, iso))
+        if blocking is None:
             continue
-        blocking = [f for f in rules.evaluate(rules.Placement(schedule, person, task, iso)) if f.severity == rules.BLOCK]
-        for other in _in_the_way(schedule, person.id, iso, blocking):
+        over = _over_ceiling(schedule, person.id, task, ceiling)
+        for other in _in_the_way(schedule, person.id, iso, blocking, over, whole_month=True):
             other_slot = other.slot
             if placed.get(other_slot) is not other:
-                continue  # only shifts proposed in this run may move
+                continue  # only suggested shifts may move; real assignments never do
+            if budget[0] <= 0:
+                return False
+            budget[0] -= 1
             _unplace(schedule, placed, other_slot)
-            if rules.allowed(rules.Placement(schedule, person, task, iso)) is not None:
+            if rules.allowed(rules.Placement(schedule, person, task, iso)) is not None \
+                    and not _over_ceiling(schedule, person.id, task, ceiling):
                 _place(schedule, placed, slot, person.id)
-                replacement = [c for c in _options(schedule, other_slot, rank=rank) if c.person.id != person.id]
-                if replacement:
-                    _place(schedule, placed, other_slot, replacement[0].person.id)
+                if _take(schedule, placed, other_slot, rank, ceiling, budget, depth - 1, moved | {person.id}):
                     return True
                 _unplace(schedule, placed, slot)
             _place(schedule, placed, other_slot, person.id)
@@ -230,18 +409,19 @@ def _repair(schedule: Schedule, placed: Dict[Slot, Assignment], slot: Slot, rank
 
 
 def _improve(schedule: Schedule, placed: Dict[Slot, Assignment], rng: random.Random, deadline: float,
-             rank: Optional[Rank] = None) -> None:
+             rank: Optional[Rank] = None, ceiling: Optional[float] = None, fixed: Set[Slot] = frozenset()) -> None:
     """Give placed shifts to better ranked people, pass after pass, until a pass
-    changes nothing (at most IMPROVE_PASSES). ``deadline`` is only a safety net."""
+    changes nothing (at most IMPROVE_PASSES). Shifts in ``fixed`` (suggestions
+    already waiting) are left alone. ``deadline`` is only a safety net."""
     for _ in range(IMPROVE_PASSES):
         improved = False
-        slots = list(placed)
+        slots = [slot for slot in placed if slot not in fixed]
         rng.shuffle(slots)
         for slot in slots:
             if time.monotonic() >= deadline:
                 return
             current = placed[slot]
-            options = _options(schedule, slot, ignore=current, rank=rank)
+            options = _options(schedule, slot, ignore=current, rank=rank, ceiling=ceiling)
             mine = next((c for c in options if c.person.id == current.person_id), None)
             best = options[0] if options else None
             if best is None or mine is None or best.person.id == current.person_id:
@@ -252,6 +432,82 @@ def _improve(schedule: Schedule, placed: Dict[Slot, Assignment], rng: random.Ran
                 improved = True
         if not improved:
             return
+
+
+# --------------------------------------------------------------------------
+# What stays open, and why
+# --------------------------------------------------------------------------
+
+
+OBSTACLES = ("target", "limit", "busy", "away", "skill")
+"""What keeps people from an open shift, mildest first."""
+_OBSTACLE_OF_RULE = {
+    "weekly_shifts": "limit", "daily_tasks": "limit", "daily_hours": "limit", "monthly_hours": "limit",
+    "double_booked": "busy", "overlap": "busy",
+    "unavailable": "away", "never": "away",
+    "not_trained": "skill", "excluded": "skill", "inactive": "skill",
+}  # fmt: skip
+REASON_TEXTS = {
+    "target": "the people who could take them would go more than {over}% over their target",
+    "limit": "the people who could take them are at a limit on their card (shifts a week or a day, or hours)",
+    "busy": "the people who could take them are on another shift then",
+    "away": "everyone trained for them is away",
+    "skill": "nobody on the rota is trained for them",
+}
+
+
+def _obstacle(schedule: Schedule, slot: Slot, ceiling: Optional[float]) -> str:
+    """The mildest obstacle anyone active meets for this open shift: what stops
+    one person is the worst of what blocks them (all of it would have to go)."""
+    task_id, iso, _ = slot
+    task = schedule.task_on(task_id, iso)
+    mildest = len(OBSTACLES) - 1
+    for person in schedule.people.values():
+        if person.archived or not person.active:
+            continue
+        blocks = [f.rule for f in rules.evaluate(rules.Placement(schedule, person, task, iso))
+                  if f.severity == rules.BLOCK]
+        if blocks:
+            worst = max(OBSTACLES.index(_OBSTACLE_OF_RULE.get(rule, "skill")) for rule in blocks)
+        elif _over_ceiling(schedule, person.id, task, ceiling):
+            worst = 0
+        else:
+            continue  # free: cannot happen, the last fill would have placed them
+        mildest = min(mildest, worst)
+        if mildest == 0:
+            break
+    return OBSTACLES[mildest]
+
+
+def _report(schedule: Schedule, left: List[Slot], proposed: int, ceiling: Optional[float]) -> Dict[str, object]:
+    """What the suggestions leave open, and why, in sentences for the screen.
+
+    Each open shift is counted once, under the mildest obstacle anyone meets
+    (``OBSTACLES``); the reasons come most frequent first. ``beyond``: how many
+    "Suggest for these too" could still try (those held only by the ceiling)."""
+    found = Counter(_obstacle(schedule, slot, ceiling) for slot in left)
+    reasons = []
+    for kind in sorted(found, key=lambda k: (-found[k], OBSTACLES.index(k))):
+        over = round(((ceiling or 1.0) - 1.0) * 100)
+        reasons.append({"kind": kind, "count": found[kind], "text": f"{found[kind]}: {REASON_TEXTS[kind].format(over=over)}"})
+    return {
+        "proposed": proposed,
+        "left": len(left),
+        "left_text": _left_text(schedule, left),
+        "reasons": reasons,
+        "beyond": found["target"],
+    }
+
+
+def _left_text(schedule: Schedule, left: List[Slot]) -> str:
+    """"21 shifts stay open: 3 essential, 12 normal, 6 optional." (only the parts that are not zero)."""
+    if not left:
+        return ""
+    counts = Counter(schedule.tasks[slot[0]].priority if schedule.tasks[slot[0]].priority in PRIORITY_RANK
+                     else "normal" for slot in left)
+    parts = [f"{counts[priority]} {PRIORITY_WORDS[priority]}" for priority in PRIORITY_RANK if counts[priority]]
+    stay = "1 shift stays" if len(left) == 1 else f"{len(left)} shifts stay"
+    return f"{stay} open: {', '.join(parts)}."
 
 
 # --------------------------------------------------------------------------

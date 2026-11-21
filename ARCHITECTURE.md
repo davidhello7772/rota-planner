@@ -28,7 +28,7 @@ editing.py        set-up changes: people, skills, areas, tasks, regular week,
 transfer.py       all the data in one file, to move to another computer, and back
 people_import.py  adding many people from a pasted list, CSV or Excel
 xlsx_read.py      reading .xlsx with the standard library
-solver.py         prefill (build, repair, improve), rebalance, shortages, ideas
+solver.py         prefill (build, repair, improve, fill again; what stays open and why), rebalance, shortages, ideas
 report.py         the Check step: to fix, open, overrides, balance
 tips.py           hints shown in the Assistant panel
 view.py           the month as the screen needs it (all numbers computed here)

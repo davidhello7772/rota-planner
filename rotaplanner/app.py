@@ -57,6 +57,10 @@ class App:
         self._undo: Dict[str, List[Json]] = {}
         self._redo: Dict[str, List[Json]] = {}
         self._proposals: Dict[str, List[solver.Proposal]] = {}  # suggestions not yet accepted, per month
+        # What the last "Prefill" said beside its suggestions (what stays open, and
+        # why), with the days and area it was asked for: "Suggest for these too"
+        # goes further in the same ones. Forgotten with the suggestions.
+        self._suggested: Dict[str, Json] = {}
         self.sync = Sync(store)
         self.sync.on_incoming = self.sync_auto
         self.updates = Updates(Path(__file__).resolve().parent.parent, store)  # is there a newer version?
@@ -94,6 +98,11 @@ class App:
         result = self._month_view(month_id)
         # Where the rota stands (draft, with the manager, published…), shown on every screen.
         result["phase"] = versions.phase(self.month(month_id), self.people, self.settings)
+        # What the last suggestions left open, and why; not once they were all used
+        # (taken by hand meanwhile), unless there was nothing to suggest at all.
+        kept = self._suggested.get(month_id)
+        report = kept["report"] if kept else None
+        result["suggested"] = report if report and (result["proposals"] or not report["proposed"]) else None
         return result
 
     def _month_view(self, month_id: str) -> Json:
@@ -150,19 +159,44 @@ class App:
     # -- help: suggestions, rebalancing, shortages ---------------------------------
 
     def prefill(self, month_id: str, body: Json) -> Json:
-        """Suggest someone for the open shifts (of some days or one area)."""
-        dates = set(body["dates"]) if body.get("dates") else None
-        areas = {str(body["area_id"])} if body.get("area_id") else None
-        proposals, left = solver.prefill(self.month(month_id), self.people, self.settings, dates=dates, area_ids=areas,
-                                         around=self._around(month_id))
-        self._proposals[month_id] = proposals
+        """Suggest someone for the open shifts (of some days or one area), at most a
+        quarter over each person's target.
+
+        With ``"beyond": true`` ("Suggest for these too"): the same days and area
+        as the suggestions waiting, without that ceiling (the limits on each
+        person's card still hold). The shifts of those suggestions stay suggested,
+        though one may go to someone else when that fills an open shift; the new
+        ones are added to them."""
+        month = self.month(month_id)
+        around = self._around(month_id)
+        if body.get("beyond"):
+            kept = self._suggested.get(month_id)
+            if not kept:
+                raise ApiError(HTTPStatus.CONFLICT, "These suggestions are out of date: ask for suggestions again.")
+            dates, areas = kept["dates"], kept["areas"]
+            held = [p for p in view.still_valid(Schedule(month, self.people, self.settings, around),
+                                                self._proposals.get(month_id, [])) if not p.replaces]
+            ceiling: Optional[float] = None
+        else:
+            dates = set(body["dates"]) if body.get("dates") else None
+            areas = {str(body["area_id"])} if body.get("area_id") else None
+            held, ceiling = [], solver.SUGGEST_UP_TO
+        proposals, left, report = solver.prefill(month, self.people, self.settings, dates=dates, area_ids=areas,
+                                                 around=around, ceiling=ceiling, held=held)
+        self._proposals[month_id] = proposals  # every suggestion waiting now, the held ones included
+        if report["proposed"] or report["left"]:
+            self._suggested[month_id] = {"report": report, "dates": dates, "areas": areas}
+        else:
+            self._suggested.pop(month_id, None)  # nothing was open there: nothing to say
         result = self.month_view(month_id)
-        result["prefill"] = {"proposed": len(proposals), "left_open": len(left)}
+        waiting = {p.key for p in held}
+        result["prefill"] = {"proposed": sum(1 for p in proposals if p.key not in waiting), "left_open": len(left)}
         return result
 
     def rebalance(self, month_id: str, _body: Json) -> Json:
         proposals = solver.rebalance(self.month(month_id), self.people, self.settings, around=self._around(month_id))
         self._proposals[month_id] = proposals
+        self._suggested.pop(month_id, None)
         result = self.month_view(month_id)
         result["rebalance"] = {"proposed": len(proposals)}
         return result
@@ -198,6 +232,8 @@ class App:
         self._change(month_id, change)
         done = {p.key for p in chosen}
         self._proposals[month_id] = [p for p in pending if p.key not in done]
+        if not self._proposals[month_id]:
+            self._suggested.pop(month_id, None)
         result = self.month_view(month_id)
         result["accepted"], result["skipped"] = accepted, skipped
         return result
@@ -206,6 +242,8 @@ class App:
         unwanted = set(body.get("keys") or [])
         self._proposals[month_id] = [p for p in self._proposals.get(month_id, [])
                                      if unwanted and p.key not in unwanted]
+        if not self._proposals[month_id]:
+            self._suggested.pop(month_id, None)  # also "OK" under "Nothing to suggest"
         return self.month_view(month_id)
 
     def swap(self, month_id: str, body: Json) -> Json:
@@ -1148,7 +1186,7 @@ class App:
             raise ApiError(HTTPStatus.BAD_REQUEST, str(error)) from error
         self.catalog, self.people = self.store.load_catalog(), self.store.load_people()
         self.settings, self.templates = self.store.load_settings(), self.store.load_templates()
-        self._months, self._undo, self._redo, self._proposals = {}, {}, {}, {}
+        self._months, self._undo, self._redo, self._proposals, self._suggested = {}, {}, {}, {}, {}
         self.forget_old_comments(date.today())  # same rule as when the program starts
         return {"safety": safety, "bootstrap": self.bootstrap()}
 
@@ -1176,10 +1214,10 @@ class App:
         self.settings, self.templates = self.store.load_settings(), self.store.load_templates()
         for month_id in result["replaced_months"]:
             # Undo would bring back what the other computer's version replaced: start afresh.
-            for kept in (self._months, self._undo, self._redo, self._proposals):
+            for kept in (self._months, self._undo, self._redo, self._proposals, self._suggested):
                 kept.pop(month_id, None)
         if any(not unit.startswith("months/") for unit in result["replaced"]):
-            self._proposals = {}  # suggestions were made for other people or tasks
+            self._proposals, self._suggested = {}, {}  # suggestions were made for other people or tasks
 
     def sync_auto(self) -> None:
         """Take what needs no choice (called by the courier when the others' files changed)."""
