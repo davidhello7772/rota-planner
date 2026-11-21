@@ -83,7 +83,7 @@ class DaysTest(unittest.TestCase):
             month_setup.set_day_type(self.month, "2026-12-02", "holiday")
 
     def test_overview(self):
-        result = month_setup.overview(self.month, h.people(), Settings(default_target_hours=10))
+        result = month_setup.overview(self.month, h.people(), Settings(default_target_hours_per_week=h.a_week(10)))
         # Every day: lunch 4 h + supper 3 h + night 0 h + breakfast 2 h; weekends: 2 helpers × 3 h.
         self.assertEqual(result["hours_needed"], 31 * 9 + 8 * 6)
         self.assertEqual(result["hours_available"], 30)  # three active people × 10 h
@@ -94,7 +94,7 @@ class DaysTest(unittest.TestCase):
     def test_can_the_people_give_what_the_month_needs(self):
         # 327 h of work, three active people: just enough, only just, plenty, and nobody at all.
         def balance(target):
-            result = month_setup.overview(self.month, h.people(), Settings(default_target_hours=target))
+            result = month_setup.overview(self.month, h.people(), Settings(default_target_hours_per_week=h.a_week(target)))
             return result["balance"], result["hours_short"]
         self.assertEqual(balance(108.9), ("bad", 1))    # 0.3 h short still says "1 h short", never "0 h"
         self.assertEqual(balance(109), ("warn", 0))     # exactly enough: nothing to spare
@@ -257,10 +257,10 @@ class OlderFilesTest(unittest.TestCase):
 
         from rotaplanner.model import SCHEMA_VERSION, Person
         from rotaplanner.store import Store, StoreError, migrate
-        self.assertEqual(SCHEMA_VERSION, 5)
+        self.assertEqual(SCHEMA_VERSION, 6)
         document = {"schema_version": 4, "people": [{"id": "ana", "name": "Ana B.", "max_tasks_per_day": 1}]}
         migrated = migrate(json.loads(json.dumps(document)))
-        self.assertEqual(migrated, dict(document, schema_version=5))  # nothing else changes
+        self.assertEqual(migrated, dict(document, schema_version=6))  # nothing else changes
         person = Person.from_dict(migrated["people"][0])
         self.assertIsNone(person.max_shifts_per_week)
         with tempfile.TemporaryDirectory() as tmp:
@@ -269,7 +269,7 @@ class OlderFilesTest(unittest.TestCase):
             ana.max_shifts_per_week = 2
             store.save_people([ana])
             saved = json.loads((Path(tmp) / "people.json").read_text())
-            self.assertEqual(saved["schema_version"], 5)
+            self.assertEqual(saved["schema_version"], 6)
             self.assertEqual(saved["people"][0]["max_shifts_per_week"], 2)
             self.assertEqual(store.load_people()[0].max_shifts_per_week, 2)
         # What a program still at format 4 does with it: refuse, rather than drop the limit when saving.
@@ -279,6 +279,58 @@ class OlderFilesTest(unittest.TestCase):
         try:
             with self.assertRaises(StoreError):
                 migrate(dict(saved))
+        finally:
+            store_module.SCHEMA_VERSION = original
+
+    def test_format_5_targets_in_hours_a_month_are_read_as_hours_a_week(self):
+        import json
+        import tempfile
+        from pathlib import Path
+
+        import rotaplanner.store as store_module
+        from rotaplanner.store import Store, StoreError, migrate
+        people = {"schema_version": 5, "people": [
+            {"id": "ana", "name": "Ana B.", "target_hours": 6, "max_hours": 20},
+            {"id": "ben", "name": "Ben C.", "target_hours": None},
+            {"id": "cleo", "name": "Cleo D."}]}
+        settings = {"schema_version": 5, "centre_name": "Demo centre", "default_target_hours": 15}
+        # The step of format 5 changes nothing but the number: older targets are read in model.py.
+        self.assertEqual(migrate(json.loads(json.dumps(people))), dict(people, schema_version=6))
+        self.assertEqual(migrate(json.loads(json.dumps(settings))), dict(settings, schema_version=6))
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "people.json").write_text(json.dumps(people))
+            (root / "settings.json").write_text(json.dumps(settings))
+            store = Store(root)
+            loaded = store.load_people()
+            self.assertEqual([p.target_hours_per_week for p in loaded], [1.5, None, None])
+            self.assertEqual(loaded[0].max_hours, 20)   # "at most a month" stays as it is
+            self.assertEqual(store.load_settings().default_target_hours_per_week, 3.5)
+            # Making the salt of the e-mail fingerprints rewrites people.json as it was read:
+            # the monthly targets stay readable.
+            Store(root).email_salt()
+            kept = json.loads((root / "people.json").read_text())
+            self.assertEqual((kept["schema_version"], kept["people"][0]["target_hours"]), (6, 6))
+            self.assertEqual([p.target_hours_per_week for p in Store(root).load_people()], [1.5, None, None])
+            # Once saved, the files are format 6 with the weekly key only.
+            store = Store(root)
+            store.save_people(store.load_people())
+            store.save_settings(store.load_settings())
+            saved_people = json.loads((root / "people.json").read_text())
+            saved_settings = json.loads((root / "settings.json").read_text())
+            self.assertEqual((saved_people["schema_version"], saved_settings["schema_version"]), (6, 6))
+            self.assertEqual([p["target_hours_per_week"] for p in saved_people["people"]], [1.5, None, None])
+            self.assertFalse(any("target_hours" in p for p in saved_people["people"]))
+            self.assertEqual(saved_settings["default_target_hours_per_week"], 3.5)
+            self.assertNotIn("default_target_hours", saved_settings)
+            self.assertEqual(len(saved_people["email_salt"]), 32)   # the salt is kept
+        # What a program still at format 5 does with them: refuse, rather than drop the weekly targets.
+        original = store_module.SCHEMA_VERSION
+        store_module.SCHEMA_VERSION = 5
+        try:
+            for document in (saved_people, saved_settings):
+                with self.assertRaises(StoreError):
+                    migrate(dict(document))
         finally:
             store_module.SCHEMA_VERSION = original
 

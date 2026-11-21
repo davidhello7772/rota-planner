@@ -313,7 +313,7 @@ def build_people(catalog: Catalog, rng: random.Random) -> List[Person]:
     for person in rng.sample(people, 40):
         person.preferences = {area_id: rng.randint(1, 5) for area_id in area_ids}
     for person in people[:NON_RESIDENTS]:
-        person.target_hours = 6.0
+        person.target_hours_per_week = 1.5
     for person in rng.sample(people, 6):
         person.never.append(NeverRule(weekday="any-day", period="evening"))
     for person in rng.sample(people, 5):
@@ -488,8 +488,8 @@ def build_demo(store: Store) -> None:
     catalog = build_catalog()
     people = build_people(catalog, rng)
     catalog.regulars = build_regulars(catalog, people, rng)
-    # The real rota asks about 15 hours a month of each active person.
-    settings = Settings(centre_name="Demo centre", default_target_hours=15.0)
+    # About 15 hours a month of each active person: 3.5 hours a week.
+    settings = Settings(centre_name="Demo centre", default_target_hours_per_week=3.5)
     settings.print_templates.append(PrintTemplate(id="print-food", name="Kitchen + Dining room + Cafe", size="a3",
                                                   area_ids=["area-kitchen", "area-dining", "area-cafe"]))
     store.save_catalog(catalog)

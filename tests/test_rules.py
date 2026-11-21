@@ -153,7 +153,7 @@ class RuleTest(unittest.TestCase):
     def test_monthly_ceiling_is_hard_target_is_a_note(self):
         for day in range(1, 4):
             self.add("lunch", f"2026-12-0{day}", "ana")
-        s = h.schedule(self.month, settings=Settings(default_target_hours=10))
+        s = h.schedule(self.month, settings=Settings(default_target_hours_per_week=h.a_week(10)))
         self.assertEqual(findings_for(s, "ana", "lunch", "2026-12-04")["over_target"], rules.NOTE)
         ppl = h.people()
         ppl[0].max_hours = 14
@@ -163,9 +163,9 @@ class RuleTest(unittest.TestCase):
     def test_presence_scales_the_target(self):
         keys = [f"2026-12-{d:02d}/{p}" for d in range(1, 16) for p in ("morning", "afternoon", "evening")]
         h.away(self.month, "ana", *keys)
-        s = h.schedule(self.month, settings=Settings(default_target_hours=12))
-        self.assertAlmostEqual(s.target("ana"), 12 * 16 / 31)
-        self.assertEqual(s.target("ben"), 12)
+        s = h.schedule(self.month, settings=Settings(default_target_hours_per_week=3.5))
+        self.assertAlmostEqual(s.target("ana"), 3.5 * 16 / 7)   # away 1 to 15 December: 16 days counted
+        self.assertEqual(s.target("ben"), 15.5)                 # 3.5 h a week over 31 days
 
     def test_candidates_are_ranked_clean_first_then_least_loaded(self):
         self.add("supper", "2026-12-02", "ben")
@@ -402,15 +402,15 @@ class FairRankingTest(unittest.TestCase):
 
     def setUp(self):
         self.month = h.month()
-        self.big = Person("big", "Big A.", skills=["cook"], target_hours=12)
-        self.small = Person("small", "Small B.", skills=["cook"], target_hours=6)
+        self.big = Person("big", "Big A.", skills=["cook"], target_hours_per_week=h.a_week(12))
+        self.small = Person("small", "Small B.", skills=["cook"], target_hours_per_week=h.a_week(6))
 
     def suppers(self, person, *days):  # 3 h each, Tuesdays of other weeks
         for day in days:
             self.month.assignments.append(Assignment("supper", f"2026-12-{day:02d}", 0, person_id=person.id))
 
     def ranked(self):
-        s = Schedule(self.month, [self.big, self.small], Settings())
+        s = Schedule(self.month, [self.big, self.small], Settings(default_target_hours_per_week=h.a_week(12)))
         found = rules.candidates(s, s.tasks["breakfast"], "2026-12-03")
         return [c.person.id for c in found if c.group == rules.BEST], {c.person.id: c.cost for c in found}
 

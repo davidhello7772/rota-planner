@@ -21,16 +21,32 @@ class PersonTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             editing.save_person(self.people, self.catalog, {"first_name": "", "name": ""})
         with self.assertRaises(ValueError):
-            editing.save_person(self.people, self.catalog, {"first_name": "Zed", "target_hours": "lots"})
+            editing.save_person(self.people, self.catalog, {"first_name": "Zed", "target_hours_per_week": "lots"})
+
+    def test_the_target_is_hours_a_week(self):
+        editing.save_person(self.people, self.catalog, {"id": "ana", "name": "Ana B.", "target_hours_per_week": "3.75"})
+        self.assertEqual(self.people[0].target_hours_per_week, 3.75)
+        editing.save_person(self.people, self.catalog, {"id": "ana", "name": "Ana B.", "target_hours_per_week": ""})
+        self.assertIsNone(self.people[0].target_hours_per_week)   # empty: the usual target
+        with self.assertRaisesRegex(ValueError, "^Target hours a week must be between 0 and 80.$"):
+            editing.save_person(self.people, self.catalog, {"id": "ana", "name": "Ana B.", "target_hours_per_week": "80.5"})
+        # A page loaded before the update would post the monthly key and silently empty the target: refused.
+        self.people[0].target_hours_per_week = 2.5
+        with self.assertRaisesRegex(ValueError, "^This page is older than the program: reload it, then save again.$"):
+            editing.save_person(self.people, self.catalog, {"id": "ana", "name": "Ana C.", "target_hours": "10"})
+        self.assertEqual((self.people[0].name, self.people[0].target_hours_per_week), ("Ana B.", 2.5))
+        with self.assertRaisesRegex(ValueError, "^This page is older"):
+            editing.save_person(self.people, self.catalog, {"first_name": "Zed", "target_hours": ""})
+        self.assertNotIn("Zed", [p.first_name for p in self.people])
 
     def test_update_constraints(self):
         editing.save_person(self.people, self.catalog, {
-            "id": "ana", "name": "Ana B.", "first_name": "Ana", "last_name": "Berg", "target_hours": "10",
+            "id": "ana", "name": "Ana B.", "first_name": "Ana", "last_name": "Berg", "target_hours_per_week": "10",
             "max_tasks_per_day": 1, "max_shifts_per_week": "3", "never": [{"weekday": "mon", "period": "evening"}],
             "preferences": {"kitchen": 5, "ghost": 2}, "avoid_task_ids": ["night", "nope"],
         })
         ana = self.people[0]
-        self.assertEqual((ana.target_hours, ana.max_tasks_per_day, ana.max_shifts_per_week), (10.0, 1, 3))
+        self.assertEqual((ana.target_hours_per_week, ana.max_tasks_per_day, ana.max_shifts_per_week), (10.0, 1, 3))
         self.assertIsInstance(ana.max_shifts_per_week, int)
         self.assertIsInstance(ana.max_tasks_per_day, int)
         self.assertEqual((ana.never[0].weekday, ana.never[0].period), ("mon", "evening"))
@@ -209,12 +225,24 @@ class CatalogTest(unittest.TestCase):
         self.assertEqual([d for d in range(1, 32) if bounded.applies(f"2026-12-{d:02d}")], [8, 15])
 
     def test_settings(self):
-        settings = editing.save_settings(Settings(), {"centre_name": " Centre ", "default_target_hours": "14"})
-        self.assertEqual((settings.centre_name, settings.default_target_hours), ("Centre", 14.0))
+        settings = editing.save_settings(Settings(), {"centre_name": " Centre ", "default_target_hours_per_week": "14"})
+        self.assertEqual((settings.centre_name, settings.default_target_hours_per_week), ("Centre", 14.0))
         # Saving only the words of the schedule message keeps the centre's name and the hours.
         settings = editing.save_settings(settings, {"message_greeting": "Hi {name},"})
-        self.assertEqual((settings.centre_name, settings.default_target_hours, settings.message_greeting),
+        self.assertEqual((settings.centre_name, settings.default_target_hours_per_week, settings.message_greeting),
                          ("Centre", 14.0, "Hi {name},"))
+
+    def test_the_usual_target_is_hours_a_week(self):
+        settings = editing.save_settings(Settings(), {"default_target_hours_per_week": "3.25"})
+        self.assertEqual(settings.default_target_hours_per_week, 3.25)
+        with self.assertRaisesRegex(ValueError, "^Usual target hours a week must be between 0 and 80.$"):
+            editing.save_settings(settings, {"default_target_hours_per_week": "81"})
+        # A page loaded before the update still sends the monthly key: refused, nothing changed.
+        with self.assertRaisesRegex(ValueError, "^This page is older than the program: reload it, then save again.$"):
+            editing.save_settings(settings, {"centre_name": "Other", "default_target_hours": "15"})
+        self.assertEqual((settings.centre_name, settings.default_target_hours_per_week), ("", 3.25))
+        editing.save_settings(settings, {"default_target_hours": "15", "default_target_hours_per_week": "3.5"})
+        self.assertEqual(settings.default_target_hours_per_week, 3.5)
 
 
 class PeopleImportTest(unittest.TestCase):

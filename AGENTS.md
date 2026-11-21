@@ -171,7 +171,13 @@ Recipes:
 - **A new field on a record**: add it to the dataclass with a default. If
   old files must be transformed (not just defaulted), bump
   `model.SCHEMA_VERSION` and add a step to `store.MIGRATIONS` (keyed by the
-  version it upgrades *from*), with a test like `OlderFilesTest`.
+  version it upgrades *from*), with a test like `OlderFilesTest`. A step of
+  `store.MIGRATIONS` may transform a document only when no other computer
+  can hold the old form: documents travel and are compared by content
+  (`sync.rank`), so a field that is renamed or re-expressed is read where
+  the record is built (`from_dict`, by the presence of the old key, never by
+  the version number, without changing the dict), as for the monthly targets
+  of format 5 (`Person.from_dict`, `Settings.from_dict`).
 - **A new printed document**: a function in `exporters/documents.py`
   returning a `Document`, a `kind` in `App._document_body`, styles in
   `web/css/print.css`, a card in `web/js/pages/publish.js`.
@@ -188,6 +194,7 @@ Recipes:
 | shift | one task on one day; it has one or more *places* (positions) |
 | slot key | `"<task id>|<date>|<position>"`, the identity of one place |
 | regular | someone who does the same task on the same weekday |
+| target | the hours a week a person is expected to give, on average over the month (`Person.target_hours_per_week`, else `Settings.default_target_hours_per_week`); the month's figure is worked out (`Schedule.target`); "at most" is a limit, another thing |
 | event / event type | a retreat, festival…; its type holds the tasks such events need |
 | event task | a task of one event (`Task.event_id`), needed on some of its days |
 | **rota to fill** | the Build screen: always shows every task, event tasks included |

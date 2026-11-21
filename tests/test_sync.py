@@ -356,6 +356,79 @@ class TwoComputersTest(unittest.TestCase):
         self.assertEqual(json.loads(json.dumps(s.status())), {"configured": False})
 
 
+class OlderTargetsTest(unittest.TestCase):
+    """Targets saved in hours a month (format 5) are read as hours a week where the
+    records are built: the documents themselves, and how computers compare them, do not change."""
+
+    OLDER_PEOPLE = {"schema_version": 5, "people": [
+        {"id": "ana", "name": "Ana B.", "skills": ["cook"], "target_hours": 6},
+        {"id": "ben", "name": "Ben C.", "skills": ["cook", "guard"]}]}
+    OLDER_SETTINGS = {"schema_version": 5, "centre_name": "Demo centre", "default_target_hours": 15}
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        base = Path(self.tmp.name)
+        self.shared = base / "shared"
+        self.shared.mkdir()
+        self.store_a, self.store_b = Store(base / "a"), Store(base / "b")
+        self.store_b.root.mkdir()
+        fill(self.store_a)
+        (self.store_a.root / "people.json").write_text(json.dumps(self.OLDER_PEOPLE))
+        (self.store_a.root / "settings.json").write_text(json.dumps(self.OLDER_SETTINGS))
+        self.a = Sync(self.store_a, today=lambda: date(2026, 11, 20))
+        code = self.a.start("Office", str(self.shared))
+        self.b = Sync(self.store_b, today=lambda: date(2026, 11, 20))
+        self.b.join("Front desk", str(self.shared), code)
+        preview = self.b.preview()
+        self.b.apply(preview["plan"], {})   # both now hold the same older people.json
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def states(self, side):
+        return {u["unit"]: u["state"] for u in side.status()["units"]}
+
+    def targets(self, store):
+        return [p.target_hours_per_week for p in store.load_people()], store.load_settings().default_target_hours_per_week
+
+    def test_in_step_with_older_files_and_a_change_taken_by_itself(self):
+        kept = json.loads((self.store_b.root / "people.json").read_text())
+        self.assertEqual(kept["people"][0]["target_hours"], 6)        # taken as it was sent
+        for store in (self.store_a, self.store_b):
+            self.assertEqual(self.targets(store), ([1.5, None], 3.5))
+        versions = (json.loads(json.dumps(self.a.state["versions"])), json.loads(json.dumps(self.b.state["versions"])))
+        for _ in range(2):   # neither "both changed" nor "to get", and no new version is counted
+            self.assertEqual((self.states(self.a), self.states(self.b)), ({}, {}))
+            self.a.exchange()
+            self.b.exchange()
+        self.assertEqual((self.a.state["versions"], self.b.state["versions"]), versions)
+
+        people = self.store_a.load_people()
+        people[1].note = "Prefers mornings"
+        self.store_a.save_people(people)
+        self.assertEqual(self.states(self.a), {"people.json": "sent"})
+        self.assertEqual(self.states(self.b), {"people.json": "get"})
+        self.assertEqual(self.b.apply_automatic()["taken"], ["People"])
+        self.assertEqual(self.targets(self.store_b), ([1.5, None], 3.5))
+        self.assertEqual(self.store_b.load_people()[1].note, "Prefers mornings")
+        saved = json.loads((self.store_b.root / "people.json").read_text())
+        self.assertEqual([p.get("target_hours_per_week") for p in saved["people"]], [1.5, None])
+        self.assertFalse(any("target_hours" in p for p in saved["people"]))
+        self.assertEqual((self.states(self.a), self.states(self.b)), ({}, {}))
+
+    def test_what_differs_between_an_older_and_a_newer_people_list(self):
+        older = json.loads(json.dumps(self.OLDER_PEOPLE))
+        newer = {"people": [p.to_dict() for p in self.store_a.load_people()]}
+        self.assertEqual(sy.difference("people.json", older, newer), "Small changes.")
+        newer["people"][1]["note"] = "Prefers mornings"
+        self.assertEqual(sy.difference("people.json", older, newer), "People: 1 changed")
+        newer["people"][0]["target_hours_per_week"] = 2.0
+        self.assertEqual(sy.difference("people.json", newer, older), "People: 2 changed")
+        self.assertEqual(older, self.OLDER_PEOPLE)   # nothing given is changed
+        self.assertEqual(sy.difference("people.json", {"people": [{"id": "x"}]}, {"people": [{"id": "x"}]}),
+                         "Small changes.")   # what cannot be read is compared as it is
+
+
 class AppSyncTest(unittest.TestCase):
     def test_app_reloads_after_sync(self):
         with tempfile.TemporaryDirectory() as tmp:

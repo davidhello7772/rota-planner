@@ -246,14 +246,16 @@ def _monthly_hours(p: Placement) -> Optional[Finding]:
 
     Going over the target is only a note: the ranking already prefers people
     with fewer hours, and a warning on every busy person would drown the
-    warnings that matter.
+    warnings that matter. The target is hours a week; it is compared here
+    through the month's figure worked out from it (``Schedule.target``), with
+    a hair of tolerance, since that figure comes out of a division.
     """
     total = p.hours_this_month() + p.task.hours
     ceiling = p.person.max_hours
     if ceiling is not None and total > ceiling:
         return Finding("monthly_hours", BLOCK, f"Would reach {_hours(total)} (limit {_hours(ceiling)})")
     target = p.schedule.target(p.person.id)
-    if p.task.hours > 0 and total > target:
+    if p.task.hours > 0 and total > target + 1e-9:
         return Finding(
             "over_target", NOTE, f"Would reach {_hours(total)} (target {_hours(round(target, 1))})"
         )
@@ -343,13 +345,18 @@ def placement_cost(p: Placement, findings: List[Finding]) -> float:
     minimising it brings everyone to the same percentage of their own target,
     whatever its size. Weekends, evenings and other shifts that week count
     divided by that share, so they are shared in proportion too.
+
+    The target is hours a week, on average; it is compared through the
+    month's figure worked out from it (``Schedule.target``, and
+    ``Schedule.usual_target`` for the usual one), which comes to the same:
+    hours over the month's figure is the average a week over the weekly target.
     """
     weights = p.schedule.settings.weights
     raw = p.schedule.target(p.person.id)
     target = max(raw, 1.0)
     # 1 for the usual target, 0.5 for half of it. A target of zero keeps 1: such a
     # person stays the last choice.
-    share = target / max(p.schedule.settings.default_target_hours, 1.0) if raw > 0 else 1.0
+    share = target / max(p.schedule.usual_target(), 1.0) if raw > 0 else 1.0
     effort = p.task.hours or NOMINAL_EFFORT_HOURS
     before = p.hours_this_month() / target
     after = before + effort / target

@@ -69,7 +69,7 @@ export const SCREENS = {
     title: 'People',
     tip: 'Everyone who can be on the rota, with what they can do. The skills grid ticks skills for many people at once.',
     points: [
-      'A person’s card holds their skills, target hours, limits (hours, and a number of shifts a day or a week) and when they are never available (no evenings, never on Monday morning…).',
+      'A person’s card holds their skills, their target (hours a week, on average), limits (hours, and a number of shifts a day or a week) and when they are never available (no evenings, never on Monday morning…).',
       'Import people adds a pasted list of names or a file; nothing is created before you confirm.',
       'In the skills grid, click a skill’s name to rename or delete it.',
       'Someone who leaves: switch off “On the rota” on their card. Their past shifts stay.',
@@ -99,7 +99,7 @@ export const SCREENS = {
     title: 'Settings',
     tip: 'Four cards: the hours expected from each person, the message that goes with each schedule, your data (other computers, a backup copy), and the program’s version.',
     points: [
-      'Centre and hours: the target applies to everyone without a target of their own. Save turns blue once something changed.',
+      'Centre and hours: the target, in hours a week on average, applies to everyone without a target of their own. Save turns blue once something changed.',
       'Schedules by e-mail: the first line, last words and subject, with an example of what a person reads. Optional: Rota Planner can send them itself from a Gmail account (Set up…).',
       'Several computers: each keeps its own copy and they meet on a server or in a shared folder; changes travel by themselves. “Details and options” shows the computers and what they did.',
       'Backup copy: everything in one file, to keep on a USB stick, or to restore here or on a new computer.',
@@ -173,6 +173,8 @@ export const QUESTIONS = [
     a: 'In Regular week, click the cell of the task and weekday and choose the person. They are placed first each time a month is created.' },
   { q: 'Add a person, or a new skill', go: 'people', find: 'new resident create skill trained',
     a: '“Add a person” in People. Skills are ticked on the person’s card or, for many people at once, in the skills grid. A new skill is created from Tasks & Areas › New skill.' },
+  { q: 'Set how many hours a week someone gives', go: 'people', find: 'target hours week average month expected usual objective how much',
+    a: 'The usual target is in Settings › Centre and hours, “Target hours a week”: it is for everyone without a target of their own. For one person, open their card in People and fill in “Target a week” (empty: the usual target). It is an average: the program works out the month’s figure from it, so 3.5 h a week makes 15 h in a month of 30 days and 14 h in February. “At most a month” and “At most a day” are limits, not targets.' },
   { q: 'Limit how many shifts someone does in a week', go: 'people', find: 'weekly limit maximum per week too many shifts',
     a: 'Open the person in People: under “Number of shifts”, fill in “A week, at most” (2, for example). It counts shifts, whatever their length, not hours. Weeks run Monday to Sunday, also across the end of a month. Suggestions never go over it, and the list for a shift shows them under “Away, busy or not trained”, with the reason. “Assign anyway” still works: only that shift is flagged. Their limits also show on their card in the People tab of the rota.' },
   { q: 'Rename or delete a skill', go: 'people', find: 'skill rename remove delete change name wrong',
@@ -236,7 +238,7 @@ export const HINTS = {
   noReply: 'Someone who has not replied is treated as available all month. Their name is shown lighter, and the program says so when you choose them.',
   versions: 'A version records who is on each shift, for the manager to check or published for the residents. Later changes are marked ● on printouts, so people only look at what moved.',
   eventDay: 'On the days of an event, each usual task uses its “Event day” number of people when that is higher (set in Tasks & Areas).',
-  target: 'The hours each person is expected to give in a month. Someone away part of the month has a lower target. Suggestions and the list for a shift compare each person’s hours with their own target, so someone with half the usual target gets about half the work.',
+  target: 'The hours a week each person is expected to give, on average over the month: the usual target (in Settings) or their own (on their card). The program works out the month’s figure from it (3.5 h a week makes 15 h in a month of 30 days) and, when Settings says so, does not count the time someone is away. Suggestions and the list for a shift compare each person’s hours with their own target, so someone with half the usual target gets about half the work.',
   prefill: 'Essential tasks first, then someone on every day before a second person anywhere, then the shifts with the fewest possible people; each time the person who fits and is furthest below their own target. The work is shared in proportion to each person’s target and spread over the weeks. Suggestions stay within a quarter over each person’s target and never break a limit on their card; the Assistant says what stays open, and why. Nothing is placed without your agreement.',
 };
 

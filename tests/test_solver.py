@@ -72,8 +72,10 @@ class PrefillTest(unittest.TestCase):
 
     def test_work_is_shared_in_proportion_to_each_target(self):
         month = one_task(hours=2)
-        people = [Person("full", "Full A.", target_hours=12), Person("half", "Half B.", target_hours=6)]
-        proposals, left, _ = solver.prefill(month, people, Settings(), seconds=5, ceiling=None)
+        people = [Person("full", "Full A.", target_hours_per_week=h.a_week(12)),
+                  Person("half", "Half B.", target_hours_per_week=h.a_week(6))]
+        proposals, left, _ = solver.prefill(month, people, Settings(default_target_hours_per_week=h.a_week(12)),
+                                            seconds=5, ceiling=None)
         self.assertEqual(left, [])
         share = Counter(p.person_id for p in proposals)["half"] / len(proposals)
         self.assertTrue(0.27 <= share <= 0.40, share)   # ideal: a third
@@ -113,7 +115,7 @@ class PrefillTest(unittest.TestCase):
         proposals, _, _ = solver.prefill(month, people, Settings(), seconds=FAST)
         accept(month, proposals)
         assert_within_limits("prefill")
-        accept(month, solver.rebalance(month, people, Settings(default_target_hours=6)))
+        accept(month, solver.rebalance(month, people, Settings(default_target_hours_per_week=h.a_week(6))))
         assert_within_limits("rebalance")
 
     def test_the_same_input_gives_the_same_suggestions(self):
@@ -142,8 +144,8 @@ class PrefillTest(unittest.TestCase):
 
     def test_a_suggestion_says_what_to_know(self):
         month = one_task(hours=5)
-        proposals, _, _ = solver.prefill(month, [Person("ana", "Ana B.")], Settings(), dates={"2026-12-01"},
-                                         seconds=FAST)
+        proposals, _, _ = solver.prefill(month, [Person("ana", "Ana B.")], Settings(default_target_hours_per_week=h.a_week(12)),
+                                         dates={"2026-12-01"}, seconds=FAST)
         self.assertEqual(proposals[0].why, "5 h of 12 h this month · Would reach 5 h that day (usual max 4 h)"
                                            " · has not replied to the availability form")
 
@@ -252,7 +254,8 @@ class PrefillTest(unittest.TestCase):
 class NotEnoughPeopleTest(unittest.TestCase):
     def test_suggestions_stop_a_quarter_over_the_target(self):
         month = one_task(hours=4)   # 4 h every day of December
-        people = [Person("ana", "Ana B.", target_hours=12), Person("ben", "Ben C.", target_hours=12)]
+        people = [Person("ana", "Ana B.", target_hours_per_week=h.a_week(12)),
+                  Person("ben", "Ben C.", target_hours_per_week=h.a_week(12))]
         proposals, left, report = solver.prefill(month, people, Settings(), seconds=5)
         hours = Counter()
         for p in proposals:
@@ -336,7 +339,7 @@ class NotEnoughPeopleTest(unittest.TestCase):
         ]
         month = h.month(catalog)
         days = {f"2026-12-{d:02d}" for d in range(1, 11)}
-        proposals, left, report = solver.prefill(month, [Person("solo", "Solo A.", target_hours=12)], Settings(),
+        proposals, left, report = solver.prefill(month, [Person("solo", "Solo A.", target_hours_per_week=h.a_week(12))], Settings(),
                                                  dates=days, seconds=FAST)
         self.assertEqual(Counter(p.task_id for p in proposals), {"must": 5})   # 15 h: a quarter over 12 h
         self.assertEqual(report["left_text"], "15 shifts stay open: 5 essential, 10 optional.")
@@ -361,7 +364,7 @@ class ReportTest(unittest.TestCase):
         people = [Person("bea", "Bea A.", skills=["s2"]),                          # away
                   Person("cid", "Cid B.", skills=["s3"]),                          # on another shift then
                   Person("dan", "Dan C.", skills=["s4"], max_tasks_per_day=1),     # at a limit on the card
-                  Person("eve", "Eve D.", skills=["s5"], target_hours=1)]          # would go over the target
+                  Person("eve", "Eve D.", skills=["s5"], target_hours_per_week=h.a_week(1))]  # would go over the target
         schedule = Schedule(month, people, Settings())
         left = [(f"t{n}", day, 0) for n in range(1, 6)]   # t1: nobody is trained
         self.assertEqual([solver._obstacle(schedule, slot, solver.SUGGEST_UP_TO) for slot in left],
@@ -388,7 +391,7 @@ class RebalanceTest(unittest.TestCase):
         busy[1].locked = True
         busy[2].forced_reason = ""
         month.assignments = busy
-        moves = solver.rebalance(month, h.people(), Settings(default_target_hours=10))
+        moves = solver.rebalance(month, h.people(), Settings(default_target_hours_per_week=h.a_week(10)))
         self.assertTrue(moves)
         self.assertEqual({m.replaces for m in moves}, {"ana"})
         self.assertEqual({m.person_id for m in moves}, {"ben"})
@@ -472,7 +475,7 @@ class CostTest(unittest.TestCase):
     def test_weekends_are_shared(self):
         month = h.month()
         month.assignments = [Assignment("helper", d, 0, person_id="ana") for d in ("2026-12-05", "2026-12-06", "2026-12-12")]
-        schedule = Schedule(month, h.people(), Settings(default_target_hours=100))
+        schedule = Schedule(month, h.people(), Settings(default_target_hours_per_week=h.a_week(100)))
         ranked = rules.candidates(schedule, schedule.tasks["helper"], "2026-12-13")
         best = [c.person.id for c in ranked if c.group == rules.BEST]
         self.assertLess(best.index("ben"), best.index("ana"))

@@ -81,11 +81,30 @@ def _weekly_limit_older_programs_would_drop(document: Dict[str, Any]) -> Dict[st
     return document
 
 
+def _weekly_targets_older_programs_would_drop(document: Dict[str, Any]) -> Dict[str, Any]:
+    """Format 5 → 6: nothing to transform. A target is now hours a week
+    (``Person.target_hours_per_week``, ``Settings.default_target_hours_per_week``):
+    an older program would drop it when saving and fall back on its own
+    monthly default, so with a higher number it refuses the newer files
+    instead (the store, a backup copy through ``transfer.checked``, and sync:
+    "Another computer has a newer Rota Planner: update this one first.").
+
+    The monthly targets of older files are read where the records are built
+    (``Person.from_dict``, ``Settings.from_dict`` in ``model.py``), not here:
+    other computers compare documents by their content (``sync.rank``), and a
+    transform here would give the same data two hashes, one on each side of
+    an update (a false "both changed"), or a new version on every computer at
+    update time. Read at record level, a document does not change until
+    someone really saves it."""
+    return document
+
+
 MIGRATIONS: Dict[int, Migration] = {
     1: _tasks_get_periods,
     2: _events_decide_main_rota,
     3: _fields_older_programs_would_drop,
     4: _weekly_limit_older_programs_would_drop,
+    5: _weekly_targets_older_programs_would_drop,
 }
 """Upgrade steps, keyed by the version they upgrade *from*.
 

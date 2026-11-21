@@ -279,7 +279,7 @@ class DaysPatternTest(unittest.TestCase):
         # Ana: 4 lunches of 4 h (16 h for a target of 12); Ben: one breakfast (2 h); Cleo: nothing.
         month.assignments = [Assignment("lunch", f"2026-12-{d:02d}", 0, person_id="ana") for d in (1, 2, 5, 6)]
         month.assignments.append(Assignment("breakfast", "2026-12-07", 0, person_id="ben"))
-        report = check_report(month, h.people(), Settings(default_target_hours=12, prorate_target=False), [])
+        report = check_report(month, h.people(), Settings(default_target_hours_per_week=h.a_week(12), prorate_target=False), [])
         rows = {p["id"]: p for p in report["balance"]}
         self.assertEqual([(rows[i]["ratio"], rows[i]["load"]) for i in ("ana", "ben", "cleo")],
                          [(round(16 / 12, 4), "over"), (round(2 / 12, 4), "under"), (0.0, "under")])
@@ -288,7 +288,7 @@ class DaysPatternTest(unittest.TestCase):
         self.assertEqual(nobody["averages"], {"hours": 0, "target": 0, "weekends": 0, "evenings": 0})
         # Without a target there is nothing to be over or under.
         people = h.people()
-        people[0].target_hours = 0
+        people[0].target_hours_per_week = 0
         ana = next(p for p in check_report(month, people, Settings(), [])["balance"] if p["id"] == "ana")
         self.assertEqual(ana["ratio"], 0.0)
 

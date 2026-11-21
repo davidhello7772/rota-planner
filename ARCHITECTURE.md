@@ -110,6 +110,19 @@ JSON files in the data folder (`catalog.json`, `people.json`,
 change the format, bump `model.SCHEMA_VERSION` and register an upgrade
 function in `store.MIGRATIONS`.
 
+Format 6 holds targets in hours a week (`Person.target_hours_per_week`,
+`Settings.default_target_hours_per_week`); format 5 and before held them in
+hours a month (`target_hours`, `default_target_hours`). Its step in
+`store.MIGRATIONS` changes nothing but the number, so that an older program
+refuses the newer files instead of dropping the weekly targets. The monthly
+targets of older files are read where the records are built
+(`Person.from_dict`, `Settings.from_dict`, through
+`model.weekly_from_monthly`: 15 h a month gives 3.5 h a week), whenever the
+old key is there and the weekly one is not, never by the version number and
+without changing the document: other computers compare documents by their
+content (`sync.rank`), so a document must not change until someone really
+saves it. Once saved, the file holds the weekly key only.
+
 ## Security and privacy
 
 Rota Planner answers this computer only. The server listens on 127.0.0.1,

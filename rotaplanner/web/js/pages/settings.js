@@ -58,19 +58,21 @@ function card(id, title, lead, ...content) {
 }
 
 function hoursCard(s, centreChanged) {
-  const target = numberInput(s.default_target_hours, { min: 0, max: 300, step: 0.5 });
+  const target = numberInput(s.default_target_hours_per_week, { min: 0, max: 80, step: 0.25 });
   const daily = numberInput(s.default_max_hours_per_day, { min: 0, max: 24, step: 0.5 });
-  const prorate = changes(toggle('Lower the target of someone away part of the month', s.prorate_target));
+  const prorate = changes(toggle('Count only the time someone is here', s.prorate_target));
   const centre = textInput(s.centre_name, { maxlength: 120 });
   return card('hours', 'Centre and hours', 'What the program expects from each person. The suggestions and the checks use it.',
     h('div', { class: 'form-grid' },
-      field('Target hours a month', target, 'For everyone without a target of their own (set in People).'),
+      field('Target hours a week', target,
+        'On average, for everyone without a target of their own (set in People). 3.5 h a week makes 15 h in a month of 30 days.'),
       field('Most hours in one day', daily, 'Going over it shows a warning. A personal limit set in People blocks, unless you assign anyway.')),
     h('div', { class: 'field' }, prorate,
-      h('span', { class: 'field-hint toggle-hint' }, 'Someone away for a third of the month is then expected to give a third less.')),
+      h('span', { class: 'field-hint toggle-hint' },
+        'Someone away for a third of the month is then expected to give a third less that month; their average a week is counted over the time they are here.')),
     field('Name of the centre', centre, 'Shown at the top left, in each schedule message and in calendar files.'),
     saveBar([target, daily, prorate.input, centre], async () => {
-      await saveSetup('settings/save', { settings: { centre_name: centre.value, default_target_hours: target.value,
+      await saveSetup('settings/save', { settings: { centre_name: centre.value, default_target_hours_per_week: target.value,
         default_max_hours_per_day: daily.value, prorate_target: prorate.input.checked } });
       if (state.boot) state.boot.centre = centre.value.trim();
       centreChanged();

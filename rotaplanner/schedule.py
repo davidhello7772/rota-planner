@@ -217,16 +217,42 @@ class Schedule:
             self._presence[person_id] = 1.0 - missed / total
         return self._presence[person_id]
 
-    def target(self, person_id: str) -> float:
-        """Hours this person is expected to give this month.
+    # -- the target: hours a week, on average ---------------------------------
+    # Only the weekly target is stored; the month's figure is worked out from it.
+    # Multiply by the days first and divide by 7 last, so that round targets
+    # give round month figures (3.5 h a week makes 15.5 h in 31 days).
 
-        Scaled by presence when the setting is on, so someone away half the
-        month is not expected to catch up in the other half.
-        """
-        person = self.people[person_id]
-        target = person.target_hours
+    def weeks_in_month(self) -> float:
+        """How many weeks the month has: its days ÷ 7 (30 days make 4.29 weeks)."""
+        return len(self.dates) / 7
+
+    def week_target(self, person_id: str) -> float:
+        """Hours a week this person is expected to give, on average: their own
+        target, else the usual one. Never lowered by the time they are away."""
+        target = self.people[person_id].target_hours_per_week
         if target is None:
-            target = self.settings.default_target_hours
-        if self.settings.prorate_target:
-            target *= self.presence(person_id)
+            target = self.settings.default_target_hours_per_week
         return target
+
+    def _share_counted(self, person_id: str) -> float:
+        """The share of the month that counts for this person: all of it, or only
+        the time they are here when the setting says so (``prorate_target``)."""
+        return self.presence(person_id) if self.settings.prorate_target else 1.0
+
+    def weeks_counted(self, person_id: str) -> float:
+        """The weeks over which this person's average is taken: the month's,
+        less the time they are away when the setting says so."""
+        return self.weeks_in_month() * self._share_counted(person_id)
+
+    def target(self, person_id: str) -> float:
+        """Hours this person is expected to give this month, worked out from
+        their target a week (``week_target``) over the month's days.
+
+        Without the time they are away when the setting says so, so someone
+        away half the month is not expected to catch up in the other half.
+        """
+        return self.week_target(person_id) * len(self.dates) / 7 * self._share_counted(person_id)
+
+    def usual_target(self) -> float:
+        """The month's figure of the usual target (``Settings``), for someone never away."""
+        return self.settings.default_target_hours_per_week * len(self.dates) / 7

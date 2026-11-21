@@ -35,7 +35,7 @@ function visiblePeople(setup) {
 
 function constraintsText(person) {
   const parts = [];
-  if (person.target_hours != null) parts.push(`Target ${person.target_hours} h`);
+  if (person.target_hours_per_week != null) parts.push(`Target ${person.target_hours_per_week} h a week`);
   if (person.max_hours != null) parts.push(`Max ${person.max_hours} h/month`);
   if (person.max_hours_per_day != null) parts.push(`Max ${person.max_hours_per_day} h/day`);
   if (person.max_tasks_per_day != null) parts.push(`Max ${person.max_tasks_per_day} task${person.max_tasks_per_day > 1 ? 's' : ''}/day`);
@@ -102,7 +102,7 @@ export function editPerson(person) {
   const resident = toggle('Resident (lives at the centre)', p.resident);
   const active = toggle('On the rota', p.active);
   const skills = chipChoice(setup.catalog.skills.map((s) => ({ value: s.id, label: s.name })), p.skills, { label: 'Skills' });
-  const target = numberInput(p.target_hours, { min: 0, step: 0.5, placeholder: String(setup.settings.default_target_hours) });
+  const target = numberInput(p.target_hours_per_week, { min: 0, max: 80, step: 0.25, placeholder: String(setup.settings.default_target_hours_per_week) });
   const maxMonth = numberInput(p.max_hours, { min: 0, step: 0.5, placeholder: 'No limit' });
   const maxDay = numberInput(p.max_hours_per_day, { min: 0, step: 0.5, placeholder: String(setup.settings.default_max_hours_per_day) });
   const tasksDay = numberInput(p.max_tasks_per_day, { min: 1, step: 1, placeholder: 'No limit' });
@@ -117,7 +117,7 @@ export function editPerson(person) {
     const data = {
       id: p.id, first_name: first.value, last_name: last.value, name: rota.value, lay_name: lay.value, phone: phone.value,
       resident: resident.input.checked, active: active.input.checked, archived: archived.input.checked,
-      skills: skills.getValue(), target_hours: target.value, max_hours: maxMonth.value,
+      skills: skills.getValue(), target_hours_per_week: target.value, max_hours: maxMonth.value,
       max_hours_per_day: maxDay.value, max_tasks_per_day: tasksDay.value, max_shifts_per_week: shiftsWeek.value,
       never: never.getValue(),
       avoid_task_ids: avoid.getValue(), preferences: prefs.getValue(), note: note.value,
@@ -143,7 +143,7 @@ export function editPerson(person) {
       h('h3', { class: 'form-section' }, 'Skills'), skills,
       h('h3', { class: 'form-section' }, 'Hours'),
       h('div', { class: 'form-grid' },
-        field('Target a month', target, 'Empty: the usual target'), field('At most a month', maxMonth),
+        field('Target a week', target, 'On average. Empty: the usual target'), field('At most a month', maxMonth),
         field('At most a day', maxDay, 'Empty: the usual limit (a warning only)')),
       // Counts, kept apart from the hours so that a number of shifts is never read as hours.
       h('h3', { class: 'form-section' }, 'Number of shifts'),

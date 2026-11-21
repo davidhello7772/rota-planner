@@ -11,12 +11,13 @@ keys, so records serialise to JSON without conversion.
 from __future__ import annotations
 
 import calendar
+import math
 import uuid
 from dataclasses import asdict, dataclass, field, fields
 from datetime import date, timedelta
 from typing import Any, ClassVar, Dict, List, Optional, Tuple
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 PERIODS = ("morning", "afternoon", "evening")
 ANYTIME = "anytime"
@@ -34,6 +35,31 @@ DEFAULT_HEADCOUNT = "default"
 """Headcount key used when a task needs the same number of people every day."""
 
 MINUTES_PER_DAY = 24 * 60
+
+WEEKS_A_MONTH = 52 / 12
+"""About how many weeks a month has, on average (a year has 52 weeks in 12 months)."""
+
+
+def weekly_from_monthly(hours: Any) -> Optional[float]:
+    """An older monthly target said as hours a week, to the quarter of an hour.
+
+    Files of format 5 and before held targets in hours a month
+    (``target_hours``, ``default_target_hours``); they are read through this
+    (see ``Person.from_dict``). A target that was not 0 never becomes 0:
+    15 h a month gives 3.5 h a week, 0.5 h a month 0.25. Anything that is not
+    a number (text, ``True``, not finite) gives ``None``; it never raises.
+    """
+    if isinstance(hours, bool) or not isinstance(hours, (int, float)):
+        return None
+    try:
+        hours = float(hours)  # a whole number too large for a float is not a target either
+    except OverflowError:
+        return None
+    if not math.isfinite(hours):
+        return None
+    if hours <= 0:
+        return 0.0
+    return max(0.25, math.floor(hours / WEEKS_A_MONTH * 4 + 0.5) / 4)
 
 
 def new_id(prefix: str) -> str:
@@ -224,7 +250,7 @@ FREQUENCIES = {
     "last": "Last of the month",
 }
 # About how many times a month each comes round (a year has 52 weeks in 12 months).
-TIMES_A_MONTH = {"weekly": 52 / 12, "odd": 26 / 12, "even": 26 / 12, "1st": 1.0, "2nd": 1.0, "3rd": 1.0, "4th": 1.0,
+TIMES_A_MONTH = {"weekly": WEEKS_A_MONTH, "odd": 26 / 12, "even": 26 / 12, "1st": 1.0, "2nd": 1.0, "3rd": 1.0, "4th": 1.0,
                  "last": 1.0}
 
 
@@ -339,7 +365,9 @@ class Person(Record):
     archived: bool = False
     skills: List[str] = field(default_factory=list)
     preferences: Dict[str, int] = field(default_factory=dict)
-    target_hours: Optional[float] = None
+    target_hours_per_week: Optional[float] = None
+    """Hours a week this person is expected to give, on average over the month;
+    ``None``: the usual target (``Settings.default_target_hours_per_week``)."""
     max_hours: Optional[float] = None
     max_hours_per_day: Optional[float] = None
     max_tasks_per_day: Optional[int] = None
@@ -351,6 +379,23 @@ class Person(Record):
     email_fp: str = ""
     """One-way fingerprint of their e-mail address (``emails.py``); never the address."""
 
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]):
+        """Also reads a target saved in hours a month by older files (``target_hours``).
+
+        It is read here, where the record is built, and not in
+        ``store.MIGRATIONS``: other computers compare documents by their
+        content (``sync.rank``), so a document must not change until someone
+        really saves it. The old key is read whenever it is there and the
+        weekly key is not (never by the file's ``schema_version``: some
+        writers keep a document as it is under a newer number), on a copy:
+        the dict given is never changed.
+        """
+        if isinstance(data, dict) and "target_hours" in data and "target_hours_per_week" not in data:
+            data = dict(data)
+            data["target_hours_per_week"] = weekly_from_monthly(data["target_hours"])
+        return super().from_dict(data)
+
 
 @dataclass
 class Weights(Record):
@@ -358,8 +403,9 @@ class Weights(Record):
 
     Each weight multiplies a quantity of roughly unit size, so the numbers
     can be compared with one another directly. ``load`` and ``over_target``
-    weigh hours against each person's own target, so that everyone ends at
-    about the same percentage of theirs; ``weekend``, ``evening`` and
+    weigh hours against each person's own target (hours a week, compared
+    through the month's figure worked out from it, ``Schedule.target``), so
+    that everyone ends at about the same percentage of theirs; ``weekend``, ``evening`` and
     ``same_week`` (shifts already held that week) count in proportion to the
     target too (see ``eligibility.placement_cost``).
     """
@@ -419,9 +465,14 @@ class Settings(Record):
     _nested: ClassVar[Dict[str, Any]] = {"weights": Weights, "print_templates": [PrintTemplate]}
 
     centre_name: str = ""
-    default_target_hours: float = 12.0
+    default_target_hours_per_week: float = 2.75
+    """The usual target: hours a week each person is expected to give, on
+    average over the month, unless their card says otherwise (2.75 h a week
+    was 12 h a month)."""
     default_max_hours_per_day: float = 4.0
     prorate_target: bool = True
+    """Count only the time someone is here: their average a week leaves out the
+    time they are away, which lowers what is expected of them that month."""
     weights: Weights = field(default_factory=Weights)
     print_templates: List[PrintTemplate] = field(default_factory=default_print_templates)
     message_greeting: str = "Hello {name},"
@@ -429,6 +480,21 @@ class Settings(Record):
     message_closing: str = "Thank you!"
     message_subject: str = "Your shifts for {month}"
     """Subject of the e-mail sent with each schedule; {month} is the month's name."""
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]):
+        """Also reads the usual target saved in hours a month by older files
+        (``default_target_hours``), as ``Person.from_dict`` does: whenever the
+        old key is there and the weekly key is not (or is empty, which is never
+        a usual target), on a copy of the dict. A value that is not a number
+        leaves the default."""
+        key = "default_target_hours_per_week"
+        if isinstance(data, dict) and data.get(key) is None:  # absent, or empty: never a usual target
+            weekly = weekly_from_monthly(data.get("default_target_hours"))
+            data = {k: v for k, v in data.items() if k != key}  # empty: the default
+            if weekly is not None:
+                data[key] = weekly
+        return super().from_dict(data)
 
 
 # --------------------------------------------------------------------------

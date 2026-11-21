@@ -122,7 +122,9 @@ folder.
 ## Setting things up
 
 - **People**: everyone with skills, hours and constraints. A person's card
-  holds their target hours and limits: hours (a month, a day) and, apart, a
+  holds their target, in hours a week on average (empty: the usual target of
+  Settings; the program works out the month's figure from it: 3.5 h a week
+  makes 15 h in a month of 30 days), and limits: hours (a month, a day) and, apart, a
   *Number of shifts* (at most so many a day, or a week from Monday to Sunday,
   also across the end of a month; suggestions never go over them). *Skills
   grid* ticks skills for many people at once; *Import people* adds a pasted

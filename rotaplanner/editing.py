@@ -79,6 +79,17 @@ def whole(data: Json, key: str, low: int, high: int, label: str) -> Optional[int
     return int(value)
 
 
+OLDER_PAGE = "This page is older than the program: reload it, then save again."
+
+
+def refuse_older_page(data: Json, old_key: str, new_key: str) -> None:
+    """A page loaded before an update may still send a field by its old name
+    (a target in hours a month): saving would silently empty the new one, so
+    the save is refused with a word to reload the page."""
+    if old_key in data and new_key not in data:
+        raise ValueError(OLDER_PAGE)
+
+
 def _date(value: Any, label: str) -> str:
     if not value:
         return ""
@@ -113,6 +124,7 @@ def save_person(people: List[Person], catalog: Catalog, data: Json, salt: bytes 
     ``email`` (optional) is turned into its fingerprint and dropped;
     ``forget_email`` removes the one known.
     """
+    refuse_older_page(data, "target_hours", "target_hours_per_week")
     existing = next((p for p in people if p.id == data.get("id")), None) if data.get("id") else None
     others = [p for p in people if p is not existing]
     first = _text(data, "first_name")
@@ -162,7 +174,7 @@ def save_person(people: List[Person], catalog: Catalog, data: Json, salt: bytes 
     person.archived = bool(data.get("archived", False))
     person.skills = [s for s in data.get("skills") or [] if s in skill_ids]
     person.preferences = preferences
-    person.target_hours = number(data, "target_hours", 0, 300, "Target hours")
+    person.target_hours_per_week = number(data, "target_hours_per_week", 0, 80, "Target hours a week")
     person.max_hours = number(data, "max_hours", 0, 300, "Monthly limit")
     person.max_hours_per_day = number(data, "max_hours_per_day", 0, 24, "Hours a day")
     person.max_tasks_per_day = whole(data, "max_tasks_per_day", 1, 20, "Tasks a day")
@@ -555,12 +567,13 @@ def message_subject(text: Any) -> str:
 
 
 def save_settings(settings: Settings, data: Json) -> Settings:
+    refuse_older_page(data, "default_target_hours", "default_target_hours_per_week")
     if "centre_name" in data:  # each part of Settings saves only its own fields
         settings.centre_name = _text(data, "centre_name")
-    target = number(data, "default_target_hours", 0, 300, "Default target hours")
+    target = number(data, "default_target_hours_per_week", 0, 80, "Usual target hours a week")
     daily = number(data, "default_max_hours_per_day", 0, 24, "Usual hours a day")
     if target is not None:
-        settings.default_target_hours = target
+        settings.default_target_hours_per_week = target
     if daily is not None:
         settings.default_max_hours_per_day = daily
     settings.prorate_target = bool(data.get("prorate_target", settings.prorate_target))

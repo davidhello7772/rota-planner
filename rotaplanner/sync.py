@@ -82,7 +82,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from . import places, transfer
 from .availability import scrub_comments
-from .model import SCHEMA_VERSION
+from .model import SCHEMA_VERSION, Person
 from .store import Store, StoreError, migrate, write_private_json
 
 Json = Dict[str, Any]
@@ -315,12 +315,23 @@ def _month_over(unit: str, today: date) -> bool:
     return bool(match) and match.group(1) < f"{today.year:04d}-{today.month:02d}"
 
 
+def _person_as_read(person: Json) -> Json:
+    """A person of ``people.json`` as the program reads it (older forms read the
+    new way); the document as it is if it cannot be read."""
+    try:
+        return Person.from_dict(person).to_dict()
+    except Exception:  # noqa: BLE001 — anything unreadable is compared as it is
+        return person
+
+
 def difference(unit: str, mine: Optional[Json], theirs: Optional[Json]) -> str:
     """What differs, in a few plain words, to help choose which to keep."""
     mine, theirs = mine or {}, theirs or {}
     if unit == "people.json":
-        a = {p.get("id"): p for p in mine.get("people", [])}
-        b = {p.get("id"): p for p in theirs.get("people", [])}
+        # Each person as the program reads them: a side still in an older form
+        # (a target in hours a month) must not look as if everyone changed.
+        a = {p.get("id"): _person_as_read(p) for p in mine.get("people", [])}
+        b = {p.get("id"): _person_as_read(p) for p in theirs.get("people", [])}
         parts = [f"{len(set(a) - set(b))} only here", f"{len(set(b) - set(a))} only there",
                  f"{sum(1 for k in set(a) & set(b) if a[k] != b[k])} changed"]
         return "People: " + ", ".join(p for p in parts if not p.startswith("0 ")) if any(not p.startswith("0 ") for p in parts) else "Small changes."

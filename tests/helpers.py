@@ -52,5 +52,11 @@ def schedule(m: Month, ppl=None, settings: Settings = None) -> Schedule:
     return Schedule(m, ppl if ppl is not None else people(), settings or Settings())
 
 
+def a_week(month_hours: float, days: int = 31) -> float:
+    """The weekly target that makes this many hours in December 2026 (31 days),
+    so that a test pinned on a monthly figure keeps its numbers and its intent."""
+    return month_hours * 7 / days
+
+
 def away(m: Month, person_id: str, *keys: str) -> None:
     m.availability[person_id] = PersonAvailability(unavailable=list(keys))

@@ -182,8 +182,8 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(len(body["people"]), 4)
         status, body = self.json("POST", "/api/people/save", {"person": {"first_name": "Eva", "last_name": "Fox"}})
         self.assertIn("Eva F.", [p["name"] for p in body["people"]])
-        status, body = self.json("POST", "/api/people/save", {"person": {"first_name": "X", "target_hours": "x"}})
-        self.assertEqual((status, body["error"]), (400, "Target hours must be a number."))
+        status, body = self.json("POST", "/api/people/save", {"person": {"first_name": "X", "target_hours_per_week": "x"}})
+        self.assertEqual((status, body["error"]), (400, "Target hours a week must be a number."))
         status, body = self.json("POST", "/api/tasks/save", {"task": {"name": "Garden", "area_id": "kitchen",
                                                                       "headcount": {"sun": 1}}, "scope": "2026-12"})
         garden = next(t for t in body["tasks"] if t["name"] == "Garden")

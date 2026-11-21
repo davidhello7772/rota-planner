@@ -1,5 +1,6 @@
 import base64
 import io
+import json
 import tempfile
 import unittest
 import zipfile
@@ -9,6 +10,7 @@ from rotaplanner import transfer
 from rotaplanner.app import ApiError, App
 from rotaplanner.model import Month, PersonAvailability
 from rotaplanner.store import Store
+from rotaplanner.sync import content_hash
 
 from . import helpers as h
 
@@ -75,6 +77,28 @@ class TransferTest(unittest.TestCase):
         self.assertEqual([m["id"] for m in result["bootstrap"]["months"]], ["2026-12", "2027-01"])
         with self.assertRaises(ApiError):
             app.import_apply({"file": base64.b64encode(b"nope").decode()})
+
+    def test_a_backup_copy_with_targets_in_hours_a_month(self):
+        older = {
+            "catalog.json": dict(h.catalog().to_dict(), schema_version=5),
+            "people.json": {"schema_version": 5, "people": [
+                {"id": "ana", "name": "Ana B.", "skills": ["cook"], "target_hours": 15},
+                {"id": "ben", "name": "Ben C.", "skills": ["cook", "guard"], "target_hours": 6}]},
+            "settings.json": {"schema_version": 5, "centre_name": "Demo centre", "default_target_hours": 10},
+        }
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as archive:
+            archive.writestr(transfer.MANIFEST, json.dumps({"format": transfer.FORMAT, "schema_version": 5}))
+            for name, document in older.items():
+                archive.writestr(name, json.dumps(document))
+        data = buffer.getvalue()
+        documents = transfer.read_export(data)["documents"]   # accepted
+        for name, document in older.items():
+            self.assertEqual(content_hash(documents[name]), content_hash(document), name)  # its content as it was
+        there = self.store("there")
+        transfer.replace_data(there, data)
+        self.assertEqual([p.target_hours_per_week for p in there.load_people()], [3.5, 1.5])
+        self.assertEqual(there.load_settings().default_target_hours_per_week, 2.25)
 
 
 if __name__ == "__main__":
