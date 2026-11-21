@@ -28,9 +28,10 @@ variables of that name, which would hide the module.)
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
-from .model import PERIODS, parse_date, shift_date
+from .editing import AFTERNOON_FROM, EVENING_FROM
+from .model import ANYTIME, MINUTES_PER_DAY, PERIODS, Assignment, parse_date, shift_date
 from .schedule import Schedule
 
 BAR_OVER, BAR_UNDER = 1.0, 0.5
@@ -95,7 +96,7 @@ def summary(schedule: Schedule, person_id: str) -> Dict[str, Any]:
         else "Away all month",
         "month_text": f"{number(hours)} h in {month}",
         # Against the month's figure; without one (a target of 0, away all month), the hours alone.
-        "month_detail": f"{number(hours)} of {number(target, 1)} h in {month}" if target > 0
+        "month_detail": f"{number(hours)} of {number(target)} h in {month}" if target > 0
         else f"{number(hours)} h in {month}",
     }
 
@@ -138,8 +139,10 @@ def _day_name(iso: str) -> str:
 
 def _span(days: List[str]) -> str:
     """The days of a week in words: "Monday 7 to Sunday 13 December", "Monday 30
-    November to Sunday 6 December"."""
+    November to Sunday 6 December", or one day ("Sunday 1 November")."""
     first, last = days[0], days[-1]
+    if first == last:   # a week cut to one day: "Sunday 1 November"
+        return f"{_day_name(first)} {int(first[8:])} {_day_month(first)}"
     start = f"{_day_name(first)} {int(first[8:])}"
     if first[:7] != last[:7]:
         start += f" {_day_month(first)}"
@@ -277,31 +280,40 @@ def _bar(now: float, added: float, target: float) -> Dict[str, Any]:
     return {"segments": segments, "target_at": target_at}
 
 
-def _figures(now: float, added: float, target: float, target_text: str) -> List[List[str]]:
+def _figures(now: float, added: float, target: float, target_text: str, held: bool = False) -> List[List[str]]:
     """"3 → 6 of 4 h", in parts with their kind: the hours so far and the arrow
-    (``was``, only when the shift adds hours), the hours with this shift
-    (``after``, or ``after-over`` past the target), then "of" the target."""
+    (``was``, only when the shift adds hours and is not theirs already), the
+    hours with this shift (``after``, or ``after-over`` past the target), then
+    "of" the target."""
     after = now + added
-    parts = [["was", f"{number(now)} → "]] if added > TOLERANCE else []
+    parts = [["was", f"{number(now)} → "]] if added > TOLERANCE and not held else []
     parts.append(["after-over" if after > target + TOLERANCE else "after", number(after)])
     parts.append(["of", f" of {target_text} h" if target > 0 else " h"])
     return parts
 
 
-def _so_far(now: float, added: float) -> str:
-    """"3 h so far, 6 h with this shift" (the second part only when the shift adds hours)."""
+def _so_far(now: float, added: float, held: bool = False) -> str:
+    """"3 h so far, 6 h with this shift" (the second part only when the shift adds
+    hours); for the person on the shift, "6 h, 3 h of them this shift"."""
+    if held:
+        text = f"{number(now + added)} h"
+        return text + (f", {number(added)} h of them this shift" if added > TOLERANCE else "")
     text = f"{number(now)} h so far"
     if added > TOLERANCE:
         text += f", {number(now + added)} h with this shift"
     return text
 
 
-def choice(schedule: Schedule, person_id: str, iso: str, added: float) -> Dict[str, Any]:
+def choice(schedule: Schedule, person_id: str, iso: str, added: float, held: bool = False) -> Dict[str, Any]:
     """Two lines of the list for a shift on ``iso``, for one person: their hours in
     the shift's week (Monday to Sunday, whole across two months when the month
     next door has a rota) against their weekly target, and their hours this month
     against the month's figure; each with what this shift would add (``added``:
-    its hours that day, 0 when the person already holds it).
+    its hours that day).
+
+    ``held``: the person is on this shift already (``added`` is then its hours
+    that day). "So far" leaves it out, the bar draws it lighter after the rest,
+    and the figures give the total only, without the arrow ("7.5 of 3.5 h").
 
     Each line: ``label``, the bar's ``segments`` (``[kind, from %, to %]``),
     ``target_at`` (% of the target's line, ``None`` with a target of 0) and the
@@ -311,23 +323,26 @@ def choice(schedule: Schedule, person_id: str, iso: str, added: float) -> Dict[s
     days = next((days for days in schedule.calendar_weeks() if schedule.week_of(days[0]) == monday), [iso])
     week_now, week_target = schedule.hours_in_week(person_id, iso), schedule.week_target(person_id)
     month_now, month_target = schedule.hours(person_id), schedule.target(person_id)
+    if held:   # their hours as they stand count this shift: without it, then it
+        week_now, month_now = max(0.0, week_now - added), max(0.0, month_now - added)
     month = _month_name(schedule)
 
-    week_title = f"Week of {_span(days)}: {_so_far(week_now, added)}, for a target of {number(week_target)} h a week."
+    week_title = (f"Week of {_span(days)}: {_so_far(week_now, added, held)}, "
+                  f"for a target of {number(week_target)} h a week.")
     if len(days) < 7:
         week_title += f" {_cut_words(schedule, days)}"
-    month_title = f"{month}: {_so_far(month_now, added)}"
+    month_title = f"{month}: {_so_far(month_now, added, held)}"
     if month_target > 0:
-        month_title += f", of {number(month_target, 1)} h."
+        month_title += f", of {number(month_target)} h."
     elif week_target > 0:   # away all month, when Settings does not count the time away
         month_title += "; away all month, so no target."
     else:
         month_title += ", for a target of 0 h."
     return {
         "week": {"label": "Week", **_bar(week_now, added, week_target),
-                 "figures": _figures(week_now, added, week_target, number(week_target))},
+                 "figures": _figures(week_now, added, week_target, number(week_target), held)},
         "month": {"label": MONTH_SHORT[schedule.month.month - 1], **_bar(month_now, added, month_target),
-                  "figures": _figures(month_now, added, month_target, number(month_target, 1))},
+                  "figures": _figures(month_now, added, month_target, number(month_target), held)},
         "title": f"{week_title} {month_title}",
     }
 
@@ -402,3 +417,154 @@ def away(schedule: Schedule, person_id: str) -> Dict[str, str]:
              for first, last, parts in same]
     title = "; ".join(words for _, words in sorted(said))
     return {"level": "all" if whole else "some", "text": text, "title": title[0].upper() + title[1:]}
+
+
+# -- the list for a shift: the person's day ----------------------------------------
+
+DAY_WINDOW = (6 * 60, 22 * 60)
+"""The hours of the strips of a person's day when the month has no task with times: 06:00 to 22:00."""
+
+
+def day_window(schedule: Schedule) -> Tuple[int, int]:
+    """The hours the strips of the list for a shift show, the same for every row,
+    in minutes after midnight: from the earliest start of the month's tasks with
+    times (their usual times and those of a day of the month) rounded down to the
+    hour, to the latest end rounded up, or to midnight when one runs past it.
+    Never wider than the day; 06:00 to 22:00 when no task has times."""
+    intervals = [task.interval() for task in schedule.month.tasks]
+    for key in schedule.month.time_changes:
+        task_id, _, iso = key.partition("|")
+        if task_id in schedule.tasks and schedule.in_month(iso):
+            intervals.append(schedule.task_on(task_id, iso).interval())
+    timed = [interval for interval in intervals if interval is not None]
+    if not timed:
+        return DAY_WINDOW
+    start = max(0, min(first for first, _ in timed) // 60 * 60)
+    end = min(MINUTES_PER_DAY, -(-max(last for _, last in timed) // 60) * 60)
+    return (start, end) if end > start else DAY_WINDOW
+
+
+def _clock(minute: int) -> str:
+    """"06:00", "17:30"; "midnight" at either end of the day."""
+    if minute % MINUTES_PER_DAY == 0:
+        return "midnight"
+    return f"{minute // 60 % 24:02d}:{minute % 60:02d}"
+
+
+def _parts_words(periods: List[str]) -> str:
+    """"any time", "in the morning", "in the morning and afternoon"."""
+    chosen = [period for period in PERIODS if period in periods]
+    return f"in the {_listed(chosen)}" if chosen and ANYTIME not in periods else "any time"
+
+
+def day(schedule: Schedule, person_id: str, task_id: str, iso: str, window: Tuple[int, int],
+        ignore: Optional[Assignment] = None) -> Dict[str, Any]:
+    """A small strip of a person's day ``iso``, for the list for a shift of
+    ``task_id`` that day: ``{"slot": [from %, to %], "segments": [[kind, from %,
+    to %], …], "marks": [%, %], "title": "…"}``, in percentages of ``window``
+    (``day_window``), rounded to two decimals, cut to 0–100.
+
+    ``slot`` is this shift (a task without times: the parts of the day it is for,
+    "any time" the whole window); ``ignore`` is the place itself, so that the
+    person on it does not see it twice. ``segments``, in the order they are drawn:
+    ``away`` (the parts of the day of their reply), ``loose`` (a task of theirs
+    without times, over its parts of the day), ``busy`` (another shift of theirs)
+    and ``clash`` (one at the same time as this shift, as the rule of overlaps
+    decides, the night before running into the morning included). Their other
+    shifts are those of the day, and the part after midnight of those of the day
+    before (in the month next door too), whose task the month of their date still
+    has, at that day's times. ``marks``: 14:00 and 17:00, the borders of the
+    parts of the day. ``title`` says it all in words."""
+    low, high = window if window[1] > window[0] else DAY_WINDOW
+    width = high - low
+
+    def at(minute: float) -> float:
+        return round(min(100.0, max(0.0, (minute - low) / width * 100)), 2) + 0.0   # never -0
+
+    def spans(periods: List[str]) -> List[List[int]]:
+        """The parts of the day, those next to each other together, in minutes; "any time": the window."""
+        if ANYTIME in periods or not any(period in PERIODS for period in periods):
+            return [[low, high]]
+        bounds = (low, AFTERNOON_FROM, EVENING_FROM, high)
+        runs: List[List[int]] = []
+        previous = False
+        for i, period in enumerate(PERIODS):
+            chosen = period in periods
+            if chosen and previous:
+                runs[-1][1] = bounds[i + 1]
+            elif chosen:
+                runs.append([bounds[i], bounds[i + 1]])
+            previous = chosen
+        return runs
+
+    task = schedule.task_on(task_id, iso)
+    mine = task.interval()
+    if mine is not None:
+        slot, this_words = (mine[0], mine[1]), f"{task.start}–{task.end}"
+    else:
+        runs = spans(task.periods)
+        slot, this_words = (runs[0][0], runs[-1][1]), _parts_words(task.periods)
+
+    def clashes(start: int, end: int) -> bool:
+        return mine is not None and mine[0] < end and start < mine[1]
+
+    # Their other shifts: (order, words, kind, pieces in minutes of this day).
+    others: List[Tuple[Tuple[int, int, str], str, str, List[List[int]]]] = []
+    before = shift_date(iso, -1)
+    for assignment in schedule.on_day(person_id, before):
+        if assignment is ignore or not schedule.knows(assignment):
+            continue
+        other = schedule.task_on(assignment.task_id, before)
+        span = other.interval()
+        if span is None or span[1] <= MINUTES_PER_DAY:
+            continue   # over before midnight
+        start, end = span[0] - MINUTES_PER_DAY, span[1] - MINUTES_PER_DAY
+        kind = "clash" if clashes(start, end) else "busy"
+        words = f"{other.name} from {_day_name(before)} {other.start} to {other.end}"
+        others.append(((0, start, other.name), words, kind, [[start, end]]))
+    for assignment in schedule.on_day(person_id, iso):
+        if assignment is ignore or not schedule.knows(assignment):
+            continue
+        other = schedule.task_on(assignment.task_id, iso)
+        span = other.interval()
+        if span is None:
+            others.append(((2, 0, other.name), f"{other.name} ({_parts_words(other.periods)})", "loose",
+                           spans(other.periods)))
+            continue
+        kind = "clash" if clashes(*span) else "busy"
+        others.append(((1, span[0], other.name), f"{other.name} {other.start}–{other.end}", kind, [list(span)]))
+    others.sort(key=lambda item: item[0])
+
+    away = [period for period in PERIODS if schedule.is_unavailable(person_id, iso, period)]
+    segments: List[List[Any]] = []
+
+    def piece(kind: str, start: float, end: float) -> None:
+        left, right = at(start), at(end)
+        if right > left:
+            segments.append([kind, left, right])
+
+    for start, end in spans(away) if away else []:
+        piece("away", start, end)
+    for drawn in ("loose", "busy", "clash"):
+        for _, _, kind, pieces in others:
+            if kind == drawn:
+                for start, end in pieces:
+                    piece(kind, start, end)
+
+    title = (f"{_day_name(iso)} {int(iso[8:])} {_day_month(iso)}, from {_clock(low)} to {_clock(high)}. "
+             f"This shift: {this_words}. ")
+    if others:
+        title += "Already: " + ", ".join(
+            words + (" (at the same time)" if kind == "clash" else "") for _, words, kind, _ in others) + "."
+    else:
+        title += "Nothing else that day."
+    if len(away) == len(PERIODS):
+        title += " Away all day."
+    elif away:
+        title += f" Away in the {_listed(away)}."
+    return {
+        "slot": [at(slot[0]), at(slot[1])],
+        "segments": segments,
+        "marks": [at(minute) for minute in (AFTERNOON_FROM, EVENING_FROM) if low < minute < high],
+        "title": title,
+    }

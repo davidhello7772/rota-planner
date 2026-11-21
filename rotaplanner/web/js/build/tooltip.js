@@ -5,7 +5,12 @@ import { formatDate, h, placeNear } from '../dom.js';
 import { monthViewFor, peopleById } from '../state.js';
 
 const DELAY_MS = 350;
-const SOURCE_WORDS = { regular: 'Regular', manual: '', auto: 'Suggested' };
+export const SOURCE_WORDS = { regular: 'Regular', manual: '', auto: 'Suggested' };
+
+/** A place assigned against a rule, with the reason given if any (the slot's `forced`: null when not). */
+export function forcedWords(reason) {
+  return `⚑ Assigned anyway${reason ? `: ${reason}` : ''}`;
+}
 let tip = null;
 let timer = 0;
 
@@ -53,12 +58,12 @@ function chipLines(chip) {
   }
   const person = people.get(slot.person);
   const lines = [h('strong', {}, person ? person.full : slot.unnamed ? `${slot.guest} — name to come` : `${slot.guest} (${slot.guest_kind})`), where];
-  // The person as the month of this day has them (an event can show two months): words from the program.
+  // Their hours that week and that month, as the month of this day has them (an event can show
+  // two months): words from the program. Not the average a week: the coordinator reads these two.
   if (person) {
     const day = monthViewFor(date)?.days.find((d) => d.date === date);
     const week = day ? person.by_week?.[day.week] : null;
-    lines.push(h('span', { class: 'tt-line' }, person.week_text),
-      h('span', { class: 'tt-line' }, week ? `${week.that_week_text} · ${person.month_text}` : person.month_text));
+    lines.push(h('span', { class: 'tt-line' }, week ? `${week.that_week_text} · ${person.month_text}` : person.month_text));
   }
   if (slot.note) lines.push(h('span', { class: 'tt-line' }, `✎ ${slot.note}`));
   const source = SOURCE_WORDS[slot.source];
@@ -67,7 +72,7 @@ function chipLines(chip) {
     lines.push(h('span', { class: ['tt-line', finding.severity === 'block' ? 'tt-bad' : 'tt-warn'] }, `! ${finding.message}`));
   }
   if (slot.forced !== null && slot.forced !== undefined) {
-    lines.push(h('span', { class: 'tt-line' }, `⚑ Assigned anyway${slot.forced ? `: ${slot.forced}` : ''}`));
+    lines.push(h('span', { class: 'tt-line' }, forcedWords(slot.forced)));
   }
   if (suggested) lines.push(h('span', { class: 'tt-line tt-warn' }, `→ Suggested move to ${suggested.full}: ${slot.proposal.why}`));
   return lines;

@@ -249,32 +249,39 @@ def candidates_view(
     labels = person_labels(people)
 
     on_day = schedule.task_on(task.id, iso)
+    window = workload.day_window(schedule)   # the hours of every strip of the list: the same for all
     ranked = []
+    holder: Optional[Json] = None   # the person on this shift now: shown above the list, not in it
     for candidate in rules.candidates(schedule, task, iso, ignore=current):
         person = candidate.person
-        busy = [
-            schedule.tasks[a.task_id].name
-            for a in schedule.on_day(person.id, iso)
-            if a is not current and a.task_id in schedule.tasks
-        ]
         holds = current is not None and current.person_id == person.id   # this place is already theirs
-        ranked.append(
-            {
-                "id": person.id,
-                "name": labels[person.id]["short"],
-                "full": labels[person.id]["full"],
-                "group": candidate.group,
-                **workload.summary(schedule, person.id),
-                # Their hours in the shift's week and in the month, with what this shift would add.
-                "load": workload.choice(schedule, person.id, iso, 0.0 if holds else on_day.hours),
-                "away": workload.away(schedule, person.id),   # their time away this month, from their reply
-                "preference": person.preferences.get(task.area_id),
-                "same_day": busy,
-                # Going over the target is shown by the bars ("load"); it stays a rule everywhere else.
-                "findings": _findings_json(f for f in candidate.findings if f.rule != "over_target"),
-                "note": person.note,
-            }
-        )
+        entry = {
+            "id": person.id,
+            "name": labels[person.id]["short"],
+            "full": labels[person.id]["full"],
+            "group": candidate.group,
+            **workload.summary(schedule, person.id),
+            # Their hours in the shift's week and in the month, with what this shift would add
+            # (for the person on it: with this shift, drawn lighter).
+            "load": workload.choice(schedule, person.id, iso, on_day.hours, held=holds),
+            "away": workload.away(schedule, person.id),   # their time away this month, from their reply
+            "preference": person.preferences.get(task.area_id),
+            # Their day: this shift, their other shifts (at the same time or not), the parts they are away.
+            "day": workload.day(schedule, person.id, task.id, iso, window, ignore=current),
+            # Going over the target is shown by the bars ("load"); it stays a rule everywhere else.
+            "findings": _findings_json(f for f in candidate.findings if f.rule != "over_target"),
+            "note": person.note,
+        }
+        if holds:
+            holder = entry   # choosing them again would change nothing
+        else:
+            ranked.append(entry)
+    if current is None:
+        current_name = None
+    elif current.outsider:
+        current_name = current.guest_label
+    else:
+        current_name = labels[current.person_id]["short"] if current.person_id in labels else "Someone no longer on the list"
     return {
         "task": {"id": task.id, "name": task.name, "time": on_day.time_text(), "hours": on_day.hours,
                  "start": on_day.start, "end": on_day.end, "label": on_day.time_label,
@@ -283,6 +290,8 @@ def candidates_view(
         "position": position,
         "current": (current.person_id or current.guest_label) if current else None,
         "current_guest": {"kind": current.guest_kind or "guest", "name": current.guest} if current and current.outsider else None,
+        "current_name": current_name,   # how the person on the shift is named (never an id); None when open
+        "current_person": holder,   # as a person of the list; None when open, a guest, or not on the list
         "candidates": ranked,
         "ideas": solver.ideas(month, people, settings, catalog.regulars if catalog else [], task_id, iso, position,
                               around=around)

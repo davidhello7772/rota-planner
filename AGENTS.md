@@ -288,7 +288,8 @@ cost a bug report.
   to the screen: a screen never divides hours by a target, and `3.3 / 3.5 h
   a week` is written the same way everywhere. The list for a shift draws its
   two bars (the shift's week, the month, with what the shift would add) from
-  ready-made segments (`workload.choice`) and says time away from the
+  ready-made segments (`workload.choice`; `held=True` for the person on the
+  shift, shown above the list and never in it) and says time away from the
   availability reply (`workload.away`). A week (Monday to Sunday) is
   whole across two months: `Schedule.hours_in_week`, like `shifts_in_week`,
   counts the days of the month next door when it has a rota

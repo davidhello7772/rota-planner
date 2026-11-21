@@ -7,6 +7,7 @@ import { api, monthPath } from '../api.js';
 import { formatDate, h, placeNear } from '../dom.js';
 import { icon } from '../icons.js';
 import { monthViewFor, readOnly, state } from '../state.js';
+import { forcedWords, SOURCE_WORDS } from './tooltip.js';
 
 const GROUPS = [
   { id: 'best', title: 'Best matches' },
@@ -38,6 +39,22 @@ function hoursBar({ segments, target_at: targetAt }) {
     targetAt == null ? null : h('i', { class: 'hbar-target', style: { left: `${targetAt}%` } }));
 }
 
+/**
+ * A small strip of a person's day, as the program drew it: the track with the
+ * borders of the morning, the afternoon and the evening (`marks`, in %), the
+ * parts of the day they are away, their other shifts (`segments`: [kind, from %,
+ * to %], kinds away, loose, busy, clash), and this shift outlined above them
+ * (`slot`). The same hours for every row; the words are in `title`.
+ */
+function dayStrip({ slot, segments, marks, title }) {
+  const at = (from, to) => ({ left: `${from}%`, width: `calc(${to}% - ${from}%)` });
+  return h('span', { class: 'daystrip', role: title ? 'img' : null, 'aria-label': title || null, 'aria-hidden': title ? null : 'true', title: title || null },
+    h('span', { class: 'daystrip-fill' },
+      marks.map((left) => h('i', { class: 'daystrip-mark', style: { left: `${left}%` } })),
+      segments.map(([kind, from, to]) => h('i', { class: ['daystrip-part', kind], style: at(from, to) }))),
+    h('i', { class: 'daystrip-slot', style: at(slot[0], slot[1]) }));
+}
+
 /** The hatched mark of time away: darker with a whole day away ("all"), lighter with parts of days ("some"). */
 function awayMark(level, title) {
   return h('span', { class: ['away-mark', level], 'aria-hidden': 'true', title });
@@ -58,15 +75,19 @@ function loadLine(line) {
 /**
  * Line 2 of a person: their time away this month (only when there is some: the
  * hatched mark and the dates, words from the program), then the reasons. The
- * hours that week and going over the target are on the bars.
+ * hours that week and going over the target are on the bars; their other shifts
+ * that day, on the strip of their day. For the person on
+ * the shift (`slot`: the place as the month view has it), every finding of their
+ * own placement, notes included, then "Assigned anyway" and "Regular".
  */
-function reasons(candidate) {
+function reasons(person, slot = null) {
   const parts = [];
-  for (const finding of candidate.findings) {
-    if (finding.severity !== 'note' || candidate.group === 'best') parts.push([finding.severity, finding.message]);
+  for (const finding of person.findings) {
+    if (finding.severity !== 'note' || person.group === 'best' || slot) parts.push([finding.severity, finding.message]);
   }
-  if (candidate.same_day.length) parts.push(['', `Also that day: ${candidate.same_day.join(', ')}`]);
-  const away = candidate.away.level ? candidate.away : null;
+  if (slot?.forced !== null && slot?.forced !== undefined) parts.push(['forced', forcedWords(slot.forced)]);
+  if (slot?.source === 'regular') parts.push(['', `↻ ${SOURCE_WORDS.regular}`]);
+  const away = person.away.level ? person.away : null;
   const listed = parts.flatMap(([severity, text], i) => {
     const part = h('span', { class: severity || null }, text);
     return i ? [' · ', part] : [part];
@@ -75,7 +96,7 @@ function reasons(candidate) {
   const reasonsNode = listed.length ? h('span', { class: 'cand-reasons' }, listed) : null;
   // The hatched mark always leads; then, for the best matches, the dates away, and for a warning
   // or a block, what explains it. The second is cut first when the line is short.
-  const best = candidate.group === 'best';
+  const best = person.group === 'best';
   const [lead, tail] = (best ? [awayText, reasonsNode] : [reasonsNode, awayText]).filter(Boolean);
   if (lead) lead.classList.add('lead');
   if (tail) tail.classList.add('tail');
@@ -86,25 +107,53 @@ function reasons(candidate) {
   };
 }
 
+/**
+ * What a person shows, in the list or on the shift now: the name (after `before`,
+ * if any), the star and the strip of their day, line 2, and the two bars on the right.
+ */
+function personParts(person, { before = null, slot = null } = {}) {
+  const star = person.preference >= 4 ? h('span', { class: 'star', title: `Likes this area (${person.preference}/5)` }, '★') : null;
+  const why = reasons(person, slot);
+  return [
+    // The name is cut with "…" when long; the strips of all the rows stand in one column at the right.
+    h('span', { class: 'cand-name' }, before, h('span', { class: 'cand-name-text' }, person.name), star, dayStrip(person.day)),
+    h('span', { class: 'cand-why', title: why.text || null }, why.nodes),  // cut with "…" when long: the whole of it on hover
+    // The shift's week and the month: hours so far, what this shift adds, the target; all from the program.
+    h('span', { class: 'cand-load', title: person.load.title }, loadLine(person.load.week), loadLine(person.load.month)),
+  ];
+}
+
 function candidateRow(candidate, onChoose) {
-  const star = candidate.preference >= 4 ? h('span', { class: 'star', title: `Likes this area (${candidate.preference}/5)` }, '★') : null;
-  const why = reasons(candidate);
   const row = h('button', {
     class: ['cand', candidate.group === 'blocked' && 'blocked'], role: 'option', dataset: { id: candidate.id },
     title: candidate.note || undefined,
     onclick: () => onChoose(candidate, row),
-  },
-  h('span', { class: 'cand-name' }, candidate.name, star),
-  h('span', { class: 'cand-why', title: why.text || null }, why.nodes),  // cut with "…" when long: the whole of it on hover
-  // The shift's week and the month: hours so far, what this shift adds, the target; all from the program.
-  h('span', { class: 'cand-load', title: candidate.load.title }, loadLine(candidate.load.week), loadLine(candidate.load.month)));
+  }, personParts(candidate));
   row.classList.add('quiet');  // still read while another computer edits: only choosing is off
   return changes(row);
 }
 
-/** What the bars and the hatching mean, once at the top of the list (the figures and words say it to a screen reader). */
+/**
+ * The person on the shift now, above the list and drawn the same way (the
+ * lighter part of the bars is this shift), so that their bars sit above the
+ * list's; not a choice. A guest, a volunteer or anyone not in the list: the name only.
+ */
+function currentBlock(data, slot) {
+  const person = data.current_person;
+  if (!person) {
+    const guest = data.current_guest;
+    const name = guest ? `${data.current_name}${guest.name ? ` (${guest.kind})` : ' — name to come'}` : data.current_name;
+    return h('div', { class: 'picker-current' }, h('span', { class: 'muted' }, 'Now:'), h('strong', {}, name));
+  }
+  return h('div', { class: 'picker-now', title: person.note || undefined },
+    personParts(person, { before: h('span', { class: 'now-label' }, 'Now:'), slot: slot || {} }));
+}
+
+/** What the strip, the bars and the hatching mean, once at the top of the list (the figures and words say it to a screen reader). */
 function legend() {
   return h('div', { class: 'picker-legend', 'aria-hidden': 'true' },
+    h('span', {}, dayStrip({ slot: [52, 78], segments: [['busy', 6, 30], ['clash', 62, 86]], marks: [44, 62], title: '' }),
+      'their day: outlined, this shift; grey, other shifts (red at the same time)'),
     h('span', {}, hoursBar({ segments: [['now', 0, 45], ['add', 45, 66.67], ['add-over', 66.67, 76]], target_at: 66.67 }),
       'so far · light: this shift · line: target'),
     h('span', {}, awayMark('all'), 'away'));
@@ -191,14 +240,11 @@ function render(data, key) {
     await assign(key, { guest: guestInput.value.trim(), guestKind });
   };
 
-  const currentName = data.current
-    ? (data.candidates.find((c) => c.id === data.current)?.name || `${data.current}${known?.name ? ` (${known.kind})` : ' — name to come'}`)
-    : null;
-
   // What can be done with the slot itself, rather than with a person.
   const cell = monthViewFor(date)?.cells[`${taskId}|${date}`];
   const slot = cell?.slots[position];
   const slotActions = changes(h('div', { class: 'picker-actions' },
+    data.current ? h('button', { class: 'btn small danger', onclick: () => { closePicker(); clearSlot(key); } }, 'Leave open') : null,
     slot?.open ? h('button', { class: 'btn small', 'aria-pressed': slot.wanted ? 'true' : 'false',
       title: 'Mark this empty shift as one to fill when possible (key H)',
       onclick: () => { closePicker(); setWanted(key, !slot.wanted); } }, slot.wanted ? '◆ Highlighted' : '◆ Highlight') : null,
@@ -221,9 +267,8 @@ function render(data, key) {
         h('span', { class: 'muted' }, [formatDate(data.date), data.task.time, data.task.hours ? `${data.task.hours} h` : null, position > 0 ? `position ${position + 1}` : null].filter(Boolean).join(' · ')),
         data.task.usual_time ? h('span', { class: 'retimed-note' }, `◷ Other time this day · usually ${data.task.usual_time}`) : null),
       h('button', { class: 'btn ghost icon-only small', 'aria-label': 'Close', onclick: closePicker }, icon('close'))),
-    currentName ? h('div', { class: 'picker-current' }, h('span', { class: 'muted' }, 'Now:'), h('strong', {}, currentName), h('span', { class: 'spacer' }),
-      changes(h('button', { class: 'btn small danger', onclick: () => { closePicker(); clearSlot(key); } }, 'Leave open'))) : null,
-    currentName ? changes(noteLine(slot, key)) : null,
+    data.current ? currentBlock(data, slot) : null,
+    data.current ? changes(noteLine(slot, key)) : null,
     slot?.proposal ? changes(proposalLine(slot.proposal, data, key)) : null,
     slotActions.childElementCount ? slotActions : null,
     // Another computer edits: who could take it is shown, nobody can be chosen.

@@ -241,7 +241,10 @@ class ServerTest(unittest.TestCase):
             self.assertEqual(set(c["away"]), {"level", "text", "title"})
             self.assertIn(c["away"]["level"], ("", "some", "all"))
             self.assertFalse(any(f["message"].startswith("Over target") for f in c["findings"]))
-            self.assertFalse({"that_week", "that_week_text", "free_week"} & set(c))
+            self.assertFalse({"that_week", "that_week_text", "free_week", "same_day"} & set(c))
+            # The strip of their day: this shift, their other shifts, the parts away, all placed by the program.
+            self.assertEqual(set(c["day"]), {"slot", "segments", "marks", "title"})
+            self.assertTrue(c["day"]["title"].startswith("Friday 11 December, from "))
 
     def test_the_example_message_is_written_by_the_program_and_saves_nothing(self):
         before = self.json("GET", "/api/setup")[1]["settings"]
@@ -487,6 +490,7 @@ class ListForAShiftTest(TwoMonthsServed, unittest.TestCase):
         november.assignments.append(Assignment("lunch", "2026-11-30", 0, person_id="ana"))
         december = h.month()
         december.assignments += [Assignment("lunch", f"2026-12-0{d}", 0, person_id="ana") for d in (1, 2, 3)]
+        december.assignments.append(Assignment("supper", "2026-12-05", 0, guest_kind="volunteer"))   # name to come
         h.away(december, "ana", "2026-12-20/morning", "2026-12-20/afternoon", "2026-12-20/evening")
         self.serve(h.people(), november, december)
 
@@ -496,7 +500,7 @@ class ListForAShiftTest(TwoMonthsServed, unittest.TestCase):
         ana = next(c for c in body["candidates"] if c["id"] == "ana")
         # 16 h in the week of Monday 30 November (4 of them in November), 12 h in December; 4 h more with this lunch.
         self.assertEqual(ana["load"]["week"]["figures"], [["was", "16 → "], ["after-over", "20"], ["of", " of 2.75 h"]])
-        self.assertEqual(ana["load"]["month"]["figures"], [["was", "12 → "], ["after-over", "16"], ["of", " of 11.8 h"]])
+        self.assertEqual(ana["load"]["month"]["figures"], [["was", "12 → "], ["after-over", "16"], ["of", " of 11.79 h"]])
         self.assertEqual(ana["load"]["week"]["segments"], [["now", 0.0, 66.67], ["now-over", 66.67, 100.0]])
         self.assertTrue(ana["load"]["title"].startswith("Week of Monday 30 November to Sunday 6 December: 16 h so far, "
                                                         "20 h with this shift"))
@@ -504,6 +508,40 @@ class ListForAShiftTest(TwoMonthsServed, unittest.TestCase):
         self.assertEqual(ana["group"], "best")   # the over-target note would have shown there
         self.assertFalse(any(f["message"].startswith("Over target") for c in body["candidates"] for f in c["findings"]))
         self.assertEqual(next(c for c in body["candidates"] if c["id"] == "ben")["away"]["level"], "")
+        # Their day: the lunch outlined, nothing else that day (from 07:00, the breakfast, to midnight, the night guard).
+        self.assertEqual(ana["day"], {"slot": [11.76, 35.29], "segments": [], "marks": [41.18, 58.82],
+                                      "title": "Friday 4 December, from 07:00 to midnight. This shift: 09:00–13:00. "
+                                               "Nothing else that day."})
+        # An open shift: nobody on it.
+        self.assertEqual((body["current"], body["current_name"], body["current_person"]), (None, None, None))
+
+    def test_the_person_on_the_shift_is_above_the_list_not_in_it(self):
+        status, body = self.json("GET", "/api/months/2026-12/candidates?task=lunch&date=2026-12-03&position=0")
+        self.assertEqual(status, 200)
+        self.assertNotIn("ana", [c["id"] for c in body["candidates"]])
+        self.assertEqual((body["current"], body["current_name"]), ("ana", "Ana B."))
+        ana = body["current_person"]
+        self.assertEqual((ana["id"], ana["name"]), ("ana", "Ana B."))
+        # 16 h in the week of Monday 30 November and 12 h in December, this lunch's 4 h among them: no arrow.
+        self.assertEqual(ana["load"]["week"]["figures"], [["after-over", "16"], ["of", " of 2.75 h"]])
+        self.assertEqual(ana["load"]["month"]["figures"], [["after-over", "12"], ["of", " of 11.79 h"]])
+        self.assertEqual([kind for kind, _, _ in ana["load"]["month"]["segments"]], ["now", "add", "add-over"])
+        self.assertTrue(ana["load"]["title"].startswith("Week of Monday 30 November to Sunday 6 December: 16 h, "
+                                                        "4 h of them this shift, "))
+        self.assertIn(" December: 12 h, 4 h of them this shift, of 11.79 h.", ana["load"]["title"])
+        self.assertEqual(ana["away"], {"level": "all", "text": "Away 20 Dec", "title": "Away all day 20 December"})
+        self.assertEqual(set(ana) - {"id"}, set(body["candidates"][0]) - {"id"})   # the same as a person of the list
+        # Their own shift is the outline of their day, not another shift of theirs.
+        self.assertEqual(ana["day"], {"slot": [11.76, 35.29], "segments": [], "marks": [41.18, 58.82],
+                                      "title": "Thursday 3 December, from 07:00 to midnight. This shift: 09:00–13:00. "
+                                               "Nothing else that day."})
+
+    def test_a_guest_on_the_shift(self):
+        status, body = self.json("GET", "/api/months/2026-12/candidates?task=supper&date=2026-12-05&position=0")
+        self.assertEqual(status, 200)
+        self.assertEqual((body["current"], body["current_name"], body["current_person"]), ("Volunteer", "Volunteer", None))
+        self.assertEqual(body["current_guest"], {"kind": "volunteer", "name": ""})
+        self.assertEqual(len(body["candidates"]), 4)   # everyone on the list of people
 
 
 class WeeklyLimitNextDoorTest(TwoMonthsServed, unittest.TestCase):

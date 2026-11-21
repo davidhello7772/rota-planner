@@ -33,7 +33,7 @@ export const SCREENS = {
     tip: 'Click an empty shift to see who can take it, best first. Prefill suggests people for all the open shifts at once.',
     points: [
       'Click a shift: people are listed best first, with the reason. Type to search, Enter to choose.',
-      'The list for a shift shows two bars for each person: their hours in that week and in the month, what this shift would add (lighter) and their target (the upright line). Time away in the month is hatched, with the dates.',
+      'The list for a shift shows two bars for each person: their hours in that week and in the month, what this shift would add (lighter) and their target (the upright line). Time away in the month is hatched, with the dates. A small strip shows each person’s day: this shift outlined, their other shifts in grey (red when at the same time), hatched when they are away. The person on the shift now is shown above the list the same way (the lighter part is this shift); “Leave open” is with the buttons about the shift.',
       'Prefill the rota suggests people (shown dashed). Look, then accept all or one by one.',
       'A red name breaks a rule: hover it to see why. “Assign anyway” keeps it on purpose.',
       'Click a person in the People tab to see their shifts and where else they could go.',

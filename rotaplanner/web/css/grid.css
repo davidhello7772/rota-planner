@@ -278,7 +278,7 @@ button.tile:hover { border-color: var(--line-strong); }
 
 /* ---- Candidate picker --------------------------------------------------- */
 
-.picker { width: 28rem; max-width: calc(100vw - 1rem); max-height: min(34rem, calc(100vh - 2rem)); display: flex; flex-direction: column; }
+.picker { width: 29rem; max-width: calc(100vw - 1rem); max-height: min(34rem, calc(100vh - 2rem)); display: flex; flex-direction: column; }
 .picker-head { padding: var(--space-3) var(--space-3) var(--space-2); border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: var(--space-2); }
 .picker-title { display: flex; align-items: flex-start; gap: var(--space-2); }
 .picker-title strong { display: block; font-size: var(--fs-md); }
@@ -289,15 +289,25 @@ button.tile:hover { border-color: var(--line-strong); }
 .picker-current { display: flex; align-items: center; gap: var(--space-2); font-size: var(--fs-sm); }
 .picker-actions { display: flex; flex-wrap: wrap; gap: var(--space-1); }
 .picker-actions .btn[aria-pressed="true"] { background: var(--wanted); border-color: var(--wanted-line); color: var(--wanted-text); }
-.picker-list { overflow: auto; padding: var(--space-1) var(--space-2) var(--space-2); }
+.picker-list { overflow: auto; scrollbar-gutter: stable; padding: var(--space-1) var(--space-2) var(--space-2); }
 .picker-group { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-3); font-weight: 600; padding: var(--space-2) var(--space-2) var(--space-1); display: flex; justify-content: space-between; }
 /* Each person on two lines: the name, then time away and the reasons; on the right, the shift's
    week and the month, each [label] [bar] [figures] in fixed widths so that the bars line up. */
-.cand { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto; gap: 3px var(--space-2); align-items: center; width: 100%; padding: var(--space-2); border: 0; border-radius: var(--radius); background: none; text-align: left; }
+.cand, .picker-now { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto; gap: 3px var(--space-2); align-items: center; width: 100%; padding: var(--space-2); border: 0; border-radius: var(--radius); background: none; text-align: left; }
+/* The person on the shift now, above the list, laid out as a person of it: the same grid, the same
+   edges as the list (its padding, and room for its scrollbar, always kept) so that the bars line
+   up. Not a choice: no hover, no button look. */
+.picker-now { width: auto; margin: 0 calc(var(--space-2) - var(--space-3)); padding-top: 0; padding-bottom: 0; overflow: hidden; scrollbar-gutter: stable; }
+.picker-now .now-label { color: var(--text-3); font-weight: 400; margin-right: var(--space-2); }
 .cand:hover, .cand.active { background: var(--surface-2); }
 .cand.active { box-shadow: inset 0 0 0 1.5px var(--accent-line); }
-.cand-name { grid-column: 1; grid-row: 1; font-weight: 600; font-size: var(--fs-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.cand-name .star { color: var(--warn); font-weight: 400; margin-left: 4px; }
+/* Line 1: the name (cut with "…" when long), the star, then the strip of the person's day pushed to
+   the right, so that the strips of all the rows stand in one column. */
+.cand-name { grid-column: 1; grid-row: 1; display: flex; align-items: center; gap: var(--space-1); min-width: 0; overflow: hidden; font-weight: 600; font-size: var(--fs-sm); white-space: nowrap; }
+.cand-name > * { flex: none; }
+.cand-name > .cand-name-text { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.cand-name .star { color: var(--warn); font-weight: 400; }
+.cand-name > .daystrip { margin-left: auto; margin-right: var(--space-1); }
 .cand-why { grid-column: 1; grid-row: 2; display: flex; align-items: center; gap: var(--space-1); min-width: 0; min-height: 1rem; font-size: var(--fs-xs); color: var(--text-3); white-space: nowrap; overflow: hidden; }
 /* The hatched mark of time away, then two pieces sharing the line: the first keeps its words, the
    second ("tail") is cut first when the line is short; the whole of it is in the line's title. */
@@ -309,8 +319,9 @@ button.tile:hover { border-color: var(--line-strong); }
 .cand-away-text, .cand-reasons { overflow: hidden; text-overflow: ellipsis; }
 .cand-why .block { color: var(--bad); }
 .cand-why .warn { color: var(--warn); }
+.cand-why .forced { color: var(--forced); }
 .cand.blocked .cand-name { color: var(--text-2); font-weight: 500; }
-.cand-load { grid-column: 2; grid-row: 1 / 3; display: grid; grid-template-columns: 1.75rem 62px 7.5rem; gap: 3px 7px; align-items: center; font-size: var(--fs-xs); color: var(--text-2); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.cand-load { grid-column: 2; grid-row: 1 / 3; display: grid; grid-template-columns: 1.75rem 62px 8.5rem; gap: 3px 7px; align-items: center; font-size: var(--fs-xs); color: var(--text-2); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .cand-label { color: var(--text-3); font-size: var(--fs-xs); }
 .cand-figures .was, .cand-figures .of { color: var(--text-3); }
 .cand-figures .after, .cand-figures .after-over { color: var(--text); font-weight: 600; }
@@ -327,6 +338,20 @@ button.tile:hover { border-color: var(--line-strong); }
 .hbar .add-over { background: color-mix(in srgb, var(--warn) 45%, transparent); }
 .hbar-target { position: absolute; top: -2px; bottom: -2px; width: 1.5px; border-radius: 1px; background: var(--text-2); transform: translateX(-50%); }
 
+/* A person's day (the hours of the list's window, the same for every row): the track with hair-thin
+   borders at 14:00 and 17:00; the parts of the day away hatched; their other shifts grey (red at the
+   same time, lighter without set times); this shift outlined above everything. The program gives
+   every position. */
+.daystrip { position: relative; display: inline-block; flex: none; width: 64px; height: 8px; border-radius: 2px; background: var(--chip); }
+.daystrip-fill { position: absolute; inset: 0; border-radius: inherit; overflow: hidden; }
+.daystrip-fill > i, .daystrip-slot { position: absolute; top: 0; bottom: 0; }
+.daystrip-mark { width: 1px; background: var(--surface); transform: translateX(-50%); }
+.daystrip-part.away { background-image: repeating-linear-gradient(135deg, color-mix(in srgb, var(--bad) 55%, transparent) 0 2px, transparent 2px 4px); }
+.daystrip-part.loose { background: var(--chip-strong); }
+.daystrip-part.busy { background: var(--text-3); }
+.daystrip-part.clash { background: var(--bad); }
+.daystrip .daystrip-slot { top: -2px; bottom: -2px; min-width: 3px; box-sizing: border-box; border: 1.5px solid var(--accent); border-radius: 3px; }
+
 /* Time away in the month: the hatching of Check › Balance, lighter when only part of some days. */
 .away-mark { display: inline-block; flex: none; width: 12px; height: 9px; border-radius: 2px; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--bad) 40%, transparent); }
 .away-mark.all { background-image: repeating-linear-gradient(135deg, color-mix(in srgb, var(--bad) 55%, transparent) 0 2px, transparent 2px 4px); }
@@ -336,6 +361,7 @@ button.tile:hover { border-color: var(--line-strong); }
 .picker-legend { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-3); padding: var(--space-2) var(--space-2) 2px; font-size: var(--fs-xs); color: var(--text-3); }
 .picker-legend > span { display: inline-flex; align-items: center; gap: 5px; }
 .picker-legend .hbar { width: 22px; }
+.picker-legend .daystrip { width: 32px; }
 .force { grid-column: 1 / -1; grid-row: 3; display: flex; gap: var(--space-2); margin-top: var(--space-1); }
 .force .input { flex: 1; height: 1.75rem; }
 .picker-foot { display: flex; gap: var(--space-2); padding: var(--space-2) var(--space-3); border-top: 1px solid var(--line); flex-wrap: wrap; }

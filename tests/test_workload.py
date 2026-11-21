@@ -10,7 +10,9 @@ from unittest import mock
 
 from rotaplanner import demo, solver, transfer, view, workload
 from rotaplanner import eligibility as rules
-from rotaplanner.model import WEEKS_A_MONTH, Assignment, NeverRule, Person, Settings, Task, week_start, weekly_from_monthly
+from rotaplanner.model import (
+    WEEKS_A_MONTH, Assignment, NeverRule, Person, Settings, Task, TimeChange, week_start, weekly_from_monthly,
+)
 from rotaplanner.months import apply_regulars, create_month
 from rotaplanner.schedule import Schedule
 from rotaplanner.store import Store
@@ -375,14 +377,19 @@ class WeekHoursTest(unittest.TestCase):
         self.assertEqual(by_id["ana"]["load"]["week"]["figures"], [["was", "0 → "], ["after-over", "4"], ["of", " of 3.5 h"]])
         self.assertEqual(by_id["ana"]["load"]["month"]["figures"], [["was", "3 → "], ["after", "7"], ["of", " of 15.5 h"]])
         self.assertTrue(all(not {"that_week", "that_week_text", "free_week"} & set(c) for c in candidates))
-        # On the first week, shared with November: whole, and Ana already holds the supper of the 1st.
+        # On the first week, shared with November: whole, and Ana already holds the supper of the 1st (3 h):
+        # she is the person on the shift, above the list, with this shift drawn lighter.
         first = view.candidates_view(self.december, h.people(), self.settings, "supper", "2026-12-01", 0,
-                                     around=[self.november])["candidates"]
-        ana = next(c for c in first if c["id"] == "ana")["load"]
+                                     around=[self.november])
+        self.assertNotIn("ana", [c["id"] for c in first["candidates"]])
+        ana = first["current_person"]["load"]
         self.assertEqual((ana["week"]["figures"], ana["month"]["figures"]),
                          ([["after-over", "7"], ["of", " of 3.5 h"]], [["after", "3"], ["of", " of 15.5 h"]]))
-        self.assertEqual(ana["title"], "Week of Monday 30 November to Sunday 6 December: 7 h so far, for a target of "
-                                       "3.5 h a week. December: 3 h so far, of 15.5 h.")
+        self.assertEqual(ana["week"]["segments"], [["now", 0.0, 66.67], ["now-over", 66.67, 76.19],
+                                                   ["add-over", 76.19, 100.0]])
+        self.assertEqual(ana["month"]["segments"], [["add", 0.0, 12.9]])
+        self.assertEqual(ana["title"], "Week of Monday 30 November to Sunday 6 December: 7 h, 3 h of them this shift, "
+                                       "for a target of 3.5 h a week. December: 3 h, 3 h of them this shift, of 15.5 h.")
 
 
 class ChoiceTest(unittest.TestCase):
@@ -415,8 +422,26 @@ class ChoiceTest(unittest.TestCase):
         self.assertEqual(load["title"], "Week of Monday 7 to Sunday 13 December: 2 h so far, 6 h with this shift, for a "
                                         "target of 3.5 h a week. December: 9 h so far, 13 h with this shift, of 15.5 h.")
 
+    def test_the_months_target_is_shown_as_precisely_as_the_hours(self):
+        # Rounded to one decimal, 9.96 h would read "10" next to an amber "10", and 23.25 h "23.2"
+        # next to a plain "23.25": the colour and the numbers would disagree.
+        people = h.people()
+        people[0].target_hours_per_week = 2.25            # 9.96 h in December
+        month = self.schedule(people)                     # Ana: 9 h this month
+        self.assertEqual(workload.choice(month, "ana", "2026-12-10", 1)["month"]["figures"],
+                         [["was", "9 → "], ["after-over", "10"], ["of", " of 9.96 h"]])
+        people[0].target_hours_per_week = 5.25            # exactly 23.25 h in December
+        figures = workload.choice(self.schedule(people), "ana", "2026-12-10", 14.25)["month"]["figures"]
+        self.assertEqual(figures, [["was", "9 → "], ["after", "23.25"], ["of", " of 23.25 h"]])
+
+    def test_a_week_cut_to_one_day_is_named_by_that_day(self):
+        november = create_month(h.catalog(), 2026, 11)    # begins on a Sunday, ends on a Monday
+        weeks = workload.weeks(Schedule(november, h.people(), self.settings))
+        self.assertEqual((weeks[0]["title"].split(".")[0], weeks[-1]["title"].split(".")[0]),
+                         ("Sunday 1 November", "Monday 30 November"))
+
     def test_a_shift_that_adds_nothing(self):
-        # Already theirs (the list passes 0), or a task counted 0 h (the night): no arrow, nothing light.
+        # A task counted 0 h (the night): no arrow, nothing light.
         s = self.schedule()
         for added in (0, 0.0):
             load = workload.choice(s, "ana", "2026-12-08", added)
@@ -427,12 +452,12 @@ class ChoiceTest(unittest.TestCase):
                                  for kind, _, _ in load[line]["segments"]))
             self.assertEqual(load["title"], "Week of Monday 7 to Sunday 13 December: 2 h so far, for a target of 3.5 h "
                                             "a week. December: 9 h so far, of 15.5 h.")
-        # In the list: the holder of the place adds nothing; the night guard's 0 h add nothing to anyone.
+        # The holder of the place is above the list, with their total; the night guard's 0 h add nothing to anyone.
         self.month.assignments.append(Assignment("night", "2026-12-09", 0, person_id="ben"))
-        holder = view.candidates_view(self.month, h.people(), self.settings, "breakfast", "2026-12-08", 0)["candidates"]
-        self.assertEqual(next(c for c in holder if c["id"] == "ana")["load"]["week"]["figures"],
-                         [["after", "2"], ["of", " of 3.5 h"]])
-        self.assertEqual(next(c for c in holder if c["id"] == "ben")["load"]["week"]["figures"],
+        shown = view.candidates_view(self.month, h.people(), self.settings, "breakfast", "2026-12-08", 0)
+        self.assertNotIn("ana", [c["id"] for c in shown["candidates"]])
+        self.assertEqual(shown["current_person"]["load"]["week"]["figures"], [["after", "2"], ["of", " of 3.5 h"]])
+        self.assertEqual(next(c for c in shown["candidates"] if c["id"] == "ben")["load"]["week"]["figures"],
                          [["was", "0 → "], ["after", "2"], ["of", " of 3.5 h"]])
         night = view.candidates_view(self.month, h.people(), self.settings, "night", "2026-12-10", 0)["candidates"]
         self.assertTrue(all(c["load"]["week"]["figures"][0][0] != "was" for c in night))
@@ -493,6 +518,60 @@ class ChoiceTest(unittest.TestCase):
                                        "those days are not counted. December:"))
         candidates = view.candidates_view(self.month, h.people(), self.settings, "lunch", "2026-12-09", 0)["candidates"]
         self.assertEqual(next(c for c in candidates if c["id"] == "ana")["away"]["text"], "Away 1–31 Dec")
+
+    def test_the_person_on_the_shift(self):
+        # Ana holds the breakfast of Tuesday 8 (2 h): so far without it, then the shift lighter; the total, no arrow.
+        load = workload.choice(self.schedule(), "ana", "2026-12-08", 2, held=True)
+        self.assertEqual(load["week"], {
+            "label": "Week",
+            "segments": [["add", 0.0, 38.1]],
+            "target_at": 66.67,
+            "figures": [["after", "2"], ["of", " of 3.5 h"]],
+        })
+        self.assertEqual(load["month"]["segments"], [["now", 0.0, 30.11], ["add", 30.11, 38.71]])
+        self.assertEqual(load["month"]["figures"], [["after", "9"], ["of", " of 15.5 h"]])
+        self.assertEqual(load["title"], "Week of Monday 7 to Sunday 13 December: 2 h, 2 h of them this shift, for a "
+                                        "target of 3.5 h a week. December: 9 h, 2 h of them this shift, of 15.5 h.")
+        # Past the target with the shift: amber total, the shift's part amber too.
+        self.month.assignments.append(lunch("2026-12-09"))   # 6 h in the week, 13 h in December
+        load = workload.choice(self.schedule(), "ana", "2026-12-08", 2, held=True)
+        self.assertEqual(load["week"]["segments"], [["now", 0.0, 66.67], ["now-over", 66.67, 76.19],
+                                                    ["add-over", 76.19, 100.0]])
+        self.assertEqual(load["week"]["figures"], [["after-over", "6"], ["of", " of 3.5 h"]])
+        self.assertEqual(load["month"]["figures"], [["after", "13"], ["of", " of 15.5 h"]])
+        self.assertTrue(load["title"].startswith("Week of Monday 7 to Sunday 13 December: 6 h, 2 h of them this shift, "))
+        # On a cut week (November has no rota): the same words as for anyone.
+        cut = workload.choice(self.schedule(), "ana", "2026-12-01", 4, held=True)
+        self.assertEqual(cut["week"]["figures"], [["after-over", "4"], ["of", " of 3.5 h"]])
+        self.assertTrue(cut["title"].startswith("Week of Tuesday 1 to Sunday 6 December: 4 h, 4 h of them this shift, "
+                                                "for a target of 3.5 h a week. The week began in November, which has "
+                                                "no rota yet: those days are not counted. December: 13 h, 4 h of them "
+                                                "this shift, of 15.5 h."))
+
+    def test_the_person_on_a_shift_of_no_hours_or_with_no_target(self):
+        # A night counted 0 h: nothing light, and the title does not speak of the shift.
+        self.month.assignments.append(Assignment("night", "2026-12-09", 0, person_id="ana"))
+        night = workload.choice(self.schedule(), "ana", "2026-12-09", 0, held=True)
+        self.assertEqual((night["week"]["segments"], night["week"]["figures"]),
+                         ([["now", 0.0, 38.1]], [["after", "2"], ["of", " of 3.5 h"]]))
+        self.assertEqual(night["title"], "Week of Monday 7 to Sunday 13 December: 2 h, for a target of 3.5 h a week. "
+                                         "December: 9 h, of 15.5 h.")
+        # A target of 0: no line, all of it past the target, nothing divided by zero.
+        people = h.people()
+        people[0].target_hours_per_week = 0
+        load = workload.choice(self.schedule(people), "ana", "2026-12-08", 2, held=True)
+        self.assertEqual(load["week"], {"label": "Week", "segments": [["add-over", 0.0, 100.0]], "target_at": None,
+                                        "figures": [["after-over", "2"], ["of", " h"]]})
+        self.assertEqual(load["month"]["segments"], [["now-over", 0.0, 77.78], ["add-over", 77.78, 100.0]])
+        self.assertEqual(load["month"]["figures"], [["after-over", "9"], ["of", " h"]])
+        self.assertTrue(load["title"].endswith("for a target of 0 h a week. December: 9 h, 2 h of them this shift, "
+                                               "for a target of 0 h."))
+        zero = workload.choice(Schedule(self.month, [Person("cleo", "Cleo D.", target_hours_per_week=0)], self.settings),
+                               "cleo", "2026-12-09", 0, held=True)
+        self.assertEqual((zero["week"]["segments"], zero["week"]["figures"]), ([], [["after", "0"], ["of", " h"]]))
+        # Hours that do not add up (more for the shift than they have): never below 0.
+        odd = workload.choice(self.schedule(), "cleo", "2026-12-08", 2, held=True)
+        self.assertEqual(odd["week"]["figures"], [["after", "2"], ["of", " of 3.5 h"]])
 
     def test_the_list_leaves_the_over_target_note_to_the_bars(self):
         self.month.assignments += [lunch(f"2026-12-{d:02d}") for d in (2, 3, 4)]   # 21 h: past 15.5 h
@@ -572,6 +651,166 @@ class AwayTest(unittest.TestCase):
             for added in (0, 4):
                 load = workload.choice(s, "ana", "2026-12-31", added)
                 self.assertEqual(len(load["week"]["figures"]) + (0 if added else 1), 3)
+
+
+
+class DayTest(unittest.TestCase):
+    """The strip of a person's day in the list for a shift: this shift, their other shifts, the parts away.
+
+    The tiny set's tasks run from 07:00 (breakfast) to past midnight (the night guard): the window is
+    07:00 to midnight, 1020 minutes, so 09:00 is 11.76 %, 13:00 35.29 %, 14:00 41.18 %, 17:00 58.82 %."""
+
+    MARKS = [41.18, 58.82]
+    LUNCH = [11.76, 35.29]   # 09:00–13:00
+
+    def setUp(self):
+        self.month = h.month()
+
+    def put(self, task_id, iso, person_id="ana"):
+        assignment = Assignment(task_id, iso, 0, person_id=person_id)
+        self.month.assignments.append(assignment)
+        return assignment
+
+    def day(self, person_id="ana", task_id="lunch", iso="2026-12-09", around=(), ignore=None):
+        schedule = Schedule(self.month, h.people(), Settings(), around)
+        if ignore is not None:
+            ignore = schedule.at((ignore.task_id, ignore.date, ignore.position))
+        return workload.day(schedule, person_id, task_id, iso, workload.day_window(schedule), ignore=ignore)
+
+    def test_the_window(self):
+        def window(month):
+            return workload.day_window(Schedule(month, h.people(), Settings()))
+        self.assertEqual(window(self.month), (7 * 60, 24 * 60))   # the night guard runs past midnight
+        day_tasks = h.month()
+        day_tasks.tasks = [t for t in day_tasks.tasks if t.id != "night"]
+        next(t for t in day_tasks.tasks if t.id == "supper").end = "18:45"         # rounded up to the hour
+        next(t for t in day_tasks.tasks if t.id == "breakfast").start = "06:15"    # rounded down
+        self.assertEqual(window(day_tasks), (6 * 60, 19 * 60))
+        day_tasks.time_changes["lunch|2026-12-24"] = TimeChange("05:30", "09:00", 3.5)   # a day of the month counts
+        self.assertEqual(window(day_tasks), (5 * 60, 19 * 60))
+        untimed = h.month()
+        for task in untimed.tasks:
+            task.start = task.end = ""
+        self.assertEqual(window(untimed), (6 * 60, 22 * 60))   # no task with times
+        untimed.tasks = []
+        self.assertEqual(window(untimed), (6 * 60, 22 * 60))
+
+    def test_a_free_day(self):
+        self.assertEqual(self.day(), {
+            "slot": self.LUNCH, "segments": [], "marks": self.MARKS,
+            "title": "Wednesday 9 December, from 07:00 to midnight. This shift: 09:00–13:00. Nothing else that day."})
+
+    def test_other_shifts_before_and_after(self):
+        self.put("supper", "2026-12-09")
+        self.put("breakfast", "2026-12-09")   # ends at 09:00 as the lunch begins: not at the same time
+        self.put("supper", "2026-12-10")      # another day
+        day = self.day()
+        self.assertEqual(day["segments"], [["busy", 0.0, 11.76], ["busy", 52.94, 70.59]])
+        self.assertEqual(day["title"], "Wednesday 9 December, from 07:00 to midnight. This shift: 09:00–13:00. "
+                                       "Already: Breakfast 07:00–09:00, Supper cook 16:00–19:00.")
+
+    def test_a_shift_at_the_same_time(self):
+        self.put("helper", "2026-12-09")
+        self.put("supper", "2026-12-09")
+        day = self.day()
+        self.assertEqual(day["segments"], [["busy", 52.94, 70.59], ["clash", 17.65, 35.29]])   # red drawn last
+        self.assertTrue(day["title"].endswith("Already: Kitchen helper 10:00–13:00 (at the same time), "
+                                              "Supper cook 16:00–19:00."))
+
+    def test_the_night_before_runs_into_the_morning(self):
+        self.put("night", "2026-12-08", "ben")
+        day = self.day("ben")
+        self.assertEqual(day["segments"], [["busy", 0.0, 5.88]])   # 07:00–08:00 of it in the window
+        self.assertTrue(day["title"].endswith("Already: Night guard from Tuesday 22:00 to 08:00."))
+        day = self.day("ben", "breakfast")   # 07:00–09:00: at the same time
+        self.assertEqual((day["slot"], day["segments"]), ([0.0, 11.76], [["clash", 0.0, 5.88]]))
+        self.assertTrue(day["title"].endswith("Night guard from Tuesday 22:00 to 08:00 (at the same time)."))
+        day = self.day("ben", "night", "2026-12-09")   # this shift runs past midnight: cut at the window's end
+        self.assertEqual(day["slot"], [88.24, 100.0])
+        self.assertTrue(day["title"].endswith("This shift: 22:00–08:00. Already: Night guard from Tuesday 22:00 to "
+                                              "08:00."))
+
+    def test_tasks_without_times(self):
+        self.month.tasks += [Task("laundry", "kitchen", "Laundry", periods=["anytime"]),
+                             Task("garden", "kitchen", "Garden", periods=["morning", "afternoon"]),
+                             Task("bins", "kitchen", "Bins", periods=["morning", "evening"])]
+        laundry = self.put("laundry", "2026-12-09")
+        self.put("garden", "2026-12-09")
+        self.put("bins", "2026-12-09")
+        self.put("supper", "2026-12-09")
+        day = self.day()
+        self.assertEqual(day["segments"], [["loose", 0.0, 41.18], ["loose", 58.82, 100.0],   # bins: two parts
+                                           ["loose", 0.0, 58.82], ["loose", 0.0, 100.0], ["busy", 52.94, 70.59]])
+        self.assertTrue(day["title"].endswith("Already: Supper cook 16:00–19:00, Bins (in the morning and evening), "
+                                              "Garden (in the morning and afternoon), Laundry (any time)."))
+        # This shift without times: the parts of the day it is for, "any time" the whole window; never at the same time.
+        self.assertEqual(self.day("ben", "laundry")["slot"], [0.0, 100.0])
+        self.assertIn("This shift: any time. Nothing else that day.", self.day("ben", "laundry")["title"])
+        self.assertEqual(self.day("ben", "garden")["slot"], [0.0, 58.82])
+        self.assertIn("This shift: in the morning and afternoon.", self.day("ben", "garden")["title"])
+        # Ana on the laundry: her own place is the outline, the bins and the garden are under it.
+        self.assertEqual([kind for kind, *_ in self.day("ana", "laundry", ignore=laundry)["segments"]],
+                         ["loose"] * 3 + ["busy"])
+
+    def test_away(self):
+        h.away(self.month, "ana", "2026-12-09/evening", "2026-12-10/morning")
+        day = self.day()
+        self.assertEqual(day["segments"], [["away", 58.82, 100.0]])
+        self.assertTrue(day["title"].endswith("Nothing else that day. Away in the evening."))
+        h.away(self.month, "ana", "2026-12-09/morning", "2026-12-09/afternoon")
+        self.put("supper", "2026-12-09")
+        day = self.day()
+        self.assertEqual(day["segments"], [["away", 0.0, 58.82], ["busy", 52.94, 70.59]])   # away first, one piece
+        self.assertTrue(day["title"].endswith("Supper cook 16:00–19:00. Away in the morning and afternoon."))
+        h.away(self.month, "ana", "2026-12-09/morning", "2026-12-09/afternoon", "2026-12-09/evening")
+        day = self.day()
+        self.assertEqual(day["segments"][0], ["away", 0.0, 100.0])
+        self.assertTrue(day["title"].endswith(" Away all day."))
+
+    def test_the_person_on_the_shift(self):
+        place = self.put("lunch", "2026-12-09")
+        self.put("supper", "2026-12-09")
+        day = self.day(ignore=place)
+        self.assertEqual((day["slot"], day["segments"]), (self.LUNCH, [["busy", 52.94, 70.59]]))
+        self.assertTrue(day["title"].endswith("This shift: 09:00–13:00. Already: Supper cook 16:00–19:00."))
+        # In the list: their own shift is the outline, not another shift.
+        shown = view.candidates_view(self.month, h.people(), Settings(), "lunch", "2026-12-09", 0)
+        self.assertEqual(shown["current_person"]["day"], day)
+        self.assertEqual(next(c for c in shown["candidates"] if c["id"] == "ben")["day"]["segments"], [])
+
+    def test_a_time_change_on_that_day(self):
+        self.month.time_changes["lunch|2026-12-09"] = TimeChange("09:30", "13:30", 4.0)
+        self.month.time_changes["supper|2026-12-09"] = TimeChange("15:45", "18:45", 3.0)
+        self.month.time_changes["supper|2026-12-10"] = TimeChange("09:00", "10:00", 1.0)   # another day
+        self.put("supper", "2026-12-09")
+        day = self.day()
+        self.assertEqual((day["slot"], day["segments"]), ([14.71, 38.24], [["busy", 51.47, 69.12]]))
+        self.assertEqual(day["title"], "Wednesday 9 December, from 07:00 to midnight. This shift: 09:30–13:30. "
+                                       "Already: Supper cook 15:45–18:45.")
+
+    def test_the_day_before_in_the_month_before(self):
+        november = create_month(h.catalog(), 2026, 11)
+        november.assignments.append(Assignment("night", "2026-11-30", 0, person_id="ben"))
+        self.assertEqual(self.day("ben", iso="2026-12-01")["segments"], [])   # without the month before: not seen
+        day = self.day("ben", iso="2026-12-01", around=[november])
+        self.assertEqual(day["segments"], [["busy", 0.0, 5.88]])
+        self.assertEqual(day["title"], "Tuesday 1 December, from 07:00 to midnight. This shift: 09:00–13:00. "
+                                       "Already: Night guard from Monday 22:00 to 08:00.")
+        november.time_changes["night|2026-11-30"] = TimeChange("21:00", "09:30", 0.0)   # November's own times
+        day = self.day("ben", iso="2026-12-01", around=[november])
+        self.assertEqual(day["segments"], [["clash", 0.0, 14.71]])
+        self.assertTrue(day["title"].endswith("Night guard from Monday 21:00 to 09:30 (at the same time)."))
+        november.tasks = [t for t in november.tasks if t.id != "night"]   # a task its month no longer has
+        self.assertEqual(self.day("ben", iso="2026-12-01", around=[november])["segments"], [])
+
+    def test_nothing_raises_on_an_odd_window(self):
+        schedule = Schedule(self.month, h.people(), Settings())
+        for window in ((0, 0), (600, 600), (900, 300)):
+            day = workload.day(schedule, "ana", "lunch", "2026-12-09", window)
+            self.assertEqual(day["slot"], [18.75, 43.75])   # 06:00 to 22:00 instead
+        day = workload.day(schedule, "ana", "lunch", "2026-12-09", (0, 24 * 60))
+        self.assertEqual((day["slot"], day["marks"]), ([37.5, 54.17], [58.33, 70.83]))
+        self.assertTrue(day["title"].startswith("Wednesday 9 December, from midnight to midnight."))
 
 
 if __name__ == "__main__":
