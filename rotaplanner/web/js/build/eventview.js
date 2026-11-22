@@ -86,6 +86,20 @@ function partNotice(part, dates, onCreate) {
     button);
 }
 
+/** What the marks after the names of the event's tasks mean (only the marks that are used). */
+function originLegend(month, event) {
+  const own = month.areas.flatMap((a) => a.tasks).filter((t) => t.event_id === event.id);
+  const has = (test) => own.some((t) => test(t.origin || {}));
+  const item = (cls, text) => h('span', {}, h('span', { class: cls, 'aria-hidden': 'true' }), text);
+  const items = [
+    has((o) => o.kind === 'type' && !o.changed) ? item('origin-mark from-type', 'from its event type') : null,
+    has((o) => o.kind === 'type' && o.changed) ? item('origin-mark from-type changed', 'from its type, changed for this event') : null,
+    has((o) => o.kind === 'event') ? item('origin-mark from-event', 'only for this event') : null,
+  ].filter(Boolean);
+  if (!items.length) return null;
+  return h('span', { class: 'origin-legend' }, items, h('span', {}, 'no mark: usual task'));
+}
+
 /** "164 of 197 places filled" with a thin bar. */
 function filledBar(filled, required) {
   const bar = h('span', {
@@ -109,13 +123,15 @@ export function buildEventView({ event, parts, currentId, ui, session, onCreate,
   const filled = shown.reduce((sum, d) => sum + d.filled, 0);
   const range = dates.length > 1 ? `${formatDate(dates[0])} – ${formatDate(dates.at(-1))}` : formatDate(dates[0]);
   const ownOnly = Boolean(ui.eventOwnOnly);
+  const month = combineParts(event, parts);
 
   const head = h('header', { class: 'eventview-head' },
     h('div', { class: 'eventview-title' },
       h('h2', {}, event.name),
       h('span', { class: 'muted' }, `${range} · ${dates.length} day${dates.length > 1 ? 's' : ''}`),
       required ? h('span', { class: 'event-filled' }, h('span', { class: 'muted' }, `${filled} of ${required} places filled`), filledBar(filled, required)) : null,
-      event.big ? h('span', { class: 'pill event big' }, 'Big event') : null),
+      event.big ? h('span', { class: 'pill event big' }, 'Big event') : null,
+      originLegend(month, event)),
     h('div', { class: 'eventview-actions' },
       h('button', { class: 'btn small', type: 'button', 'aria-pressed': ownOnly ? 'true' : 'false', dataset: { focusId: 'event-own-only' },
         title: 'Show only the tasks this event has of its own', onclick: () => setUi({ eventOwnOnly: !ownOnly }) }, 'Only its own tasks'),
@@ -126,7 +142,6 @@ export function buildEventView({ event, parts, currentId, ui, session, onCreate,
         title: 'Name, dates, type, printed choice and the list of its tasks' }, 'Event settings…')));
 
   const notices = parts.filter((p) => !p.view).map((part) => partNotice(part, dates, onCreate));
-  const month = combineParts(event, parts);
   const peopleOf = new Map(parts.filter((p) => p.view).map((p) => [p.id, p.people]));
   const grid = month.days.length
     ? buildGrid({

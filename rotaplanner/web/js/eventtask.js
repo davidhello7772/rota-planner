@@ -71,7 +71,7 @@ export function eventTaskRow(task, { eventDays, followsYes, oneDay = false, save
     h('button', { class: 'event-task-name', type: 'button', title: 'Change its details', onclick: open },
       h('strong', {}, task.name),
       h('span', { class: 'muted' }, [task.area, cut ? timesText(task) : task.time || 'any time',
-        task.skill !== 'Anyone' ? task.skill : null].filter(Boolean).join(' · '))),
+        task.skill !== 'Anyone' ? task.skill : null, task.changed ? 'changed for this event' : null].filter(Boolean).join(' · '))),
     // The order of the tasks (where the list can be ordered): `move.up` / `move.down`, absent at the ends.
     // Next to the name, so the line of controls below stays as wide as it was.
     move ? changes(h('span', { class: 'move-pair' },

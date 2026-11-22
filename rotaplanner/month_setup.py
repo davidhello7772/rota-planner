@@ -241,6 +241,42 @@ def from_type(task: Task, event_type: Optional[EventType]) -> bool:
     return event_type is not None and any(_same_name(task.name, model.name) for model in event_type.tasks)
 
 
+def times_text(pieces: Sequence[Task]) -> str:
+    """The times of a task with their people: "14:00–17:00 (2) · 17:00–19:00 (1)"."""
+    return " · ".join(f"{t.time_text() or 'any time'} ({t.headcount.get('default', 1)})" for t in pieces)
+
+
+def _shape(pieces: Sequence[Task]) -> List[Tuple[Any, ...]]:
+    """What an event's task and its type's must share to be the same: everything
+    set in the task form, piece by piece (not the ids)."""
+    return [(t.area_id, t.skill_id, t.priority, t.event_days, t.on_month_rota, t.start, t.end, t.hours,
+             t.headcount.get("default", 1)) for t in pieces]
+
+
+def origin(month: Month, task: Task, event_types: Sequence[EventType]) -> Json:
+    """Where a task of the month comes from, in words for the screens:
+    ``{"kind": "usual" | "type" | "event", "changed": bool, "text": ...}``.
+
+    "usual": one of the month's usual tasks (Tasks & Areas); "type": a task of an
+    event that its event type has too (by name), ``changed`` when this event's copy
+    is no longer the type's (another time, another number of people…: the event
+    keeps its own copy when the type changes); "event": a task of that event only.
+    """
+    event = next((e for e in month.events if e.id == task.event_id), None) if task.event_id else None
+    if event is None:
+        return {"kind": "usual", "changed": False, "text": "Usual task of the month (Tasks & Areas)"}
+    event_type = next((t for t in event_types if t.id == event.type_id), None)
+    if not from_type(task, event_type):
+        return {"kind": "event", "changed": False, "text": f"Only for {event.name}"}
+    model = [t for t in event_type.tasks if _same_name(t.name, task.name)]
+    own = editing.task_group(month.tasks, task.id)
+    changed = _shape(own) != _shape(model)
+    text = f"From the “{event_type.name}” type"
+    if changed:
+        text += f", changed for {event.name}. The type has: {times_text(model)}"
+    return {"kind": "type", "changed": changed, "text": text}
+
+
 def _same_name(a: str, b: str) -> bool:
     """Two tasks are the same for an event and its type when their names match, whatever the case."""
     return a.lower() == b.lower()

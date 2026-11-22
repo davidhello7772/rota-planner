@@ -296,3 +296,45 @@ class AppPiecesTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OriginTest(unittest.TestCase):
+    """Where a task of the month comes from, as the Event view and the hover card say it."""
+
+    def setUp(self):
+        self.catalog = h.catalog()
+        self.type = editing.save_event_type(self.catalog, {"name": "Course"})
+        editing.save_type_task(self.catalog, {"type_id": self.type.id, "name": "Registration", "area_id": "kitchen",
+                                              "event_days": "first", "times": [
+                                                  {"start": "14:00", "end": "17:00", "people": 2},
+                                                  {"start": "17:00", "end": "19:00", "people": 1}]})
+        self.month = h.month(self.catalog)
+        self.event = month_setup.save_event(self.month, {"name": "Winter course", "start": "2026-12-24",
+                                                         "end": "2026-12-28", "type_id": self.type.id})
+        month_setup.add_type_tasks(self.month, self.event.id, self.type, self.catalog.areas)
+
+    def origin(self, task):
+        return month_setup.origin(self.month, task, self.catalog.event_types)
+
+    def test_usual_type_and_event_only(self):
+        lunch = next(t for t in self.month.tasks if t.id == "lunch")
+        self.assertEqual(self.origin(lunch), {"kind": "usual", "changed": False,
+                                              "text": "Usual task of the month (Tasks & Areas)"})
+        first, second = month_setup.event_tasks(self.month, self.event.id)
+        self.assertEqual(self.origin(second), {"kind": "type", "changed": False, "text": "From the “Course” type"})
+        tea = month_setup.save_event_task(self.month, self.catalog, {"event_id": self.event.id, "name": "Tea",
+                                                                     "area_id": "kitchen", "event_days": "all"})[0]
+        self.assertEqual(self.origin(tea), {"kind": "event", "changed": False, "text": "Only for Winter course"})
+
+    def test_a_copy_no_longer_as_the_type_has_it_says_so(self):
+        pieces = month_setup.event_tasks(self.month, self.event.id)
+        times = times_of(pieces)
+        times[1]["people"] = 2   # the event's copy: two people from 17:00
+        month_setup.save_event_task(self.month, self.catalog, {"id": pieces[0].id, "event_id": self.event.id,
+                                                               "name": "Registration", "area_id": "kitchen",
+                                                               "event_days": "first", "times": times})
+        for piece in month_setup.event_tasks(self.month, self.event.id):
+            found = self.origin(piece)
+            self.assertEqual((found["kind"], found["changed"]), ("type", True))
+            self.assertEqual(found["text"], "From the “Course” type, changed for Winter course. "
+                                            "The type has: 14:00–17:00 (2) · 17:00–19:00 (1)")

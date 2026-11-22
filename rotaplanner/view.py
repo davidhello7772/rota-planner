@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from typing import Any, Dict, Iterable, List, Optional
 
-from . import checks, demand, solver, tips, workload
+from . import checks, demand, month_setup, solver, tips, workload
 from . import eligibility as rules
 from .model import (
     Assignment,
@@ -57,7 +57,7 @@ def _initials(person: Person, first_letters: int) -> str:
     return (first[:first_letters].capitalize() + last[:1].upper()) or "?"
 
 
-def _task_json(task: Task, skill_names: Dict[str, str], month: Month) -> Json:
+def _task_json(task: Task, skill_names: Dict[str, str], month: Month, catalog: Catalog) -> Json:
     event = next((e for e in month.events if e.id == task.event_id), None) if task.event_id else None
     return {
         "event": event.name if event else None,  # a task of this event only
@@ -73,6 +73,8 @@ def _task_json(task: Task, skill_names: Dict[str, str], month: Month) -> Json:
         "priority": task.priority,
         "need": demand.usual_need(task),   # by its name: the number, or a range, and the words
         "pieces": task.piece_of,  # one time of a task cut into several (shared by its times), else None
+        # A usual task, one of its event's type, or of that event only; in words.
+        "origin": month_setup.origin(month, task, catalog.event_types),
     }
 
 
@@ -182,7 +184,7 @@ def month_view(
                 "manager": area.manager,
                 "color": area.color,
                 "tasks": [
-                    _task_json(task, skill_names, month) for task in month.tasks if task.area_id == area.id
+                    _task_json(task, skill_names, month, catalog) for task in month.tasks if task.area_id == area.id
                 ],
             }
             for area in month.areas

@@ -452,7 +452,9 @@ class App:
         (``type_name`` is None when it has none, or its type no longer exists)."""
         event_type = next((t for t in self.catalog.event_types if t.id == event.type_id), None)
         return {**event.to_dict(), "type_name": event_type.name if event_type else None,
-                "tasks": [{**entry, "from_type": month_setup.from_type(pieces[0], event_type)}
+                "tasks": [{**entry, "from_type": month_setup.from_type(pieces[0], event_type),
+                           # A task of its type, no longer as the type has it (the type changed since, or this copy did).
+                           "changed": month_setup.origin(month, pieces[0], self.catalog.event_types)["changed"]}
                           for pieces, entry in self._event_tasks_json(month_setup.event_tasks(month, event.id),
                                                                       month, month)]}
 

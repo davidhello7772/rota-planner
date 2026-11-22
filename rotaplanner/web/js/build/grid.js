@@ -117,13 +117,18 @@ export function followsPiece(task, previous) {
   return Boolean(task.pieces && previous && previous.pieces === task.pieces);
 }
 
-/** In the Event view, the event's own task: its name opens its form; a small dot instead of the event's tag. */
+/** In the Event view, the event's own task: its name opens its form; a mark of where it comes from instead of the event's tag. */
 function editButton(task, text, label, cls) {
   return h('button', { class: [cls, 'task-edit'], type: 'button', 'aria-label': label,
     dataset: { editTask: task.id, focusId: `edit-task-${task.id}` } }, text);
 }
-const OWN_WORDS = 'A task of this event only';
-const ownDot = () => h('span', { class: 'own-dot', role: 'img', 'aria-label': OWN_WORDS, title: OWN_WORDS });
+/** Where an event's task comes from, after its name: a round mark for its event type's (a ring when
+ *  changed for this event), a diamond for this event's only. The words come from the program. */
+const originMark = (task) => {
+  const origin = task.origin || {};
+  const kind = origin.kind === 'type' ? ['origin-mark', 'from-type', origin.changed && 'changed'] : ['origin-mark', 'from-event'];
+  return h('span', { class: kind, role: 'img', 'aria-label': origin.text || '', title: origin.text || '' });
+};
 
 /** A task's label: its name, need, event, Essential, time and hours. A task in several times
  *  starts with its time, kept when times are hidden: it is what tells its rows apart.
@@ -134,7 +139,7 @@ function taskLabel(task, own = false) {
   return h('th', { class: 'sticky task-label', scope: 'row', dataset: { task: task.id } },
     h('span', { class: 'task-name' },
       own ? editButton(task, task.name, `Change ${task.name}`, 'task-name-text') : h('span', { class: 'task-name-text' }, task.name),
-      own ? ownDot() : null, needMark(task.need)),
+      own ? originMark(task) : null, needMark(task.need)),
     task.pieces
       ? h('span', { class: 'task-meta has-piece' },
         h('span', { class: 'piece-time' }, timeAndHours(task)),

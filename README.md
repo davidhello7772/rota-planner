@@ -151,9 +151,11 @@ folder.
    their days. *Free them* takes regulars off the days they are away.
 3. **Build**: the rota itself. The *Event* view shows an event as a grid,
    like the paper rota: its tasks by area, one column per day (shaded where a
-   task needs nobody). Click the name of one of its own tasks (marked with a
-   dot) to change it; *+ Add a task to …* ends each area; *Only its own
-   tasks*, *Print…* and *Event settings…* are at the top.
+   task needs nobody). A mark after a name says where the task comes from:
+   a dot, the event's type (a ring when this event's copy differs from the
+   type); a diamond, this event only; no mark, a usual task. Click the name
+   of a marked task to change it; *+ Add a task to …* ends each area; *Only
+   its own tasks*, *Print…* and *Event settings…* are at the top.
    - *Prefill the rota…* (Assistant panel) suggests someone for every open
      shift — or only the days on screen, or one area. Essential tasks come
      first, and every day gets someone before any day gets a second person.
