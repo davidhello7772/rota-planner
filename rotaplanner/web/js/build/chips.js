@@ -40,6 +40,10 @@ export function cellChips(cell, ctx) {
   return cell.slots.map((slot, position) => chipFor(slot, { ...ctx, position }));
 }
 
+/** Under a name: the person's hours in the week of that day (Monday to Sunday) against their
+ *  target, as the program words it; the month's average a week when the day's week is not known. */
+const weekFigure = (person, week) => person.by_week?.[week]?.of_target_text ?? person.week_text;
+
 export function chipFor(slot, ctx) {
   const key = slotKey(ctx.taskId, ctx.date, ctx.position);
   const dataset = { key, col: ctx.col ?? '', pos: ctx.position };
@@ -89,5 +93,5 @@ export function chipFor(slot, ctx) {
   h('span', { class: 't-full' }, full),
   slot.source === 'regular' ? h('span', { class: 'reg', title: 'Regular', 'aria-hidden': 'true' }, '↻') : null,
   FLAGS[slot.state] ? h('span', { class: 'flag', 'aria-hidden': 'true' }, FLAGS[slot.state]) : null,
-  person ? h('span', { class: 't-sub' }, person.week_text) : null);
+  person ? h('span', { class: 't-sub' }, weekFigure(person, ctx.week)) : null);
 }

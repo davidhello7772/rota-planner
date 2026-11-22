@@ -368,6 +368,9 @@ class DaysPatternTest(unittest.TestCase):
         self.assertEqual([w["hours"] for w in ana["by_week"]], [4.0, 0.0, 12.0, 0.0, 0.0])
         self.assertEqual([w["level"] for w in ana["by_week"]], [2, 0, 3, 0, 0])   # 4 h is above 3.5; 12 h far above
         self.assertEqual([w["far"] for w in ana["by_week"]], [False, False, True, False, False])
+        # Under her name on the rota, the week of the shift against her target.
+        self.assertEqual([w["of_target_text"] for w in ana["by_week"]][:3],
+                         ["4 / 3.5 h that week", "0 / 3.5 h that week", "12 / 3.5 h that week"])
         self.assertEqual(ana["by_week"][2]["text"],
                          "Week of Monday 14 to Sunday 20 December: 12 h, more than twice their target (3.5 h a week)")
         # Every week is said in words on Check, even an empty one.
@@ -389,6 +392,7 @@ class DaysPatternTest(unittest.TestCase):
         self.assertEqual(report["calendar_weeks"][0]["start"], "2026-11-30")
         self.assertEqual(report["calendar_weeks"][0]["label"], "30 Nov–6 Dec")
         self.assertEqual(ana["by_week"][0]["hours"], 8.0)
+        self.assertEqual(ana["by_week"][0]["of_target_text"], "8 / 4 h that week")   # the whole week, November's day too
         self.assertEqual(ana["by_week"][0]["text"],
                          "Week of Monday 30 November to Sunday 6 December: 8 h, 4 h of them in November")
         self.assertEqual(ana["hours"], 4.0)   # the month's own hours only

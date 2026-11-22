@@ -36,6 +36,7 @@ export const SCREENS = {
       'The list for a shift shows two bars for each person: their hours in that week and in the month, what this shift would add (lighter) and their target (the upright line). Time away in the month is hatched, with the dates. A small strip shows each person’s day: this shift outlined, their other shifts in grey (red when at the same time), hatched when they are away. The person on the shift now is shown above the list the same way (the lighter part is this shift); “Leave open” is with the buttons about the shift.',
       'Prefill the rota suggests people (shown dashed). Look, then accept all or one by one.',
       'A red name breaks a rule: hover it to see why. “Assign anyway” keeps it on purpose.',
+      'Under each name (when the zoom leaves room): their hours in the week of that day, Monday to Sunday, against their target, e.g. “6 / 4 h that week”. The month’s average a week is in the People tab and in Check › Balance.',
       'By each task’s name, how many people it needs (a range when it varies by weekday); a dashed outline around someone placed beyond what the day needs. Pointing at a day that needs a different number says so.',
       'Click a person in the People tab to see their shifts and where else they could go.',
       'The Event view shows one event as a grid, like the paper rota: its tasks by area, one column per day (also over two months). Shaded cells: the task needs nobody that day; “Open” is a place to fill.',

@@ -45,7 +45,7 @@ export function buildDayView({ month, day, ui, session, people }) {
         h('div', { class: 'chips' },
           cell.closed && !cell.slots.length ? h('span', { class: 'faint' }, cell.closed) : null,
           cellChips(cell, {
-            taskId: task.id, date: day.date, priority: task.priority,
+            taskId: task.id, date: day.date, week: day.week, priority: task.priority,
             people, eligible: session.eligible, highlight: session.person,
           })));
       previous = { task, row };

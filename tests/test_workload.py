@@ -326,7 +326,8 @@ class WeekHoursTest(unittest.TestCase):
         shown = view.month_view(month, catalog, h.people(), self.settings)["people"]
         self.assertEqual([p["far_note"] != "" for p in shown if p["id"] in ("ana", "ben")], [True, False])
         self.assertEqual(workload.by_week(Schedule(month, h.people(), self.settings), "cleo")[0],
-                         {"hours": 0.0, "level": 0, "far": False, "that_week_text": "Free that week"})
+                         {"hours": 0.0, "level": 0, "far": False, "that_week_text": "Free that week",
+                      "of_target_text": "0 / 3.5 h that week"})
         # A target of 0: never far; any hours are "up to the target".
         people = h.people()
         people[0].target_hours_per_week = 0
@@ -368,7 +369,8 @@ class WeekHoursTest(unittest.TestCase):
         self.assertTrue(all(weeks[day["week"]]["start"] == week_start(day["date"]) for day in shown["days"]))
         self.assertEqual([d["week"] for d in shown["days"]][:8], [0] * 6 + [1] * 2)
         ana = next(p for p in shown["people"] if p["id"] == "ana")
-        self.assertEqual(ana["by_week"][0], {"hours": 7.0, "level": 2, "far": False, "that_week_text": "7 h that week"})
+        self.assertEqual(ana["by_week"][0], {"hours": 7.0, "level": 2, "far": False, "that_week_text": "7 h that week",
+                                            "of_target_text": "7 / 3.5 h that week"})
         candidates = view.candidates_view(self.december, h.people(), self.settings, "lunch", "2026-12-15", 0,
                                           around=[self.november])["candidates"]
         by_id = {c["id"]: c for c in candidates}

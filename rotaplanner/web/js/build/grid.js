@@ -223,7 +223,7 @@ function areaRows(area, month, visible, ui, session, people, mode = null) {
       const td = h('td', { class: ['cell', day.weekend && 'weekend-col', cell?.closed && 'closed', cell?.time && 'retimed',
         mode && notNeeded(cell) && 'not-needed'] });
       const chips = cellChips(cell, {
-        taskId: task.id, date: day.date, col: i, priority: task.priority, showEmpty: ui.showEmpty,
+        taskId: task.id, date: day.date, week: day.week, col: i, priority: task.priority, showEmpty: ui.showEmpty,
         people: mode ? mode.peopleOf(day.date) || people : people, eligible: session.eligible, highlight: session.person,
       });
       if (chips.length) td.append(h('div', { class: 'stack' }, chips));

@@ -200,7 +200,8 @@ def _other_part(schedule: Schedule, person_id: str, days: List[str]) -> float:
 
 def by_week(schedule: Schedule, person_id: str, detailed: bool = False) -> List[Dict[str, Any]]:
     """A person's hours in each week of ``weeks(schedule)`` (aligned with it):
-    ``{"hours": 4.0, "level": 1, "far": False, "that_week_text": "4 h that week"}``.
+    ``{"hours": 4.0, "level": 1, "far": False, "that_week_text": "4 h that week",
+    "of_target_text": "4 / 3.5 h that week"}``.
 
     ``far``: more than twice the weekly target (``FAR_ABOVE``), in two shifts or
     more, never with a target of 0. ``level`` (the tint of the week): 0 no
@@ -224,7 +225,9 @@ def by_week(schedule: Schedule, person_id: str, detailed: bool = False) -> List[
         else:
             level = 2
         week = {"hours": round(hours, 2) + 0.0, "level": level, "far": far,
-                "that_week_text": that_week(schedule, person_id, monday)["that_week_text"]}
+                "that_week_text": that_week(schedule, person_id, monday)["that_week_text"],
+                # Under the name on the rota, for a shift that week: "6 / 4 h that week".
+                "of_target_text": f"{number(hours)} / {number(target)} h that week"}
         if far or detailed:
             text = f"Week of {_span(days)}: {number(hours)} h"   # a cut week: its days that count
             other = _other_part(schedule, person_id, days)
