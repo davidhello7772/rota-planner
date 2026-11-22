@@ -57,13 +57,17 @@ function bandRows(month, visible) {
   });
 }
 
-function dayHeaders(visible, eventDays) {
+/** `opens(day)`: does clicking the day open it in the Day view (a day of another month does not). */
+function dayHeaders(visible, eventDays, opens = () => true) {
   return h('tr', {},
     h('th', { class: 'sticky corner', scope: 'col' }, 'Task'),
     visible.map((day) => h('th', {
-      class: ['day-head', day.weekend && 'weekend weekend-col', eventDays.has(day.date) && 'event'],
-      scope: 'col', dataset: { date: day.date }, title: 'Open this day', tabindex: '0', role: 'button',
-      onkeydown: (e) => { if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.click(); } },
+      class: ['day-head', day.weekend && 'weekend weekend-col', eventDays.has(day.date) && 'event', !opens(day) && 'no-open'],
+      scope: 'col', dataset: { date: day.date },
+      ...(opens(day) ? {
+        title: 'Open this day', tabindex: '0', role: 'button',
+        onkeydown: (e) => { if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.click(); } },
+      } : { title: 'A day of another month' }),
     },
     h('span', { class: 'wd' }, h('span', { class: 'wd-long' }, day.weekday), h('span', { class: 'wd-short' }, WEEKDAY_INITIAL[day.weekday])),
     h('span', { class: 'num' }, day.day))));
@@ -81,10 +85,14 @@ export function matchesFilter(cell, filter) {
   return true;
 }
 
-/** Rows to show for an area, after the "empty rows" and open/highlighted filters. */
-function visibleTasks(area, month, visible, ui, session) {
+/** Is the task one of the event's own, in the Event view (`mode`: the grid's `eventMode`)? */
+const isOwn = (task, mode) => Boolean(mode && task.event_id === mode.event.id);
+
+/** Rows to show for an area, after the "empty rows" and open/highlighted filters.
+ *  In the Event view every task to fill is shown (or only the event's own, on request). */
+function visibleTasks(area, month, visible, ui, session, mode) {
   return area.tasks.filter((task) => {
-    if (!task.on_main_rota && ui.hideEventOnly) return false;  // on its event's rota only, hidden on request
+    if (mode ? mode.ownOnly && !isOwn(task, mode) : !task.on_main_rota && ui.hideEventOnly) return false;  // on its event's rota only, hidden on request
     const cells = visible.map((d) => month.cells[`${task.id}|${d.date}`]).filter(Boolean);
     if (session.openOnly) return cells.some((c) => matchesFilter(c, session.openOnly));
     return ui.showEmpty || cells.some((c) => c.slots.length || c.closed || c.adjusted);
@@ -109,30 +117,58 @@ export function followsPiece(task, previous) {
   return Boolean(task.pieces && previous && previous.pieces === task.pieces);
 }
 
+/** In the Event view, the event's own task: its name opens its form; a small dot instead of the event's tag. */
+function editButton(task, text, label, cls) {
+  return h('button', { class: [cls, 'task-edit'], type: 'button', 'aria-label': label,
+    dataset: { editTask: task.id, focusId: `edit-task-${task.id}` } }, text);
+}
+const OWN_WORDS = 'A task of this event only';
+const ownDot = () => h('span', { class: 'own-dot', role: 'img', 'aria-label': OWN_WORDS, title: OWN_WORDS });
+
 /** A task's label: its name, need, event, Essential, time and hours. A task in several times
- *  starts with its time, kept when times are hidden: it is what tells its rows apart. */
-function taskLabel(task) {
+ *  starts with its time, kept when times are hidden: it is what tells its rows apart.
+ *  `own`: one of the event's own tasks, in its Event view. */
+function taskLabel(task, own = false) {
   const critical = task.priority === 'critical';
+  const tagged = task.event && !own;
   return h('th', { class: 'sticky task-label', scope: 'row', dataset: { task: task.id } },
-    h('span', { class: 'task-name' }, h('span', { class: 'task-name-text' }, task.name), needMark(task.need)),
+    h('span', { class: 'task-name' },
+      own ? editButton(task, task.name, `Change ${task.name}`, 'task-name-text') : h('span', { class: 'task-name-text' }, task.name),
+      own ? ownDot() : null, needMark(task.need)),
     task.pieces
       ? h('span', { class: 'task-meta has-piece' },
         h('span', { class: 'piece-time' }, timeAndHours(task)),
-        task.event || critical ? h('span', {}, task.event ? [' · ', eventTag(task, '')] : null,
+        tagged || critical ? h('span', {}, tagged ? [' · ', eventTag(task, '')] : null,
           critical ? h('span', { class: 'prio' }, ' · Essential') : null) : null)
       : h('span', { class: 'task-meta' },
-        task.event ? eventTag(task) : null,
+        tagged ? eventTag(task) : null,
         critical ? h('span', { class: 'prio' }, 'Essential · ') : null,
         timeAndHours(task)));
 }
 
 /** One more time of the task above: its time only, indented and joined to the row above. */
-function pieceLabel(task) {
+function pieceLabel(task, own = false) {
+  const time = timeAndHours(task);
   return h('th', {
     class: 'sticky task-label piece-next', scope: 'row', dataset: { task: task.id },
-    'aria-label': [task.name, timeAndHours(task), task.need?.title].filter(Boolean).join(', '),
+    'aria-label': [task.name, time, task.need?.title].filter(Boolean).join(', '),
   },
-  h('span', { class: 'task-name' }, h('span', { class: 'task-name-text piece-time' }, timeAndHours(task)), needMark(task.need)));
+  h('span', { class: 'task-name' },
+    own ? editButton(task, time, `Change ${task.name}${time ? ` (${time})` : ''}`, 'task-name-text piece-time')
+      : h('span', { class: 'task-name-text piece-time' }, time),
+    needMark(task.need)));
+}
+
+/** Is this cell a day the task needs nobody (no place, not closed, not changed for the day)? */
+const notNeeded = (cell) => !cell || (!cell.slots.length && !cell.closed && !cell.adjusted);
+
+/** The quiet last row of an area in the Event view: add a task of the event there. */
+function addRow(areaId, text, color, dayCount) {
+  return h('tr', { class: ['add-row', color && `area-${color}`] },
+    h('th', { class: 'sticky add-label', scope: 'row' },
+      h('button', { class: 'add-task', type: 'button', dataset: { addTask: areaId, focusId: `add-task-${areaId}` } },
+        icon('plus'), h('span', {}, text))),
+    h('td', { colspan: dayCount }));
 }
 
 /** The event a task belongs to: a link to that event and its tasks. `after`: what follows it. */
@@ -143,8 +179,8 @@ export function eventTag(task, after = ' · ') {
   task.event, task.on_main_rota ? null : h('span', { class: 'event-only-note' }, ' · not on printed rota'), after);
 }
 
-function areaRows(area, month, visible, ui, session, people) {
-  const tasks = visibleTasks(area, month, visible, ui, session);
+function areaRows(area, month, visible, ui, session, people, mode = null) {
+  const tasks = visibleTasks(area, month, visible, ui, session, mode);
   if (!tasks.length) return [];
   const collapsed = Boolean(ui.collapsed[area.id]);
 
@@ -165,7 +201,7 @@ function areaRows(area, month, visible, ui, session, people) {
     h('th', { class: 'sticky', scope: 'rowgroup' },
       h('button', { class: 'area-head', dataset: { area: area.id }, 'aria-expanded': String(!collapsed) },
         icon('down', 'chev'),
-        h('span', { class: 'area-name' }, area.name),
+        h('span', { class: 'area-name' }, area.name, mode && area.manager ? h('span', { class: 'area-manager' }, ` · ${area.manager}`) : null),
         h('span', { class: ['area-count', open > 0 && 'has-open'] },
           open > 0 ? `${open} open` : `${filled}/${required}`))),
     h('td', { colspan: visible.length }))];
@@ -174,46 +210,64 @@ function areaRows(area, month, visible, ui, session, people) {
   let previous = null;
   let previousLabel = null;
   for (const task of tasks) {
+    const own = isOwn(task, mode);
     const follows = followsPiece(task, previous);
-    const label = follows ? pieceLabel(task) : taskLabel(task);
+    const label = follows ? pieceLabel(task, own) : taskLabel(task, own);
     if (follows) previousLabel.classList.add('piece-joined');  // no line between the times of one task
     previous = task;
     previousLabel = label;
-    const row = h('tr', { class: [`area-${area.color}`, !task.on_main_rota && 'event-only'] }, label);
+    // In its own Event view, an event's task needs no "not on the printed rota" stripes: the form says it.
+    const row = h('tr', { class: [`area-${area.color}`, !task.on_main_rota && !own && 'event-only'] }, label);
     visible.forEach((day, i) => {
       const cell = month.cells[`${task.id}|${day.date}`];
-      const td = h('td', { class: ['cell', day.weekend && 'weekend-col', cell?.closed && 'closed', cell?.time && 'retimed'] });
+      const td = h('td', { class: ['cell', day.weekend && 'weekend-col', cell?.closed && 'closed', cell?.time && 'retimed',
+        mode && notNeeded(cell) && 'not-needed'] });
       const chips = cellChips(cell, {
         taskId: task.id, date: day.date, col: i, priority: task.priority, showEmpty: ui.showEmpty,
-        people, eligible: session.eligible, highlight: session.person,
+        people: mode ? mode.peopleOf(day.date) || people : people, eligible: session.eligible, highlight: session.person,
       });
       if (chips.length) td.append(h('div', { class: 'stack' }, chips));
       // A day that needs another number than usual: no mark (its places show it), only the words on hover.
       const title = [cell?.closed, cell?.need?.title, cell?.time && `Other time this day: ${cell.time}`].filter(Boolean);
+      if (!title.length && mode && notNeeded(cell)) title.push('Not needed this day');
       if (title.length) td.title = title.join('\n');
       row.append(td);
     });
     rows.push(row);
   }
+  if (mode) rows.push(addRow(area.id, `Add a task to ${area.name}`, area.color, visible.length));
   return rows;
 }
 
-export function buildGrid({ month, visible, ui, session, people, width }) {
+/**
+ * `eventMode` (the Event view only): `{ event, ownOnly, currentId, peopleOf(date) }`. Days a
+ * task is not needed are shaded; the event's own tasks get a dot and a name that opens their
+ * form; each area ends with "+ Add a task to …"; `ownOnly` shows only the event's own tasks;
+ * a day of another month (`currentId`: the month on screen) does not open the Day view;
+ * `peopleOf(date)`: the people of that day's month.
+ */
+export function buildGrid({ month, visible, ui, session, people, width, eventMode = null }) {
+  const mode = eventMode;
   const eventDays = new Set(month.days.filter((d) => d.day_type !== 'normal').map((d) => d.date));
-  const table = h('table', { class: ['grid', session.paint && 'painting', !ui.showTimes && 'no-times'], role: 'grid', 'aria-label': `Rota for ${month.title}` },
+  const opens = mode ? (day) => day.date.startsWith(mode.currentId) : undefined;
+  const table = h('table', { class: ['grid', session.paint && 'painting', !ui.showTimes && 'no-times', mode && 'event-grid'], role: 'grid', 'aria-label': `Rota for ${month.title}` },
     h('colgroup', {}, h('col', { class: 'c-label' }), visible.map(() => h('col', { class: 'c-day' }))),
-    h('thead', {}, bandRows(month, visible), dayHeaders(visible, eventDays)));
+    h('thead', {}, bandRows(month, visible), dayHeaders(visible, eventDays, opens)));
   applyZoom(table, session.zoom, visible.length, width);
 
   const areas = session.area ? month.areas.filter((a) => a.id === session.area) : month.areas;
   for (const area of areas) {
-    const rows = areaRows(area, month, visible, ui, session, people);
+    const rows = areaRows(area, month, visible, ui, session, people, mode);
     if (rows.length) table.append(h('tbody', {}, rows));
   }
-  if (!table.querySelector('tbody')) {
-    table.append(h('tbody', {}, h('tr', {}, h('td', { colspan: visible.length + 1 },
-      h('p', { class: 'empty' }, session.openOnly ? 'No open shifts here. 🎉' : 'Nothing to staff on these days.')))));
+  const empty = !table.querySelector('tbody');
+  if (empty) {
+    const text = session.openOnly ? 'No open shifts here. 🎉'
+      : mode?.ownOnly ? 'This event has no task of its own on these days yet.' : 'Nothing to staff on these days.';
+    table.append(h('tbody', {}, h('tr', {}, h('td', { colspan: visible.length + 1 }, h('p', { class: 'empty' }, text)))));
   }
+  // After the last area: the areas with nothing on these days.
+  if (mode) table.append(h('tbody', {}, addRow('', empty ? 'Add a task to this event…' : 'Add a task in another area…', null, visible.length)));
   const firstChip = table.querySelector('.chip');
   if (firstChip) firstChip.tabIndex = 0;
   return table;

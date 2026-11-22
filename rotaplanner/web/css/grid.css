@@ -202,18 +202,38 @@
 .dayview { min-height: 100%; padding: var(--space-4) var(--space-6); background: var(--bg); }
 .dayview-head { display: flex; align-items: baseline; gap: var(--space-3); flex-wrap: wrap; margin-bottom: var(--space-3); }
 .dayview-head h2 { margin: 0; font-size: var(--fs-xl); }
-/* Event view: the event's days one under the other. */
-.eventview { min-height: 100%; background: var(--bg); padding-bottom: var(--space-6); }
-.eventview-head { display: flex; align-items: baseline; gap: var(--space-3); flex-wrap: wrap; padding: var(--space-4) var(--space-6) 0; }
-.eventview-head h2 { margin: 0; font-size: 1.5rem; }
-.eventview .dayview { min-height: 0; padding-top: var(--space-3); padding-bottom: var(--space-2); border-bottom: 1px solid var(--line); }
-.eventview .dayview-head h2 { font-size: var(--fs-lg); }
-.month-divider { display: flex; align-items: baseline; gap: var(--space-3); margin: var(--space-4) var(--space-6) 0; padding-bottom: var(--space-1);
-  border-bottom: 2px solid var(--accent); font-weight: 600; color: var(--accent); }
-.month-divider .faint { font-weight: 400; }
-.eventview .missing-month { margin: var(--space-3) var(--space-6); align-items: flex-start; gap: var(--space-2); }
-.missing-month h3 { margin: 0; }
-.missing-month p { margin: 0; }
+/* Event view: the event's days as a grid, like the paper rota. As wide as the grid, so the
+   header and the notices (as wide as the scroller, --view-w) stay in sight when the days scroll. */
+.eventview { width: max-content; min-width: 100%; min-height: 100%; background: var(--surface); }
+.eventview-head { position: sticky; left: 0; box-sizing: border-box; width: var(--view-w, 100%); display: flex; flex-wrap: wrap; align-items: center;
+  gap: var(--space-2) var(--space-4); padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--line); }
+.eventview-title { flex: 1 1 18rem; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-3); }
+.eventview-title h2 { margin: 0; font-size: var(--fs-xl); }
+.eventview-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.event-filled { display: inline-flex; align-items: center; gap: var(--space-2); white-space: nowrap; }
+.event-progress { width: 6rem; height: 0.375rem; }
+.event-notice { position: sticky; left: 0; box-sizing: border-box; width: var(--view-w, 100%); display: flex; flex-wrap: wrap; align-items: center;
+  gap: var(--space-2) var(--space-3); margin: 0; padding: var(--space-2) var(--space-4); background: var(--accent-weak); color: var(--text);
+  border-bottom: 1px solid var(--accent-line); font-size: var(--fs-sm); }
+/* A day of another month: shown, but its Day view belongs to that month. */
+.day-head.no-open { cursor: default; }
+.day-head.no-open:hover { color: var(--text-2); }
+/* A day the task needs nobody: fine lines on a muted ground (a closed day has wider stripes). */
+.cell.not-needed { background: repeating-linear-gradient(135deg, var(--hatch) 0 1px, transparent 1px 6px), var(--surface-2); }
+/* The event's own task: a dot in the event's colour, and its name opens its form. */
+.own-dot { flex: none; width: 0.4375rem; height: 0.4375rem; border-radius: 50%; background: var(--warn); }
+.task-edit { padding: 0; border: 0; background: none; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.task-edit:hover { text-decoration: underline; color: var(--accent); }
+.area-manager { font-weight: 400; color: var(--text-2); }
+/* "+ Add a task to …": the quiet last row of each area. */
+.add-row th, .add-row td { background: var(--surface); }
+.add-row td { border-right: 0; }
+.add-label { padding: 1px var(--space-1) !important; box-shadow: inset 3px 0 0 var(--area-weak, transparent); }
+.add-task { display: flex; align-items: center; gap: var(--space-1); width: 100%; min-height: 1.5rem; padding: 0 var(--space-2) 0 calc(var(--space-1) + 3px);
+  border: 0; border-radius: var(--radius-sm); background: none; color: var(--text-3); font-size: var(--fs-xs); text-align: left; cursor: pointer; }
+.add-task span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.add-task svg.icon { flex: none; width: 0.75rem; height: 0.75rem; }
+.add-task:hover, .add-task:focus-visible { color: var(--accent); background: var(--accent-weak); }
 .band .pill.clickable { cursor: pointer; }
 .band .pill.clickable:hover { filter: brightness(0.95); text-decoration: underline; }
 
@@ -448,7 +468,6 @@ button.event-tag:hover { text-decoration: underline; }
 .grid tr.event-only .task-label { background-image: repeating-linear-gradient(135deg, transparent 0 6px, var(--accent-weak) 6px 8px); }
 .grid tr.event-only .task-name { font-style: italic; }
 .event-only-note { font-weight: 400; color: var(--text-3); }
-.eventview-head .spacer { flex: 1; }
 /* A place with a note: a small pen after the name */
 .chip.noted .t-short::after, .chip.noted .t-full::after { content: " ✎"; color: var(--accent); }
 .picker-note { display: flex; flex-direction: column; gap: 2px; padding: 0 var(--space-3) var(--space-2); font-size: var(--fs-xs); }

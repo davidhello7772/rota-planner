@@ -149,8 +149,11 @@ folder.
    file), check the doubtful names, save. See who has not replied (*Copy names*
    for a reminder), tick the comments once dealt with, click anyone to change
    their days. *Free them* takes regulars off the days they are away.
-3. **Build**: the rota itself. The *Event* view shows an event day by day,
-   grouped by area.
+3. **Build**: the rota itself. The *Event* view shows an event as a grid,
+   like the paper rota: its tasks by area, one column per day (shaded where a
+   task needs nobody). Click the name of one of its own tasks (marked with a
+   dot) to change it; *+ Add a task to …* ends each area; *Only its own
+   tasks*, *Print…* and *Event settings…* are at the top.
    - *Prefill the rota…* (Assistant panel) suggests someone for every open
      shift — or only the days on screen, or one area. Essential tasks come
      first, and every day gets someone before any day gets a second person.
@@ -204,7 +207,8 @@ own**: in *Set up › Events and retreats*, press *Add an event* and choose its
 Types are set once in *Tasks & Areas › Event types*; with none yet, the
 window offers to set them up, or you can add the event, give it its tasks and
 choose *Save as an event type*. The event's tasks are copies: change them for
-this event only on each line, and add a one-off task with *Add a task*. They
+this event only on each line, and add a one-off task with *Add a task* (or
+from the rota: *+ Add a task to …* in the Event view). They
 are listed as *From the … type* or *Only for this event*. Giving the event
 another type keeps its tasks and adds the new type's missing ones; *Update
 the … type* keeps this event's tasks for the next events of that type.

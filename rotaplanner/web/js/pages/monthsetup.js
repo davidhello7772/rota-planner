@@ -136,18 +136,56 @@ function offerMissingMonths(missing, itemName) {
 const eventFields = (event, patch = {}) => ({ id: event.id, name: event.name, start: event.start, end: event.end,
   big: event.big, type_id: event.type_id || null, tasks_on_main_rota: event.tasks_on_main_rota, ...patch });
 
-/** From the rota: open an event with its tasks (`newTask`: straight to adding one). */
-export async function openEvent(eventId, { newTask = false } = {}) {
+/** The month's set-up (events and their tasks), fetched if the one held is another month's. False when it failed (said). */
+async function haveMonthSetup() {
   try {
     if (state.session.monthSetup?.id !== state.month.id) {
       setSession({ monthSetup: await api.get(monthPath(state.month.id, '/setup')) });
     }
+    return true;
   } catch (error) {
     failed(error);
+    return false;
+  }
+}
+
+/** The options of the task form common to every task of `event`. */
+const taskFormOptions = (setup, event) => ({ areas: setup.areas, skills: setup.skills, eventDays: setup.event_days,
+  followsYes: event.tasks_on_main_rota, oneDay: event.start === event.end });
+
+/** From the rota: open an event with its tasks. */
+export async function openEvent(eventId) {
+  if (!await haveMonthSetup()) return;
+  const event = state.session.monthSetup.events.find((e) => e.id === eventId);
+  if (event) editEvent(event);
+}
+
+/**
+ * From the Event view: the form of one of the event's tasks (`taskId`: the id of any of its
+ * times), or of a new one starting in `areaId` (else the area of the event's last task),
+ * without the event window. The rota is drawn again from what the server sends back.
+ */
+export async function openEventTask(eventId, { taskId = null, areaId = null } = {}) {
+  if (!await haveMonthSetup()) return;
+  const setup = state.session.monthSetup;
+  const event = setup.events.find((e) => e.id === eventId);
+  const task = event && taskId ? event.tasks.find((t) => t.id === taskId || t.times?.some((x) => x.id === taskId)) : null;
+  if (!event || (taskId && !task)) {
+    toast(`This task is not part of ${state.month.title}: change it from the month the event starts in.`, { tone: 'bad' });
     return;
   }
-  const event = state.session.monthSetup.events.find((e) => e.id === eventId);
-  if (event) editEvent(event, { newTask });
+  editEventTask({ ...taskFormOptions(setup, event), task, subtitle: event.name,
+    areaId: areaId || event.tasks.at(-1)?.area_id,
+    save: (fields) => changeMonth('events/tasks/save', { task: { ...fields, event_id: eventId } }, undefined),
+    remove: task ? async () => {
+      try {
+        await changeMonth('events/tasks/delete', { id: task.id }, undefined);
+        return true;
+      } catch (error) {
+        failed(error);
+        return false;  // the form stays open
+      }
+    } : null });
 }
 
 /** What choosing a type brings, from the type's tasks as the server sent them (`added`: the event exists already). */
@@ -160,7 +198,7 @@ function bringsText(type, added) {
   return `${what} Once the event is added you can change ${n === 1 ? 'it, remove it' : 'them, remove some'} or add others.`;
 }
 
-export function editEvent(event, { justAdded = false, newTask = false } = {}) {
+export function editEvent(event, { justAdded = false } = {}) {
   const setup = state.session.monthSetup;
   const first = setup.days[0].date;
   const types = setup.event_types;
@@ -266,15 +304,12 @@ export function editEvent(event, { justAdded = false, newTask = false } = {}) {
       h('button', { class: 'btn', type: 'button', onclick: () => dialog.close() }, event ? 'Close' : 'Cancel'),
       event ? null : h('button', { class: 'btn primary', type: 'button', onclick: save }, 'Add event')],
   });
-  if (event) {
-    const addTask = drawEventTasks(tasksBox, event.id, follow);
-    if (newTask) addTask();
-  }
+  if (event) drawEventTasks(tasksBox, event.id, follow);
 }
 
 /** An event's tasks: each on one line, changed in place and saved at once; with a type,
     those that came from it apart from those only this event has. `onDraw(event)` follows
-    each drawing. Returns a function opening the form for a new task. */
+    each drawing. */
 function drawEventTasks(box, eventId, onDraw) {
   const setup = state.session.monthSetup;
   const event = setup.events.find((e) => e.id === eventId);
@@ -292,8 +327,7 @@ function drawEventTasks(box, eventId, onDraw) {
   };
   const types = setup.event_types.filter((t) => t.tasks.length);
   const ownType = setup.event_types.find((t) => t.id === event.type_id);
-  const common = { areas: setup.areas, skills: setup.skills, eventDays: setup.event_days,
-    followsYes: event.tasks_on_main_rota, oneDay: event.start === event.end };
+  const common = taskFormOptions(setup, event);
   const saveTask = (fields, message) => changeMonth('events/tasks/save', { task: { ...fields, event_id: eventId } }, message);
   // A new task starts in the area of the event's last task (tasks of one area are usually added together).
   const open = (task) => editEventTask({ ...common, task, subtitle: event.name, areaId: event.tasks.at(-1)?.area_id,
@@ -344,7 +378,6 @@ function drawEventTasks(box, eventId, onDraw) {
         onclick: () => saveAsType(event, ownType, redraw) },
       ownType ? `Update the ${ownType.name} type…` : 'Save as an event type…') : null));
   onDraw?.(event);
-  return () => open(null);
 }
 
 /** Keep an event's tasks as those of its type, so the next event of that type gets them. */

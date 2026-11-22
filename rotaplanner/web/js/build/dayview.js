@@ -1,5 +1,5 @@
-// One day as a vertical list grouped by area: the layout used for big
-// events, and handy for reviewing a single busy day.
+// One day as a vertical list grouped by area: handy for reviewing a single
+// busy day.
 import { formatHours, h } from '../dom.js';
 import { icon } from '../icons.js';
 import { cellChips } from './chips.js';
@@ -16,8 +16,7 @@ function dayNeed(task, cell) {
   return h('span', { class: 'task-need', title: task.need?.title || undefined }, icon('users'), String(cell.required));
 }
 
-/** `allTasks`: also the tasks kept on an event's own rota (true in the Event view). */
-export function buildDayView({ month, day, ui, session, people, allTasks = false }) {
+export function buildDayView({ month, day, ui, session, people }) {
   const items = [
     ...month.events.filter((e) => e.start <= day.date && day.date <= e.end).map((e) => ({ kind: e.big ? 'event big' : 'event', label: e.name })),
     ...month.markers.filter((m) => m.start <= day.date && day.date <= m.end).map((m) => ({ kind: m.kind, label: m.label })),
@@ -29,7 +28,7 @@ export function buildDayView({ month, day, ui, session, people, allTasks = false
     const rows = area.tasks.map((task) => {
       const cell = month.cells[`${task.id}|${day.date}`];
       if (!cell || (!cell.slots.length && !cell.closed && !cell.adjusted)) return null;
-      if (!task.on_main_rota && !allTasks && ui.hideEventOnly) return null;
+      if (!task.on_main_rota && ui.hideEventOnly) return null;
       if (session.openOnly && !matchesFilter(cell, session.openOnly)) return null;
       // One more time of the task above (a task cut into several times): its time only, joined to it.
       const follows = followsPiece(task, previous.task);

@@ -11,7 +11,7 @@ import { closePicker, openPicker } from './picker.js';
 import { buildEventView } from './eventview.js';
 import { fittingZoom, monthsSpanned, monthTitle, shownEvent, visibleDays } from './range.js';
 import { buildStrip } from './strip.js';
-import { openEvent } from '../pages/monthsetup.js';
+import { openEvent, openEventTask } from '../pages/monthsetup.js';
 import { buildToolbar, zoomBy } from './toolbar.js';
 import { attachTooltips, hideTooltip } from './tooltip.js';
 
@@ -84,7 +84,21 @@ export function mountBuild(container) {
   scroller.addEventListener('click', (event) => {
     const eventTasks = event.target.closest('[data-event-tasks]');
     if (eventTasks) {
-      openEvent(eventTasks.dataset.eventTasks, { newTask: Boolean(eventTasks.dataset.newTask) });
+      openEvent(eventTasks.dataset.eventTasks);
+      return;
+    }
+    // The Event view: add a task of the event to an area, or change one by its name.
+    const addTask = event.target.closest('[data-add-task]');
+    const editTask = event.target.closest('[data-edit-task]');
+    if (addTask || editTask) {
+      if (readOnly()) {  // another computer edits: say so before a form is filled in for nothing
+        mayChange();
+        return;
+      }
+      const shown = shownEvent(state.month, state.session.eventId);
+      if (!shown) return;
+      if (addTask) openEventTask(shown.id, { areaId: addTask.dataset.addTask || null });
+      else openEventTask(shown.id, { taskId: editTask.dataset.editTask });
       return;
     }
     const pill = event.target.closest('.pill[data-event]');
@@ -114,7 +128,7 @@ export function mountBuild(container) {
       else openPicker(chip, chip.dataset.key);
       return;
     }
-    const head = event.target.closest('.day-head');
+    const head = event.target.closest('.day-head[role="button"]');  // a day of another month does not open
     if (head) {
       setUi({ view: 'day' });
       setSession({ anchor: head.dataset.date });
@@ -154,12 +168,15 @@ export function mountBuild(container) {
     const event = view === 'event' ? shownEvent(month, session.eventId) : null;
     const visible = visibleDays(month.days, view, session.anchor, event);
     const people = peopleById();
+    // The Event view shows the event's days of every month it runs over (those loaded).
+    const parts = view === 'event' ? eventParts(event) : null;
+    const dayCount = parts ? parts.reduce((n, p) => n + p.days.length, 0) || visible.length : visible.length;
 
     // The panel goes first: its width decides how much room the grid has.
     // With "Fit" on, the zoom follows the free width; otherwise it is the
     // level last chosen by hand.
     replaceKeepingFocus(panelSlot, ui.panel ? buildPanel(month) : '');
-    session.zoom = ui.autoFit ? fittingZoom(scroller.clientWidth, visible.length) : ui.zoom;
+    session.zoom = ui.autoFit ? fittingZoom(scroller.clientWidth, dayCount) : ui.zoom;
 
     replaceKeepingFocus(toolbarSlot, buildToolbar({ month, visible }));
     const painter = session.paint && people.get(session.person);
@@ -174,10 +191,9 @@ export function mountBuild(container) {
     }));
     let content;
     if (view === 'event') {
-      const parts = eventParts(event);
       const toLoad = parts.filter((p) => p.exists && !p.view).map((p) => p.id);
       if (toLoad.length) loadOtherMonths(toLoad);
-      content = buildEventView({ event, parts, currentId: month.id, ui, session, onCreate: createForEvent });
+      content = buildEventView({ event, parts, currentId: month.id, ui, session, onCreate: createForEvent, width: scroller.clientWidth });
     }
     else if (view === 'day') content = buildDayView({ month, day: visible[0], ui, session, people });
     else content = buildGrid({ month, visible, ui, session, people, width: scroller.clientWidth });

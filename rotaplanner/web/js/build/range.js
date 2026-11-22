@@ -8,8 +8,8 @@ export const VIEWS = [
   { id: 'event', label: 'Event' },  // offered only when the month has events
 ];
 
-/** Views drawn as vertical lists by area, without the grid's zoom. */
-export const isListView = (view) => view === 'day' || view === 'event';
+/** Views drawn as vertical lists by area, without the grid's zoom (the Day view). */
+export const isListView = (view) => view === 'day';
 
 /** The event shown in the Event view: the chosen one, else the first big one, else the first. */
 export function shownEvent(month, eventId) {

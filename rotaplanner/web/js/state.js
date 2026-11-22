@@ -4,7 +4,7 @@
 
 const PREFS_KEY = 'rota-planner-ui';
 const DEFAULT_UI = {
-  view: 'month',          // month | 2weeks | week | day
+  view: 'month',          // month | 2weeks | week | day | event
   autoFit: true,          // pick the zoom that fits the screen, whenever the space changes
   zoom: 2,                // zoom chosen by hand (0 Overview … 4 Detail), used when autoFit is off
   panel: true,
@@ -14,6 +14,7 @@ const DEFAULT_UI = {
   showEmpty: false,
   showTimes: true,        // times and hours under each task name
   hideEventOnly: false,   // hide the tasks events keep off the printed main rota (always shown in the Event view)
+  eventOwnOnly: false,    // Event view: only the event's own tasks
   collapsed: {},          // area id -> true
   helpSeen: {},           // screen -> true once its first-visit tip was dismissed
 };
