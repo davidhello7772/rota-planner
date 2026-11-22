@@ -3,7 +3,7 @@
 import { formatHours, h } from '../dom.js';
 import { icon } from '../icons.js';
 import { cellChips } from './chips.js';
-import { eventTag, matchesFilter } from './grid.js';
+import { eventTag, followsPiece, matchesFilter } from './grid.js';
 
 const LONG = new Intl.DateTimeFormat('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
 
@@ -25,23 +25,32 @@ export function buildDayView({ month, day, ui, session, people, allTasks = false
   const areas = session.area ? month.areas.filter((a) => a.id === session.area) : month.areas;
 
   const cards = areas.map((area) => {
+    let previous = {};  // the task shown just before, and its row
     const rows = area.tasks.map((task) => {
       const cell = month.cells[`${task.id}|${day.date}`];
       if (!cell || (!cell.slots.length && !cell.closed && !cell.adjusted)) return null;
       if (!task.on_main_rota && !allTasks && ui.hideEventOnly) return null;
       if (session.openOnly && !matchesFilter(cell, session.openOnly)) return null;
-      return h('div', { class: ['day-task', cell.closed && 'closed'], title: cell.closed || undefined },
-        h('div', {},
-          h('span', { class: 'task-name' }, task.name, dayNeed(task, cell)),
-          task.event ? [' · ', eventTag(task)] : null,
-          h('span', { class: ['task-meta', cell.time && 'retimed-note'] },
-            cell.time ? `◷ ${cell.time} (other time this day)` : [task.time, task.hours ? formatHours(task.hours) : null].filter(Boolean).join(' · '))),
+      // One more time of the task above (a task cut into several times): its time only, joined to it.
+      const follows = followsPiece(task, previous.task);
+      const time = h('span', { class: ['task-meta', cell.time && 'retimed-note', task.pieces && 'piece-time'] },
+        cell.time ? `◷ ${cell.time} (other time this day)` : [task.time, task.hours ? formatHours(task.hours) : null].filter(Boolean).join(' · '));
+      if (follows) previous.row.classList.add('piece-joined');
+      const row = h('div', { class: ['day-task', cell.closed && 'closed', follows && 'piece-next'], title: cell.closed || undefined },
+        follows
+          ? h('div', {}, h('span', { class: 'visually-hidden' }, `${task.name}, `), time, dayNeed(task, cell))
+          : h('div', {},
+            h('span', { class: 'task-name' }, task.name, dayNeed(task, cell)),
+            task.event ? [' · ', eventTag(task)] : null,
+            time),
         h('div', { class: 'chips' },
           cell.closed && !cell.slots.length ? h('span', { class: 'faint' }, cell.closed) : null,
           cellChips(cell, {
             taskId: task.id, date: day.date, priority: task.priority,
             people, eligible: session.eligible, highlight: session.person,
           })));
+      previous = { task, row };
+      return row;
     }).filter(Boolean);
     if (!rows.length) return null;
     return h('section', { class: ['day-card', `area-${area.color}`] },

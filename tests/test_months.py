@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from rotaplanner import checks, demo, months, view
+from rotaplanner import checks, demo, month_setup, months, view
 from rotaplanner import eligibility as rules
 from rotaplanner.model import Assignment, Month, Regular, Settings
 from rotaplanner.schedule import Schedule
@@ -260,6 +260,19 @@ class ViewTest(unittest.TestCase):
         self.assertEqual(result["cells"]["lunch|2026-12-01"]["slots"][0]["state"], checks.OK)
         self.assertEqual(result["summary"]["filled"], 1)
         self.assertEqual(len(result["days"]), 31)
+        self.assertEqual({t["pieces"] for a in result["areas"] for t in a["tasks"]}, {None})
+
+    def test_month_view_sends_the_times_of_a_task_cut_into_several(self):
+        month = h.month()
+        event = month_setup.save_event(month, {"name": "Course", "start": "2026-12-11", "end": "2026-12-12"})
+        month_setup.save_event_task(month, h.catalog(), {
+            "event_id": event.id, "name": "Registration", "area_id": "kitchen",
+            "times": [{"start": "14:00", "end": "17:00", "people": 2}, {"start": "17:00", "end": "19:00", "people": 1}]})
+        result = view.month_view(month, h.catalog(), h.people(), Settings())
+        cut = [t for a in result["areas"] for t in a["tasks"] if t["name"] == "Registration"]
+        self.assertEqual([t["time"] for t in cut], ["14:00–17:00", "17:00–19:00"])
+        self.assertIsNotNone(cut[0]["pieces"])
+        self.assertEqual(cut[0]["pieces"], cut[1]["pieces"])
 
 
 class StoreTest(unittest.TestCase):

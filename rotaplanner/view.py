@@ -72,6 +72,7 @@ def _task_json(task: Task, skill_names: Dict[str, str], month: Month) -> Json:
         "skill": skill_names.get(task.skill_id or "", "Anyone"),
         "priority": task.priority,
         "need": demand.usual_need(task),   # by its name: the number, or a range, and the words
+        "pieces": task.piece_of,  # one time of a task cut into several (shared by its times), else None
     }
 
 

@@ -76,6 +76,15 @@
 .task-meta .prio { color: var(--bad); font-weight: 600; }
 .grid[data-zoom="0"] .task-name, .grid[data-zoom="1"] .task-name { font-size: var(--fs-xs); line-height: 1.6; }
 .no-times .task-meta { display: none; }
+/* A task cut into several times: the name once, then one row per further time, showing only
+   its time, indented and joined to the row above by a thin line. A time is never hidden. */
+.no-times .task-meta.has-piece { display: block; }
+.no-times .task-meta.has-piece > :not(.piece-time) { display: none; }
+.task-label.piece-joined { border-bottom-color: transparent; }
+.task-label.piece-next { padding-left: calc(var(--space-2) + 3px + var(--space-4)) !important; }
+.task-label.piece-next::before { content: ""; position: absolute; left: calc(var(--space-2) + 3px + var(--space-1)); top: 0; height: 0.8em;
+  width: var(--space-2); border-left: 1px solid var(--text-3); border-bottom: 1px solid var(--text-3); border-bottom-left-radius: var(--radius-sm); }
+.task-label.piece-next .piece-time { font-weight: 500; color: var(--text-2); font-variant-numeric: tabular-nums; }
 /* How many people the task usually needs: after its name (cut with "…" first), small and faint. */
 .grid .task-name { display: flex; align-items: center; gap: var(--space-1); }
 .task-name-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -215,6 +224,16 @@
 .day-card .area-head { height: 2.25rem; padding: 0 var(--space-3); border-bottom: 1px solid var(--line); background: var(--surface-2); cursor: default; }
 .day-task { display: grid; grid-template-columns: minmax(0, 11rem) minmax(0, 1fr); gap: var(--space-3); padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--line); }
 .day-task:last-child { border-bottom: 0; }
+/* One more time of the task above: its time only, indented and joined to it by a thin line. */
+.day-task.piece-joined { border-bottom-color: transparent; padding-bottom: var(--space-1); }
+.day-task.piece-next { padding-top: var(--space-1); }
+.day-task.piece-next > :first-child { position: relative; padding-left: var(--space-4); }
+.day-task.piece-next > :first-child::before { content: ""; position: absolute; left: var(--space-1); top: calc(-1 * var(--space-1)); height: 0.95rem;
+  width: var(--space-2); border-left: 1px solid var(--text-3); border-bottom: 1px solid var(--text-3); border-bottom-left-radius: var(--radius-sm); }
+.day-task.piece-next .task-meta { display: inline; font-size: var(--fs-sm); font-weight: 500; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.day-task.piece-next .task-meta.retimed-note { color: var(--accent); }
+.no-times .task-meta.piece-time { display: block; }
+.no-times .day-task.piece-next .task-meta { display: inline; }
 .day-task.closed { background: repeating-linear-gradient(135deg, var(--hatch) 0 4px, transparent 4px 8px); }
 .day-task .chips { display: flex; flex-wrap: wrap; gap: 4px; align-content: flex-start; }
 .day-task .chip { width: auto; max-width: 100%; height: 1.5rem; padding: 0 var(--space-2); font-size: var(--fs-sm); }

@@ -1,6 +1,6 @@
 // The rota grid: tasks down the side, days across, one chip per position.
 import { clearSlot, setWanted } from '../actions.js';
-import { h } from '../dom.js';
+import { formatHours, h } from '../dom.js';
 import { icon } from '../icons.js';
 import { cellChips } from './chips.js';
 import { applyZoom } from './range.js';
@@ -98,12 +98,49 @@ function needMark(need) {
   return h('span', { class: 'task-need', role: 'img', 'aria-label': need.title }, icon('users'), need.text);
 }
 
-/** The event a task belongs to: a link to that event and its tasks. */
-export function eventTag(task) {
+/** Its time and hours: "10:00–12:00 · 2 h". */
+export function timeAndHours(task) {
+  return [task.time, task.hours ? formatHours(task.hours) : null].filter(Boolean).join(' · ');
+}
+
+/** Is `task` one more time of the task shown just before it (a task cut into several times)?
+ *  Then it shows only its time, under the name shown once on the first. */
+export function followsPiece(task, previous) {
+  return Boolean(task.pieces && previous && previous.pieces === task.pieces);
+}
+
+/** A task's label: its name, need, event, Essential, time and hours. A task in several times
+ *  starts with its time, kept when times are hidden: it is what tells its rows apart. */
+function taskLabel(task) {
+  const critical = task.priority === 'critical';
+  return h('th', { class: 'sticky task-label', scope: 'row', dataset: { task: task.id } },
+    h('span', { class: 'task-name' }, h('span', { class: 'task-name-text' }, task.name), needMark(task.need)),
+    task.pieces
+      ? h('span', { class: 'task-meta has-piece' },
+        h('span', { class: 'piece-time' }, timeAndHours(task)),
+        task.event || critical ? h('span', {}, task.event ? [' · ', eventTag(task, '')] : null,
+          critical ? h('span', { class: 'prio' }, ' · Essential') : null) : null)
+      : h('span', { class: 'task-meta' },
+        task.event ? eventTag(task) : null,
+        critical ? h('span', { class: 'prio' }, 'Essential · ') : null,
+        timeAndHours(task)));
+}
+
+/** One more time of the task above: its time only, indented and joined to the row above. */
+function pieceLabel(task) {
+  return h('th', {
+    class: 'sticky task-label piece-next', scope: 'row', dataset: { task: task.id },
+    'aria-label': [task.name, timeAndHours(task), task.need?.title].filter(Boolean).join(', '),
+  },
+  h('span', { class: 'task-name' }, h('span', { class: 'task-name-text piece-time' }, timeAndHours(task)), needMark(task.need)));
+}
+
+/** The event a task belongs to: a link to that event and its tasks. `after`: what follows it. */
+export function eventTag(task, after = ' · ') {
   return h('button', { class: 'event-tag', type: 'button', dataset: { eventTasks: task.event_id },
     title: task.on_main_rota ? `A task of ${task.event}. Click to change the event’s tasks.`
       : `A task of ${task.event}: to fill here, but not printed on the main rota (only on the event’s printout). Click to change this.` },
-  task.event, task.on_main_rota ? null : h('span', { class: 'event-only-note' }, ' · not on printed rota'), ' · ');
+  task.event, task.on_main_rota ? null : h('span', { class: 'event-only-note' }, ' · not on printed rota'), after);
 }
 
 function areaRows(area, month, visible, ui, session, people) {
@@ -134,14 +171,15 @@ function areaRows(area, month, visible, ui, session, people) {
     h('td', { colspan: visible.length }))];
   if (collapsed) return rows;
 
+  let previous = null;
+  let previousLabel = null;
   for (const task of tasks) {
-    const row = h('tr', { class: [`area-${area.color}`, !task.on_main_rota && 'event-only'] },
-      h('th', { class: 'sticky task-label', scope: 'row', dataset: { task: task.id } },
-        h('span', { class: 'task-name' }, h('span', { class: 'task-name-text' }, task.name), needMark(task.need)),
-        h('span', { class: 'task-meta' },
-          task.event ? eventTag(task) : null,
-          task.priority === 'critical' ? h('span', { class: 'prio' }, 'Essential · ') : null,
-          [task.time, task.hours ? `${task.hours} h` : null].filter(Boolean).join(' · '))));
+    const follows = followsPiece(task, previous);
+    const label = follows ? pieceLabel(task) : taskLabel(task);
+    if (follows) previousLabel.classList.add('piece-joined');  // no line between the times of one task
+    previous = task;
+    previousLabel = label;
+    const row = h('tr', { class: [`area-${area.color}`, !task.on_main_rota && 'event-only'] }, label);
     visible.forEach((day, i) => {
       const cell = month.cells[`${task.id}|${day.date}`];
       const td = h('td', { class: ['cell', day.weekend && 'weekend-col', cell?.closed && 'closed', cell?.time && 'retimed'] });

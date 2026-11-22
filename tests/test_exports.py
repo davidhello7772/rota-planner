@@ -122,6 +122,65 @@ class PrintedTest(unittest.TestCase):
         alone = self.html(documents.event_rota(event.name, event.start, event.end, parts[:1], missing=["January 2027"]))
         self.assertIn("Not planned yet: the days in January 2027.", alone)
 
+    THREE = [{"start": "14:00", "end": "17:00", "people": 2}, {"start": "17:00", "end": "19:00", "people": 1},
+             {"start": "19:00", "end": "20:00", "people": 1}]
+    TIMES = ("14:00–17:00", "17:00–19:00", "19:00–20:00")
+
+    def cut(self, name="Course", start="2026-12-11", end="2026-12-12"):
+        """An event whose registration is cut into three times."""
+        event = month_setup.save_event(self.month, {"name": name, "start": start, "end": end})
+        month_setup.save_event_task(self.month, self.catalog, {"event_id": event.id, "name": "Registration",
+                                                               "area_id": "kitchen", "event_days": "first",
+                                                               "times": self.THREE})
+        return event
+
+    def test_a_task_in_several_times_prints_its_name_once(self):
+        course = self.cut()
+        for show_times in (True, False):
+            template = PrintTemplate(id="t", name="Whole rota", show_times=show_times)
+            monthly = self.html(documents.monthly(self.sheet(), template))
+            self.assertEqual(monthly.count("<span>Registration</span>"), 1)
+            self.assertEqual(monthly.count('<tr class="piece"><th class="task piece">'), 2)
+            for time in self.TIMES:  # every time printed, even with the times hidden
+                self.assertIn(time, monthly)
+            self.assertEqual("09:00–13:00" in monthly, show_times)  # a task in one time: as before
+            self.assertEqual(monthly.count("<span>Lunch cook</span>"), 1)
+            event = self.html(documents.event_rota(course.name, course.start, course.end,
+                                                   [(self.sheet(), course.dates())], show_times=show_times))
+            self.assertEqual(event.count("<span>Registration</span>"), 1)  # on the first day only
+            self.assertEqual(event.count('<tr class="piece">'), 2)
+            for time in self.TIMES:
+                self.assertIn(time, event)
+            weekly = self.html(documents.weekly(self.sheet(), area_ids=["kitchen"], show_times=show_times))
+            week = next(part for part in weekly.split("<section") if "week of Monday 7 December" in part)
+            self.assertEqual(week.count("<span>Registration</span>"), 1)
+            self.assertEqual(week.count('<tr class="piece">'), 2)
+            self.assertIn("19:00–20:00", week)
+        both = self.html(documents.monthly(self.sheet(), PrintTemplate(id="b", name="Both", tasks_at_end=True)))
+        self.assertEqual(both.count('class="task end piece"'), 2)  # the times again at the end, without the name
+        signup = self.html(documents.open_shifts(self.sheet()))
+        self.assertEqual(signup.count("<strong>Registration</strong>"), 3)  # each line stands alone, with its time
+        self.assertIn("17:00–19:00", signup)
+
+    def test_a_task_in_several_times_for_two_events_shares_its_rows(self):
+        self.cut("Course", "2026-12-11", "2026-12-12")
+        self.cut("Retreat", "2026-12-18", "2026-12-19")
+        monthly = self.html(documents.monthly(self.sheet(), WHOLE))
+        self.assertEqual(monthly.count("<span>Registration</span>"), 1)  # one task, three times, as on one event
+        self.assertEqual(monthly.count('<th class="task piece">'), 2)
+        for time in self.TIMES:
+            self.assertEqual(monthly.count(time), 1)
+
+    def test_a_filter_hiding_the_first_time_prints_the_name_on_the_next(self):
+        course = self.cut()
+        first = next(t for t in self.month.tasks if t.name == "Registration")
+        sheet = self.sheet()
+        for block in sheet.areas:  # as when the first time is not needed that day
+            block.rows = [row for row in block.rows if row.task.id != first.id]
+        event = self.html(documents.event_rota(course.name, course.start, course.end, [(sheet, course.dates())]))
+        self.assertEqual(event.count("<span>Registration</span>"), 1)
+        self.assertEqual(event.count('<tr class="piece">'), 1)
+
     def test_weekly_sheets_and_sign_up_sheet(self):
         weekly = self.html(documents.weekly(self.sheet(), area_ids=["kitchen"]))
         self.assertIn("Kitchen — week of Tuesday 1 December", weekly)

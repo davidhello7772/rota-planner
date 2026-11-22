@@ -76,12 +76,25 @@ def _range(start: str, end: str) -> str:
 
 
 def _task_time(row: Row, show_times: bool) -> Optional[Markup]:
-    if not show_times:
+    """Its time and hours, when times are shown. A task cut into several times always
+    shows them: the time is what tells its rows apart."""
+    if not show_times and row.task.piece_of is None:
         return None
     task = row.task
     bits = [task.time_text(), f"{task.hours:g} h" if task.hours else ""]
     text = " · ".join(b for b in bits if b)
     return el("small", {}, text) if text else None
+
+
+def _follows(row: Row, previous: Optional[Row]) -> bool:
+    """Is ``row`` one more time of the task printed just before it (a task cut into
+    several times)? Then it is printed without the name, under the first."""
+    return row.task.piece_of is not None and previous is not None and previous.task.piece_of == row.task.piece_of
+
+
+def _task_label(row: Row, previous: Optional[Row], show_times: bool) -> List[Optional[Markup]]:
+    """A task's name and time in a printed grid; only its time for one more time of the task above."""
+    return [None if _follows(row, previous) else el("span", {}, row.task.name), _task_time(row, show_times)]
 
 
 def _places(cell: Cell) -> List[Markup]:
@@ -206,12 +219,13 @@ def _month_table(sheet: Sheet, days: List[Day], show_times: bool, areas: Optiona
                         el("th", {"class_": "end"}, block.area.name) if tasks_at_end else None)]
         else:
             lines = [el("tr", {"class_": "area-row"}, el("th", {"colspan": width}, name))]
-        for row in rows:
-            label = [el("span", {}, row.task.name), _task_time(row, show_times)]
-            lines.append(el("tr", {},
-                            el("th", {"class_": "task"}, label),
+        for previous, row in zip([None] + rows, rows):
+            label = _task_label(row, previous, show_times)
+            piece = _follows(row, previous) and "piece"
+            lines.append(el("tr", {"class_": piece},
+                            el("th", {"class_": ["task", piece]}, label),
                             [_grid_cell(row.cells.get(iso)) for iso in dates],
-                            el("th", {"class_": "task end"}, label) if tasks_at_end else None))
+                            el("th", {"class_": ["task end", piece]}, label) if tasks_at_end else None))
         bodies.append(el("tbody", {"class_": ["area", f"area-{block.area.color}"]}, lines))
     columns = el("colgroup", {}, el("col", {"class_": "c-task"}), [el("col", {"class_": "c-day"}) for _ in days],
                  el("col", {"class_": "c-task"}) if tasks_at_end else None)
@@ -283,13 +297,17 @@ def _day_block(sheet: Sheet, day: Day, show_times: bool, skip: Iterable[str] = (
     areas = []
     for block in sheet.areas:
         rows = []
+        previous = None
         for row in block.rows:
             cell = row.cells.get(day.iso)
             if cell is None or not cell.places:
                 continue
-            time = cell.time or (row.task.time_text() if show_times else "")
-            rows.append(el("tr", {},
-                           el("th", {}, el("span", {}, row.task.name),
+            # A task cut into several times: the name once, then each further time alone, always with its time.
+            follows = _follows(row, previous)
+            previous = row
+            time = cell.time or (row.task.time_text() if show_times or row.task.piece_of else "")
+            rows.append(el("tr", {"class_": follows and "piece"},
+                           el("th", {}, None if follows else el("span", {}, row.task.name),
                               el("small", {"class_": cell.time and "retimed"}, f"◷ {time}" if cell.time else time) if time else None),
                            el("td", {}, _places(cell))))
         if rows:
@@ -343,9 +361,11 @@ def weekly(sheet: Sheet, area_ids: Optional[Sequence[str]] = None, show_times: b
             table = el("table", {"class_": "week"},
                        el("thead", {}, el("tr", {}, el("th", {}, block.area.name),
                                          [el("th", {"class_": d.weekend and "weekend"}, el("span", {}, d.weekday), el("b", {}, str(d.day))) for d in week])),
-                       el("tbody", {}, [el("tr", {},
-                                           el("th", {"class_": "task"}, el("span", {}, row.task.name), _task_time(row, show_times)),
-                                           [_grid_cell(row.cells.get(iso), closed_label=True) for iso in dates]) for row in rows]))
+                       el("tbody", {}, [el("tr", {"class_": _follows(row, previous) and "piece"},
+                                           el("th", {"class_": ["task", _follows(row, previous) and "piece"]},
+                                              _task_label(row, previous, show_times)),
+                                           [_grid_cell(row.cells.get(iso), closed_label=True) for iso in dates])
+                                        for previous, row in zip([None] + rows, rows)]))
             notes = [s for s in sheet.spans if s.end >= dates[0] and s.start <= dates[-1]]
             sections.append(el("section", {"class_": ["sheet", "paper-a4l", "area-sheet", f"area-{block.area.color}"]},
                                head(f"{block.area.name} — week of {week[0].long}", block.area.manager),

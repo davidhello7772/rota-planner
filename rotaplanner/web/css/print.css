@@ -137,6 +137,10 @@ table.rota { width: 100%; border-collapse: collapse; table-layout: fixed; }
 .rota th.task { text-align: left; font-weight: 600; border-left: 2.5pt solid var(--area); font-size: 7pt; line-height: 1.15; }
 .rota th.task span { display: block; }
 .rota th.task small { display: block; font-weight: 400; color: var(--ink-3); font-size: 5.8pt; }
+/* One more time of a task cut into several: no name, its time indented under the first, no line between them. */
+.rota th.task.piece { border-top-style: hidden; padding-left: 2.2mm; }
+.rota th.task.end.piece { padding-left: 0.6mm; }
+.rota th.task.piece small, .week th.task.piece small { color: var(--ink-2); }
 .rota td.off { background: var(--off); }
 .rota td.cell { font-size: 6.6pt; line-height: 1.2; text-align: center; vertical-align: middle; }
 .rota td.cell .p, .week td.cell .p { text-overflow: clip; }
@@ -169,6 +173,8 @@ td.signup { background: var(--signup); }  /* a place to sign up for: the whole c
 .area-box th small.p.changed::before, .legend .dot { content: "● "; color: #d9480f; font-weight: 700; }
 .legend .dot { font-style: normal; }
 .retimed { color: var(--accent); }
+.area-box tr.piece th { border-top-style: hidden; padding-left: 3mm; }
+.area-box tr.piece th small { color: var(--ink-2); }
 .area-box td .p { display: inline-block; max-width: 100%; margin: 0 3mm 0.5mm 0; }
 .area-box td .p.blank { width: 22mm; height: 1.1em; border: 0.5pt solid var(--rule); border-radius: 0.6mm; }  /* in a list, an empty box shows the open place */
 .area-box td .p.blank.wanted { background: var(--signup); border-radius: 0.6mm; }
@@ -187,6 +193,7 @@ table.week { width: 100%; border-collapse: collapse; table-layout: fixed; font-s
 .week thead th.weekend { background: var(--weekend); }
 .week th.task { text-align: left; font-weight: 600; border-left: 3pt solid var(--area); }
 .week th.task small { display: block; font-weight: 400; color: var(--ink-3); font-size: 8pt; }
+.week th.task.piece { border-top-style: hidden; padding-left: 4.5mm; }
 .week td.off { background: var(--off); }
 .week td.closed small { color: var(--ink-2); font-size: 7.5pt; }
 .week .p { line-height: 1.35; }
