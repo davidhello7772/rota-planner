@@ -114,6 +114,25 @@ class PiecesTest(unittest.TestCase):
         pieces = self.save(times=[{"start": "22:00", "end": "00:00", "people": 1}, {"start": "00:00", "end": "02:00", "people": 1}])
         self.assertEqual([(p.start, p.end, p.hours) for p in pieces], [("22:00", "00:00", 2.0), ("00:00", "02:00", 2.0)])
 
+    def test_times_are_put_in_the_order_of_the_day(self):
+        def starts(times):
+            return [p.start for p in self.save(times=[{"start": s, "end": e, "people": 1} for s, e in times])]
+        # Typed in any order, with or without a gap between them.
+        self.assertEqual(starts([("14:00", "17:00"), ("11:00", "13:00"), ("09:00", "10:00")]), ["09:00", "11:00", "14:00"])
+        # Over midnight: the task starts in the evening, not at 00:00.
+        self.assertEqual(starts([("00:00", "02:00"), ("22:00", "00:00")]), ["22:00", "00:00"])
+        self.assertEqual(starts([("02:00", "06:00"), ("20:00", "23:00"), ("23:00", "02:00")]), ["20:00", "23:00", "02:00"])
+        # Two times as far apart each way: the earlier one first.
+        self.assertEqual(starts([("20:00", "22:00"), ("08:00", "10:00")]), ["08:00", "20:00"])
+        # Ids follow their times: the people placed on a time stay on it.
+        pieces = self.save(times=THREE)
+        reordered = self.save(id=pieces[0].id, times=list(reversed(times_of(pieces))))
+        self.assertEqual([(p.id, p.start) for p in reordered], [(p.id, p.start) for p in pieces])
+
+    def test_an_overlap_after_midnight_is_refused(self):
+        with self.assertRaises(ValueError):
+            self.save(times=[{"start": "22:00", "end": "02:00", "people": 1}, {"start": "01:00", "end": "03:00", "people": 1}])
+
     def test_without_times_a_page_changes_the_one_it_names_and_keeps_the_others(self):
         pieces = self.save(times=THREE)
         again = self.save(id=pieces[1].id, start="17:30", end="19:00", people=4)

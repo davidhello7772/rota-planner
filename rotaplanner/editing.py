@@ -430,9 +430,13 @@ def _times(data: Json, group: List[Task]) -> List[Json]:
     for i, a in enumerate(spans):
         for j in range(i + 1, len(spans)):
             b = spans[j]
-            if a and b and a[0] < b[1] and b[0] < a[1]:
+            # Also a day apart: 22:00–02:00 and 01:00–03:00 overlap after midnight.
+            if a and b and any(a[0] < b[1] + shift and b[0] + shift < a[1] for shift in (-DAY_MINUTES, 0, DAY_MINUTES)):
                 raise ValueError(f"Times {i + 1} and {j + 1} overlap: each time starts when the one before has ended.")
-    return times
+    return _in_time_order(times) if len(times) > 1 else times
+
+
+DAY_MINUTES = 24 * 60
 
 
 def _span(time: Json) -> Optional[tuple]:
@@ -440,7 +444,21 @@ def _span(time: Json) -> Optional[tuple]:
     a, b = to_minutes(time["start"] or ""), to_minutes(time["end"] or "")
     if a is None or b is None:
         return None
-    return a, b + 24 * 60 if b <= a else b
+    return a, b + DAY_MINUTES if b <= a else b
+
+
+def _in_time_order(times: List[Json]) -> List[Json]:
+    """The times of a task in the order of the day, whatever order they were typed in.
+
+    The day is seen as a clock: the times go round it, and the task starts after
+    the longest stretch without any of them. So 14:00–17:00 and 11:00–13:00 give
+    11:00 first, and a task over midnight (00:00–02:00, 22:00–00:00) starts at 22:00.
+    """
+    ordered = sorted(times, key=lambda time: _span(time)[0])
+    spans = [_span(time) for time in ordered]
+    gaps = [(spans[(i + 1) % len(spans)][0] - spans[i][1]) % DAY_MINUTES for i in range(len(spans))]
+    after = max(range(len(gaps)), key=lambda i: (gaps[i], i))  # the last of equal gaps: the earliest start stays first
+    return ordered[after + 1:] + ordered[:after + 1]
 
 
 def save_event_task(config: TaskConfig, catalog: Catalog, data: Json) -> List[Task]:
