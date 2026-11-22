@@ -211,6 +211,11 @@ class Task(Record):
     on_month_rota: Optional[bool] = None
     """For a task of an event: ``None`` follows the event's choice
     (``Event.tasks_on_main_rota``); ``True`` or ``False`` is this task's own."""
+    piece_of: Optional[str] = None
+    """The id shared by the pieces of an event task cut into several times
+    (Registration 14:00–17:00, 17:00–19:00…): each piece is a task of its own,
+    with its own times and number of people, and the pieces are edited together
+    as one task (``editing.save_event_task``). ``None`` for a task in one piece."""
 
     @property
     def any_time(self) -> bool:

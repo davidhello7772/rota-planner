@@ -258,10 +258,14 @@ def build_catalog() -> Catalog:
     )
 
 
-def _event_task(set_id: str, area: str, name: str, start: str, end: str, people: int, days: str) -> Task:
-    return Task(id=f"{set_id}-{_slug(name)}", area_id=f"area-{area}", name=name, start=start, end=end,
+def _event_task(set_id: str, area: str, name: str, start: str, end: str, people: int, days: str,
+                piece: int = 0) -> Task:
+    """A task of an event type; ``piece`` (from 1) numbers the times of a task cut into several."""
+    task_id = f"{set_id}-{_slug(name)}" + (f"-{piece}" if piece else "")
+    return Task(id=task_id, area_id=f"area-{area}", name=name, start=start, end=end,
                 periods=editing.periods_for_times(start, end), hours=editing.duration_hours(start, end) or 0.0,
-                headcount={"default": people}, event_days=days)
+                headcount={"default": people}, event_days=days,
+                piece_of=f"{set_id}-{_slug(name)}-times" if piece else None)
 
 
 # Kinds of event, with the tasks they need on top of the usual ones.
@@ -271,7 +275,9 @@ EVENT_TYPES = [
         _event_task("type-retreat", "desk", "Retreat registration", "16:00", "19:00", 1, "first"),
     ]),
     EventType(id="type-festival", name="Festival", big=True, tasks_on_main_rota=False, tasks=[
-        _event_task("type-festival", "desk", "Registration desk", "08:00", "12:00", 3, "all"),
+        # One task in two times: busier first thing, quieter later.
+        _event_task("type-festival", "desk", "Registration desk", "08:00", "10:00", 3, "all", piece=1),
+        _event_task("type-festival", "desk", "Registration desk", "10:00", "12:00", 2, "all", piece=2),
         _event_task("type-festival", "hosting", "Car park stewards", "08:30", "10:30", 2, "all"),
         _event_task("type-festival", "shop", "Market stall", "12:30", "14:30", 2, "not_first"),
         _event_task("type-festival", "housekeeping", "Final clean-up", "", "", 4, "last"),

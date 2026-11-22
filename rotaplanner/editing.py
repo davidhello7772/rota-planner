@@ -360,21 +360,134 @@ def save_task(config: TaskConfig, catalog: Catalog, data: Json) -> Task:
     return task
 
 
-def save_event_task(config: TaskConfig, catalog: Catalog, data: Json) -> Task:
-    """A task of an event or of an event type: the fields of any task, with one
-    number of people, which days of the event, and (only as an exception to the
-    event's choice) whether it shows on the main rota."""
+MAX_TIMES = 12
+"""An event task can be cut into this many times (pieces) at most."""
+
+
+def task_group(tasks: Iterable[Task], task_id: Any) -> List[Task]:
+    """The pieces of the task ``task_id`` belongs to, in their order (just that
+    task when it is in one piece; nothing when there is no such task)."""
+    tasks = list(tasks)
+    task = next((t for t in tasks if t.id == task_id), None)
+    if task is None:
+        return []
+    if task.piece_of is None:
+        return [task]
+    return [t for t in tasks if t.piece_of == task.piece_of]
+
+
+def task_groups(tasks: Iterable[Task]) -> List[List[Task]]:
+    """Tasks as the screens show them: a task cut into several times is one
+    entry (its pieces, in order), where its first piece is."""
+    groups: List[List[Task]] = []
+    found: Dict[str, List[Task]] = {}
+    for task in tasks:
+        if task.piece_of is None:
+            groups.append([task])
+        elif task.piece_of in found:
+            found[task.piece_of].append(task)
+        else:
+            found[task.piece_of] = [task]
+            groups.append(found[task.piece_of])
+    return groups
+
+
+def keep_pieces_together(tasks: List[Task]) -> List[Task]:
+    """``tasks`` with every piece right after the first piece of its task;
+    everything else keeps its order."""
+    return [task for group in task_groups(tasks) for task in group]
+
+
+def _times(data: Json, group: List[Task]) -> List[Json]:
+    """The times of an event task, checked: [{"id", "start", "end", "people"}].
+
+    Without ``times`` (a page that sends one time), the form's own start, end
+    and people change the task it names; its other pieces, if any, stay."""
+    raw = data.get("times")
+    if raw is None:
+        own = {"id": data.get("id"), "start": data.get("start"), "end": data.get("end"), "people": data.get("people")}
+        named = any(t.id == data.get("id") for t in group)
+        raw = [own if t.id == data.get("id") else {"id": t.id, "start": t.start, "end": t.end,
+                                                     "people": t.headcount.get("default", 1)} for t in group]
+        if not named:
+            raw = [own]
+    if not isinstance(raw, list) or not raw or not all(isinstance(time, dict) for time in raw):
+        raise ValueError("Give this task at least one time.")
+    if len(raw) > MAX_TIMES:
+        raise ValueError(f"A task can be cut into {MAX_TIMES} times at most.")
+    times = []
+    for time in raw:
+        start, end = clock(time.get("start"), "Start time"), clock(time.get("end"), "End time")
+        if len(raw) > 1 and not (start and end):
+            raise ValueError("Give each time a start and an end.")
+        if bool(start) != bool(end):
+            raise ValueError("Give both a start and an end time, or neither.")
+        people = number(time, "people", 1, MAX_HEADCOUNT, "Number of people") or 1
+        piece_id = time.get("id")
+        times.append({"id": piece_id if isinstance(piece_id, str) else None, "start": start, "end": end,
+                      "people": int(people)})
+    spans = [_span(time) for time in times]
+    for i, a in enumerate(spans):
+        for j in range(i + 1, len(spans)):
+            b = spans[j]
+            if a and b and a[0] < b[1] and b[0] < a[1]:
+                raise ValueError(f"Times {i + 1} and {j + 1} overlap: each time starts when the one before has ended.")
+    return times
+
+
+def _span(time: Json) -> Optional[tuple]:
+    """Start and end of a time in minutes, running past midnight if it ends before it starts."""
+    a, b = to_minutes(time["start"] or ""), to_minutes(time["end"] or "")
+    if a is None or b is None:
+        return None
+    return a, b + 24 * 60 if b <= a else b
+
+
+def save_event_task(config: TaskConfig, catalog: Catalog, data: Json) -> List[Task]:
+    """A task of an event or of an event type: the fields of any task, which
+    days of the event, (only as an exception to the event's choice) whether it
+    shows on the main rota, and its times, each with its number of people.
+
+    ``data["times"]``: [{"id"?, "start", "end", "people"}]. With one time the
+    task is in one piece (``hours`` may differ from its times, as for any task).
+    With several, each time is a task of its own (a piece), with the hours of
+    its times; name, area, skill, days and the printed choice are shared, and
+    the pieces stay together where the task was. A time with the id of one of
+    the task's pieces changes that piece; one without makes a new piece; a
+    piece no longer listed is removed from ``config`` (the caller drops what
+    referred to it). Returns the pieces in order.
+    """
     which = data.get("event_days") or "all"
     if which not in EVENT_TASK_DAYS:
         raise ValueError("Choose which days of the event.")
-    people = number(data, "people", 1, MAX_HEADCOUNT, "Number of people") or 1
-    task = save_task(config, catalog, {**data, "headcount": {"default": int(people)}})
-    if not data.get("periods"):  # worked out from the times
-        task.periods = periods_for_times(task.start, task.end)
-    task.event_days = which
+    group = task_group(config.tasks, data.get("id")) if data.get("id") else []
+    times = _times(data, group)
+    cut = len(times) > 1
     own = data.get("on_month_rota")
-    task.on_month_rota = None if own is None else bool(own)
-    return task
+    mine = {id(t) for t in group}
+    anchor = next((i for i, t in enumerate(config.tasks) if id(t) in mine), None)
+    ids, used = {t.id for t in group}, set()
+    pieces = []
+    for time in times:  # the shared fields are checked by the first save, before anything changes
+        piece_id = time["id"] if time["id"] in ids and time["id"] not in used else None
+        used.add(piece_id)
+        task = save_task(config, catalog, {**data, "id": piece_id, "start": time["start"], "end": time["end"],
+                                           "hours": None if cut else data.get("hours"),
+                                           "headcount": {"default": time["people"]}})
+        if not data.get("periods"):  # worked out from the times
+            task.periods = periods_for_times(task.start, task.end)
+        task.event_days = which
+        task.on_month_rota = None if own is None else bool(own)
+        pieces.append(task)
+    shared = (next((t.piece_of for t in group if t.piece_of), None) or new_id("pieces")) if cut else None
+    for task in pieces:
+        task.piece_of = shared
+    # The pieces together, in the order of the times, where the task was (a new one: at the end).
+    mine |= {id(t) for t in pieces}
+    rest = [t for t in config.tasks if id(t) not in mine]
+    at = len(rest) if anchor is None else sum(1 for t in config.tasks[:anchor] if id(t) not in mine)
+    config.tasks[:] = rest[:at] + pieces + rest[at:]
+    return pieces
 
 
 # --------------------------------------------------------------------------
@@ -416,20 +529,27 @@ def delete_event_type(catalog: Catalog, type_id: str) -> bool:
     return len(catalog.event_types) != before
 
 
-def save_type_task(catalog: Catalog, data: Json) -> Task:
+def save_type_task(catalog: Catalog, data: Json) -> List[Task]:
+    """Add or change a task of an event type; returns its pieces (see ``save_event_task``)."""
     event_type = _event_type(catalog, data.get("type_id"))
     return save_event_task(_TypeTasks(catalog, event_type), catalog, data)
 
 
 def delete_type_task(catalog: Catalog, type_id: str, task_id: str) -> bool:
+    """Remove a task of an event type, with all its pieces."""
     event_type = _event_type(catalog, type_id)
+    gone = {t.id for t in task_group(event_type.tasks, task_id)}
     before = len(event_type.tasks)
-    event_type.tasks = [t for t in event_type.tasks if t.id != task_id]
+    event_type.tasks = [t for t in event_type.tasks if t.id not in gone]
     return len(event_type.tasks) != before
 
 
 def order_type_tasks(catalog: Catalog, type_id: str, ids: List[str]) -> None:
-    reorder(_event_type(catalog, type_id).tasks, ids)
+    """Put a type's tasks in the order of ``ids``; the screen names a task in
+    several times by its first piece, and the other pieces follow it."""
+    tasks = _event_type(catalog, type_id).tasks
+    reorder(tasks, ids)
+    tasks[:] = keep_pieces_together(tasks)
 
 
 def duplicate_task(config: TaskConfig, task_id: str) -> Task:
@@ -438,6 +558,7 @@ def duplicate_task(config: TaskConfig, task_id: str) -> Task:
         raise ValueError("Unknown task.")
     clone = copy.deepcopy(original)
     clone.id, clone.name = new_id("task"), f"{original.name} (copy)"
+    clone.piece_of = None  # a task of its own, never one more time of the original
     config.tasks.insert(config.tasks.index(original) + 1, clone)
     return clone
 

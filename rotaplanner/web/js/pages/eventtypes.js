@@ -60,7 +60,8 @@ function typeCard(type, setup) {
   const areas = setup.catalog.areas.filter((a) => !a.archived);
   const common = { areas, skills: setup.catalog.skills, eventDays: setup.event_days, followsYes: type.tasks_on_main_rota };
   const saveTask = (fields, message) => saveSetup('event-types/tasks/save', { task: { ...fields, type_id: type.id } }, { message });
-  const open = (task) => editEventTask({ ...common, task, subtitle: `For every ${type.name}`,
+  // A new task starts in the area of the type's last task.
+  const open = (task) => editEventTask({ ...common, task, subtitle: `For every ${type.name}`, areaId: type.tasks.at(-1)?.area_id,
     save: (fields) => saveTask(fields, task ? 'Task changed' : 'Task added'),
     remove: task ? () => send('event-types/tasks/delete', { type_id: type.id, id: task.id }, 'Task removed') : null });
   const moveTask = (index, step) => {

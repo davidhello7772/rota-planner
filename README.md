@@ -208,6 +208,9 @@ this event only on each line, and add a one-off task with *Add a task*. They
 are listed as *From the … type* or *Only for this event*. Giving the event
 another type keeps its tasks and adds the new type's missing ones; *Update
 the … type* keeps this event's tasks for the next events of that type.
+A task can be **cut into several times** (registration 14:00–17:00 for two
+people, then 17:00–19:00 for one): open it and press *+ Add another time*.
+Each time is filled on its own; name, area, skill and days are shared.
 Every task is always on the rota to fill; *Print these tasks on the main
 rota too* decides the printed main rota. An event can run from the end of a
 month into the next: it stays one event, planned and printed whole.

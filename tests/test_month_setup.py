@@ -132,7 +132,7 @@ class NeedTest(unittest.TestCase):
         self.assertEqual(usual(Task("t", "kitchen", "T", headcount={"sun": 0}))["text"], "")
         retreat = month_setup.save_event(self.month, {"name": "Retreat", "start": "2026-12-11", "end": "2026-12-13"})
         chocolate = month_setup.save_event_task(self.month, self.catalog, {
-            "event_id": retreat.id, "name": "Hot chocolate", "area_id": "kitchen", "start": "20:30", "end": "21:00", "people": 3})
+            "event_id": retreat.id, "name": "Hot chocolate", "area_id": "kitchen", "start": "20:30", "end": "21:00", "people": 3})[0]
         self.assertEqual(usual(chocolate), {"text": "3", "title": "Needed only on the days of its event: 3 people."})
 
     def test_a_day_that_needs_another_number(self):
@@ -161,7 +161,7 @@ class NeedTest(unittest.TestCase):
     def test_a_task_of_an_event_differs_only_by_hand(self):
         retreat = month_setup.save_event(self.month, {"name": "Retreat", "start": "2026-12-11", "end": "2026-12-13"})
         chocolate = month_setup.save_event_task(self.month, self.catalog, {
-            "event_id": retreat.id, "name": "Hot chocolate", "area_id": "kitchen", "start": "20:30", "end": "21:00", "people": 3})
+            "event_id": retreat.id, "name": "Hot chocolate", "area_id": "kitchen", "start": "20:30", "end": "21:00", "people": 3})[0]
         self.tasks[chocolate.id] = chocolate
         self.assertIsNone(self.day(chocolate.id, "2026-12-11"))   # its need comes from its event
         months.set_headcount(self.month, chocolate.id, "2026-12-12", 1)
@@ -210,7 +210,7 @@ class EventTasksTest(unittest.TestCase):
     def add(self, **fields):
         data = {"event_id": self.retreat.id, "name": "Hot chocolate", "area_id": "kitchen",
                 "start": "20:30", "end": "21:00", "event_days": "first", **fields}
-        return month_setup.save_event_task(self.month, self.catalog, data)
+        return month_setup.save_event_task(self.month, self.catalog, data)[0]
 
     def test_needed_only_on_the_chosen_days_of_its_event(self):
         task = self.add(people=2)
@@ -319,7 +319,7 @@ class EventTasksTest(unittest.TestCase):
     def test_an_event_task_gets_its_parts_by_the_same_rule(self):
         catalog = h.catalog()
         task = editing.save_event_task(catalog, catalog, {"name": "Tea table", "area_id": "kitchen", "people": 1,
-                                                          "start": "14:00", "end": "17:15"})
+                                                          "start": "14:00", "end": "17:15"})[0]
         self.assertEqual(task.periods, ["afternoon"])
 
 

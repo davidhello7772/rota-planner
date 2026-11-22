@@ -310,6 +310,12 @@ a.tile:hover { border-color: var(--line-strong); }
 .event-task-name { flex: 1 1 11rem; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 0; padding: var(--space-1) var(--space-3); border: 0; background: none; text-align: left; font-size: var(--fs-sm); border-radius: var(--radius-sm); }
 .event-task-name:hover strong { text-decoration: underline; }
 .event-task-name .muted { font-size: var(--fs-xs); }
+/* The times of an event task: one line each (starts – ends, people, remove). */
+.times-list { display: flex; flex-direction: column; gap: var(--space-1); }
+.time-row { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) 4.5rem 1.75rem; align-items: center; gap: var(--space-2); }
+.time-head { font-size: var(--fs-xs); color: var(--text-3); line-height: 1.2; }
+.time-dash { color: var(--text-3); }
+.times-warning { color: var(--warn); }
 .count-stepper { display: inline-flex; align-items: center; gap: 0; flex: none; }
 .move-pair { display: inline-flex; flex: none; align-self: center; }
 .stepper-value { min-width: 1.5rem; text-align: center; font-weight: 600; font-variant-numeric: tabular-nums; font-size: var(--fs-sm); }

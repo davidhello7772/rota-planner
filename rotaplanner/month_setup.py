@@ -11,7 +11,7 @@ from __future__ import annotations
 import copy
 import math
 from collections import defaultdict
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 from . import demand, editing
 from .editing import TaskConfig
@@ -161,23 +161,36 @@ def _event(month: Month, event_id: Any) -> Event:
     return event
 
 
-def save_event_task(month: Month, catalog: Catalog, data: Json) -> Task:
-    """Add or change a task of one event (see ``editing.save_event_task``)."""
+def save_event_task(month: Month, catalog: Catalog, data: Json) -> List[Task]:
+    """Add or change a task of one event, in one time or several (see
+    ``editing.save_event_task``). A time taken away goes with whoever was
+    placed on it, its highlights and its one-day changes. Returns the pieces."""
     event = _event(month, data.get("event_id"))
     existing = next((t for t in month.tasks if t.id == data.get("id")), None)
     if existing is not None and existing.event_id != event.id:
         raise ValueError("Unknown task.")
-    task = editing.save_event_task(month, catalog, data)
-    task.event_id = event.id
-    return task
+    before = {t.id for t in editing.task_group(month.tasks, existing.id)} if existing else set()
+    pieces = editing.save_event_task(month, catalog, data)
+    for task in pieces:
+        task.event_id = event.id
+    drop_tasks(month, before - {t.id for t in pieces})
+    return pieces
 
 
 def delete_event_task(month: Month, task_id: str) -> bool:
+    """Remove a task of an event, all its times."""
     task = next((t for t in month.tasks if t.id == task_id and t.event_id), None)
     if task is None:
         return False
-    drop_tasks(month, {task.id})
+    drop_tasks(month, {t.id for t in editing.task_group(month.tasks, task.id)})
     return True
+
+
+def _fresh_groups() -> Callable[[Optional[str]], Optional[str]]:
+    """Copies of tasks in several times get a new shared id per task copied, so
+    that two copies (two events of one type) are never one task."""
+    ids: Dict[str, str] = {}
+    return lambda piece_of: None if piece_of is None else ids.setdefault(piece_of, new_id("pieces"))
 
 
 def add_type_tasks(month: Month, event_id: str, event_type: EventType, areas: Sequence[Any] = ()) -> Tuple[int, int]:
@@ -185,28 +198,41 @@ def add_type_tasks(month: Month, event_id: str, event_type: EventType, areas: Se
 
     A task whose area this month does not have brings that area from ``areas``
     (the typical month's), as for an event over two months; one whose area
-    exists nowhere is left out. Returns ``(added, left_out)``.
+    exists nowhere is left out. A task in several times comes with all of them,
+    as a task of its own (``piece_of`` is new), and counts once.
+    Returns ``(added, left_out)``.
     """
     event = _event(month, event_id)
     have = [t.name for t in event_tasks(month, event.id)]
     known = {a.id for a in month.areas}
     added = left_out = 0
+    fresh, counted = _fresh_groups(), set()
+
+    def first_of_its_task(model: Task) -> bool:
+        if model.piece_of is None:
+            return True
+        if model.piece_of in counted:
+            return False
+        counted.add(model.piece_of)
+        return True
+
     for model in event_type.tasks:
         if any(_same_name(model.name, name) for name in have):
             continue
         if model.area_id not in known:
             area = next((a for a in areas if a.id == model.area_id), None)
             if area is None:
-                left_out += 1
+                left_out += first_of_its_task(model)
                 continue
             area = copy.deepcopy(area)
             area.archived = False  # the event needs it, even if the typical month no longer uses it
             month.areas.append(area)
             known.add(area.id)
         task = copy.deepcopy(model)
-        task.id, task.event_id = new_id("task"), event.id
+        task.id, task.event_id, task.piece_of = new_id("task"), event.id, fresh(model.piece_of)
         month.tasks.append(task)
-        added += 1
+        added += first_of_its_task(model)
+    month.tasks[:] = editing.keep_pieces_together(month.tasks)
     return added, left_out
 
 
@@ -226,10 +252,10 @@ def type_from_event(month: Month, event_id: str, name: str, type_id: Optional[st
     if not name:
         raise ValueError("Give the type of event a name.")
     event = _event(month, event_id)
-    tasks = []
+    tasks, fresh = [], _fresh_groups()
     for original in event_tasks(month, event.id):
         task = copy.deepcopy(original)
-        task.id, task.event_id = new_id("task"), None
+        task.id, task.event_id, task.piece_of = new_id("task"), None, fresh(original.piece_of)
         tasks.append(task)
     if not tasks:
         raise ValueError("This event has no task of its own yet.")
@@ -373,6 +399,13 @@ def _sync_tasks(month: Month, event_id: str, tasks: Sequence[Task], areas: Seque
             month.tasks[index[task.id]] = task
         else:
             month.tasks.append(task)
+    # The event's tasks in the order they have in the other month, in the places
+    # they hold here; the times of a task in several times next to each other.
+    rank = {t.id: i for i, t in enumerate(wanted)}
+    places = [i for i, t in enumerate(month.tasks) if t.id in rank]
+    for place, task in zip(places, sorted((month.tasks[i] for i in places), key=lambda t: rank[t.id])):
+        month.tasks[place] = task
+    month.tasks[:] = editing.keep_pieces_together(month.tasks)
     return True
 
 

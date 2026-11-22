@@ -109,7 +109,7 @@ class EventTypesTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             editing.save_event_type(self.catalog, {"name": "retreat"})  # the name is taken
         task = editing.save_type_task(self.catalog, {"type_id": retreat.id, "name": "Hot chocolate", "area_id": "kitchen",
-                                                     "start": "20:30", "end": "21:00", "people": 2, "event_days": "first"})
+                                                     "start": "20:30", "end": "21:00", "people": 2, "event_days": "first"})[0]
         self.assertEqual((task.headcount, task.event_days, task.periods, task.on_month_rota),
                          ({"default": 2}, "first", ["evening"], None))
         self.assertEqual([t.name for t in retreat.tasks], ["Hot chocolate"])

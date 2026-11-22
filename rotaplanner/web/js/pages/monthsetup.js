@@ -295,7 +295,8 @@ function drawEventTasks(box, eventId, onDraw) {
   const common = { areas: setup.areas, skills: setup.skills, eventDays: setup.event_days,
     followsYes: event.tasks_on_main_rota, oneDay: event.start === event.end };
   const saveTask = (fields, message) => changeMonth('events/tasks/save', { task: { ...fields, event_id: eventId } }, message);
-  const open = (task) => editEventTask({ ...common, task, subtitle: event.name,
+  // A new task starts in the area of the event's last task (tasks of one area are usually added together).
+  const open = (task) => editEventTask({ ...common, task, subtitle: event.name, areaId: event.tasks.at(-1)?.area_id,
     save: async (fields) => { await saveTask(fields, undefined); redraw(); },
     remove: task ? () => change('events/tasks/delete', { id: task.id }, undefined) : null });
   const onMain = toggle('Print these tasks on the main rota too', event.tasks_on_main_rota,

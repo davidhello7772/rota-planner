@@ -86,7 +86,7 @@ export const SCREENS = {
       'Pick the month at the top: changes apply to that month only. “Typical month” is the starting point.',
       'A task says how many people it needs each weekday, and on event days.',
       'Drag a card to reorder it or move it to another area. The arrows at the top of an area move the whole area: that is its place on the rota and the printouts.',
-      'Event types (second tab): the tasks every retreat, festival… needs. Enter them once: each new event of that type gets them. The arrows on each line put them in order.',
+      'Event types (second tab): the tasks every retreat, festival… needs. Enter them once: each new event of that type gets them. The arrows on each line put them in order. A task can be cut into several times, each with its own number of people: open it, then “+ Add another time”.',
     ],
   },
   regular: {
@@ -142,6 +142,8 @@ export const QUESTIONS = [
     a: 'In Set up, click the day and “Close this day…”, or add a closure for several days. Tick areas to close only those, and the tasks still needed (security…).' },
   { q: 'An event with its own tasks', go: 'setup', find: 'retreat festival special tasks hot chocolate event type choose type add an event one-off only for this event',
     a: 'In Set up › Events and retreats, press “Add an event” and choose its type in the list beside the name (Retreat, Festival…): it gets that type’s tasks at once. No type yet? The window offers “Set up event types”; or add the event, give it its tasks, then choose “Save as an event type”. The event’s tasks are copies: change them for this event only on each line, and add a one-off task with “Add a task”. They are listed as “From the … type” or “Only for this event”. Giving the event another type keeps its tasks and adds the new type’s missing ones. “Update the … type” keeps this event’s tasks for the next ones. Types are edited in Tasks & Areas › Event types.' },
+  { q: 'Cut a task into several times', go: 'setup', find: 'pieces split shifts times registration desk afternoon evening several times people per time add another time',
+    a: 'For a task of an event (Set up › the event) or of an event type (Tasks & Areas › Event types): open the task and press “+ Add another time” under “Times and people”. Each time has its own start, end and number of people, and is filled on its own; the name, area, skill, days and the printed choice are shared. Removing a time takes off whoever was placed on it (Undo puts them back). An event given a type gets the type’s tasks with all their times.' },
   { q: 'An event from the end of a month into the next', go: 'setup', find: 'two months span new year across overlap',
     a: 'Give it its real first and last day. The program offers to create the next month so you can plan the whole event now. The Event view and its printout show all its days together.' },
   { q: 'Should an event’s tasks be on the printed main rota?', go: 'setup', find: 'print event tasks main rota show hide',

@@ -13,6 +13,7 @@ import copy
 import re
 import threading
 import time
+from collections import defaultdict
 from datetime import date
 from http import HTTPStatus
 from pathlib import Path
@@ -437,7 +438,9 @@ class App:
             "events": [self._event_json(e, month) for e in month.events],
             "markers": [m.to_dict() for m in month.markers],
             "areas": [{"id": a.id, "name": a.name, "color": a.color} for a in month.areas if not a.archived],
-            "tasks": [{"id": t.id, "name": t.name, "area_id": t.area_id} for t in month.tasks if not t.archived],
+            # A time of a task in several times is named with its time, so the list tells them apart.
+            "tasks": [{"id": t.id, "name": f"{t.name} {t.time_text()}" if t.piece_of else t.name, "area_id": t.area_id}
+                      for t in month.tasks if not t.archived],
             "skills": [{"id": s.id, "name": s.name} for s in self.catalog.skills],
             "event_types": self._event_types_json(),
             "event_days": EVENT_TASK_DAYS,
@@ -449,8 +452,23 @@ class App:
         (``type_name`` is None when it has none, or its type no longer exists)."""
         event_type = next((t for t in self.catalog.event_types if t.id == event.type_id), None)
         return {**event.to_dict(), "type_name": event_type.name if event_type else None,
-                "tasks": [{**self._event_task_json(t, month), "from_type": month_setup.from_type(t, event_type)}
-                          for t in month_setup.event_tasks(month, event.id)]}
+                "tasks": [{**entry, "from_type": month_setup.from_type(pieces[0], event_type)}
+                          for pieces, entry in self._event_tasks_json(month_setup.event_tasks(month, event.id),
+                                                                      month, month)]}
+
+    def _event_tasks_json(self, tasks: List[Task], config: editing.TaskConfig,
+                          month: Optional[Month] = None) -> List[Tuple[List[Task], Json]]:
+        """Tasks of an event or of an event type as the screens show them: a task in
+        several times is one entry, its first piece's fields with every time in
+        ``times`` (a task in one time has a list of one). ``placed``: how many are
+        placed on that time in ``month`` (an event type has none)."""
+        placed: Dict[str, int] = defaultdict(int)
+        for assignment in month.assignments if month else ():
+            placed[assignment.task_id] += 1
+        return [(pieces, {**self._event_task_json(pieces[0], config), "times": [
+            {"id": p.id, "start": p.start, "end": p.end, "hours": p.hours, "people": p.headcount.get("default", 1),
+             "time": p.time_text(), "placed": placed[p.id]} for p in pieces]})
+                for pieces in editing.task_groups(tasks)]
 
     def _event_task_json(self, task: Task, config: editing.TaskConfig) -> Json:
         """A task of an event (in a month) or of an event type (in the catalog), with what the screens show."""
@@ -462,7 +480,7 @@ class App:
 
     def _event_types_json(self) -> List[Json]:
         return [{"id": t.id, "name": t.name, "big": t.big, "tasks_on_main_rota": t.tasks_on_main_rota,
-                 "tasks": [self._event_task_json(task, self.catalog) for task in t.tasks]}
+                 "tasks": [entry for _, entry in self._event_tasks_json(t.tasks, self.catalog)]}
                 for t in self.catalog.event_types]
 
     def _setup_change(self, month_id: str, change: Callable[[Month], Any], label: Label = "Change") -> Json:
@@ -535,7 +553,7 @@ class App:
         verb = "changed" if any(t.id == task.get("id") for t in self.month(month_id).tasks) else "added"
         event = self._item(month_id, "events", task.get("event_id"))
         since = self.history.top(month_id)
-        self._setup_change(month_id, lambda m: saved.append(month_setup.save_event_task(m, self.catalog, task)),
+        self._setup_change(month_id, lambda m: saved.extend(month_setup.save_event_task(m, self.catalog, task)),
                            label=lambda: f"Event task {verb}: {saved[0].name} ({event.name})")
         return self._after_linked_change(month_id, "events", str(task.get("event_id")), since)
 
